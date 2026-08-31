@@ -3,6 +3,7 @@ import yfinance as yf
 import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Simulateur Boursier", layout="wide")
@@ -10,7 +11,6 @@ st.set_page_config(page_title="Simulateur Boursier", layout="wide")
 # --- DESIGN MODERN FINTECH (LIGHT MODE PRO - STYLE REVOLUT / STRIPE) ---
 st.markdown("""
     <style>
-    /* Fond principal clair et frais */
     .stApp {
         background-color: #F8FAFC;
         color: #0F172A;
@@ -19,13 +19,13 @@ st.markdown("""
     
     #MainMenu, footer, header {visibility: hidden;}
 
-    /* Cartes d'indicateurs (Style Carte de crédit / Dashboard Neobanque) */
+    /* Cartes d'indicateurs */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 16px;
         padding: 20px 24px;
-        box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+        box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03);
         transition: all 0.2s ease;
     }
     
@@ -49,7 +49,7 @@ st.markdown("""
         letter-spacing: 0.8px;
     }
 
-    /* Navigation par Onglets ultra-lisible */
+    /* Onglets de navigation */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background-color: #E2E8F0;
@@ -80,7 +80,7 @@ st.markdown("""
         color: #0F172A !important;
     }
 
-    /* Champs de recherche et entrées */
+    /* Champs de saisie */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #FFFFFF !important;
         color: #0F172A !important;
@@ -116,7 +116,7 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(37, 99, 235, 0.25);
     }
 
-    /* Tableaux propres */
+    /* Tableaux */
     div[data-testid="stDataFrame"] {
         background-color: #FFFFFF;
         border-radius: 16px;
@@ -142,7 +142,34 @@ c.execute('''CREATE TABLE IF NOT EXISTS portfolio
              (username TEXT, ticker TEXT, shares INTEGER, avg_price REAL, PRIMARY KEY(username, ticker))''')
 conn.commit()
 
-# --- FONCTIONS DE RENDER ET D'API ---
+# --- FONCTION DE RECHERCHE UNIVERSELLE YAHOO FINANCE ---
+@st.cache_data(ttl=3600)
+def rechercher_symbole_universel(query):
+    if not query or len(query.strip()) < 1:
+        return []
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=8&newsCount=0"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    try:
+        r = requests.get(url, headers=headers, timeout=3)
+        data = r.json()
+        results = []
+        for quote in data.get('quotes', []):
+            symbol = quote.get('symbol')
+            shortname = quote.get('shortname') or quote.get('longname') or symbol
+            exch = quote.get('exchDisp') or quote.get('exchange') or ''
+            type_disp = quote.get('typeDisp') or ''
+            
+            # Ne conserver que les actions / ETF
+            if symbol and type_disp in ['Equity', 'ETF', 'Action']:
+                results.append({
+                    'symbol': symbol,
+                    'label': f"{shortname} ({symbol}) — {exch}"
+                })
+        return results
+    except Exception:
+        return []
+
+# --- CACHE DES DONNÉES FINANCIÈRES ---
 @st.cache_data(ttl=60)
 def obtenir_prix_actuel(ticker_symbol):
     try:
@@ -222,7 +249,7 @@ if st.session_state['user'] is None:
 else:
     user = st.session_state['user']
 
-    # BANNIÈRE DE PERFORMANCE DE L'ÉLÈVE
+    # BANNIÈRE DE PERFORMANCE
     c.execute("SELECT cash FROM users WHERE username=?", (user,))
     cash_actuel = c.fetchone()[0]
     
@@ -253,11 +280,26 @@ else:
 
     # --- ONGLET 1 : ANALYSE & TRANSACTION ---
     with tab_trade:
-        col_input1, col_input2 = st.columns([3, 1])
-        raw_symbol = col_input1.text_input("Rechercher un symbole (ex: AAPL, NVDA, TSLA, MSFT, SHOP.TO, TD.TO)", "AAPL").strip().upper()
+        st.markdown("<h4 style='font-weight:700; color:#0F172A; margin-bottom:5px;'>Rechercher une entreprise ou une action</h4>", unsafe_allow_html=True)
         
-        if raw_symbol:
-            details = obtenir_details_financiers(raw_symbol)
+        # BARRE DE RECHERCHE UNIVERSELLE
+        search_query = st.text_input("Tapez un nom d'entreprise ou un symbole (ex: Apple, Tesla, Shopify, TD, Microsoft...)", "Apple")
+        
+        selected_ticker = None
+        
+        if search_query:
+            resultats = rechercher_symbole_universel(search_query)
+            
+            if resultats:
+                options_dict = {res['label']: res['symbol'] for res in resultats}
+                choix_label = st.selectbox("Sélectionnez l'action exacte dans la liste :", list(options_dict.keys()))
+                selected_ticker = options_dict[choix_label]
+            else:
+                # Si aucun résultat direct, on tente le symbole brut tape par l'utilisateur
+                selected_ticker = search_query.strip().upper()
+
+        if selected_ticker:
+            details = obtenir_details_financiers(selected_ticker)
 
             if details:
                 prix = details["Prix"]
@@ -278,7 +320,7 @@ else:
                     st.markdown(f"""
                         <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:10px;">
                             <div>
-                                <h2 style="margin:0; font-size:2.2rem; font-weight:800; color:#0F172A;">{raw_symbol}</h2>
+                                <h2 style="margin:0; font-size:2.2rem; font-weight:800; color:#0F172A;">{selected_ticker}</h2>
                             </div>
                             <div style="text-align:right;">
                                 <h2 style="margin:0; font-size:2.2rem; font-weight:800; color:#0F172A;">${prix:,.2f}</h2>
@@ -295,7 +337,7 @@ else:
                     selected_period = col_period.selectbox("Horizon", list(period_map.keys()), format_func=lambda x: period_map[x])
 
                     # GRAPHIQUE INTERACTIF PLOTLY
-                    df_hist = obtenir_historique(raw_symbol, selected_period)
+                    df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(
@@ -325,7 +367,7 @@ else:
                     st.markdown("### Statistiques clés")
                     stats_df = pd.DataFrame([
                         {"Ouverture": details["Ouverture"], "Plus Haut": details["Plus Haut"], "Plus Bas": details["Plus Bas"]},
-                        {"52 sem. Haut": details["52 sem. Haut"], "52 sem. Bas": details["52 sem. Bas"], "Devise": "USD/CAD"}
+                        {"52 sem. Haut": details["52 sem. Haut"], "52 sem. Bas": details["52 sem. Bas"], "Ticker": selected_ticker}
                     ])
                     st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
@@ -362,15 +404,15 @@ else:
                     if col_b_buy.button("Acheter", use_container_width=True):
                         if cash_actuel >= cost_total:
                             c.execute("UPDATE users SET cash=? WHERE username=?", (cash_actuel - cost_total, user))
-                            c.execute("SELECT shares, avg_price FROM portfolio WHERE username=? AND ticker=?", (user, raw_symbol))
+                            c.execute("SELECT shares, avg_price FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
                             row = c.fetchone()
                             if row:
                                 anc_shares, anc_price = row[0], row[1] or prix
                                 n_shares = anc_shares + qty
                                 n_price = ((anc_shares * anc_price) + (qty * prix)) / n_shares
-                                c.execute("UPDATE portfolio SET shares=?, avg_price=? WHERE username=? AND ticker=?", (n_shares, n_price, user, raw_symbol))
+                                c.execute("UPDATE portfolio SET shares=?, avg_price=? WHERE username=? AND ticker=?", (n_shares, n_price, user, selected_ticker))
                             else:
-                                c.execute("INSERT INTO portfolio VALUES (?, ?, ?, ?)", (user, raw_symbol, qty, prix))
+                                c.execute("INSERT INTO portfolio VALUES (?, ?, ?, ?)", (user, selected_ticker, qty, prix))
                             conn.commit()
                             st.success(f"Achat de {qty} action(s) confirmé.")
                             st.rerun()
@@ -378,15 +420,15 @@ else:
                             st.error("Solde cash insuffisant.")
 
                     if col_b_sell.button("Vendre", use_container_width=True):
-                        c.execute("SELECT shares FROM portfolio WHERE username=? AND ticker=?", (user, raw_symbol))
+                        c.execute("SELECT shares FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
                         row = c.fetchone()
                         if row and row[0] >= qty:
                             c.execute("UPDATE users SET cash=? WHERE username=?", (cash_actuel + cost_total, user))
                             rem = row[0] - qty
                             if rem > 0:
-                                c.execute("UPDATE portfolio SET shares=? WHERE username=? AND ticker=?", (rem, user, raw_symbol))
+                                c.execute("UPDATE portfolio SET shares=? WHERE username=? AND ticker=?", (rem, user, selected_ticker))
                             else:
-                                c.execute("DELETE FROM portfolio WHERE username=? AND ticker=?", (user, raw_symbol))
+                                c.execute("DELETE FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
                             conn.commit()
                             st.success(f"Vente de {qty} action(s) confirmée.")
                             st.rerun()
@@ -395,7 +437,7 @@ else:
 
                     st.markdown("</div>", unsafe_allow_html=True)
             else:
-                st.warning("Symbole non trouvé. Exemple de symboles valides : AAPL, MSFT, TSLA, SHOP.TO, TD.TO.")
+                st.warning("Aucune donnée financière trouvée pour cette recherche. Essayez un autre nom d'entreprise.")
 
     # --- ONGLET 2 : MON PORTEFEUILLE ---
     with tab_port:
