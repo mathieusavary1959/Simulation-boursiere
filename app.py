@@ -3,119 +3,137 @@ import yfinance as yf
 import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Terminal Boursier", layout="wide")
+st.set_page_config(page_title="Simulateur Boursier", layout="wide")
 
-# --- STYLE CSS PERSONNALISÉ HAUTE FIDÉLITÉ ---
+# --- DESIGN HAUTE FIDÉLITÉ (STYLE APPLE / SPOTIFY / NETFLIX) ---
 st.markdown("""
     <style>
-    /* Fond global */
+    /* Fond principal sombre profond */
     .stApp {
-        background-color: #0A0C10;
-        color: #E6EDF3;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: #090A0F;
+        color: #F5F5F7;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
     }
     
-    /* Conteneurs et cartes */
+    /* Masquer les éléments natifs Streamlit inutilement visibles */
+    #MainMenu, footer, header {visibility: hidden;}
+
+    /* Cartes Glassmorphism */
     div[data-testid="stMetric"] {
-        background-color: #12161F;
-        border: 1px solid #212635;
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 20px 24px;
+        backdrop-filter: blur(20px);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    div[data-testid="stMetric"]:hover {
+        border-color: rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.05);
     }
     
     div[data-testid="stMetricValue"] {
-        font-size: 1.9rem !important;
+        font-size: 2.1rem !important;
         font-weight: 700;
         color: #FFFFFF !important;
         letter-spacing: -0.5px;
     }
 
     div[data-testid="stMetricLabel"] {
-        color: #8B949E !important;
-        font-size: 0.85rem;
+        color: #8E8E93 !important;
+        font-size: 0.8rem;
         text-transform: uppercase;
-        letter-spacing: 0.8px;
+        letter-spacing: 1px;
         font-weight: 600;
     }
 
-    /* Onglets de navigation */
+    /* Navigation par Onglets (Style Pill Buttons Spotify/Apple) */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #12161F;
+        gap: 12px;
+        background-color: rgba(255, 255, 255, 0.04);
         padding: 6px;
-        border-radius: 10px;
-        border: 1px solid #212635;
+        border-radius: 50px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        max-width: fit-content;
+        margin-bottom: 25px;
     }
 
     .stTabs [data-baseweb="tab"] {
         background-color: transparent;
-        border-radius: 8px;
-        color: #8B949E !important;
+        border-radius: 50px;
+        color: #8E8E93 !important;
         padding: 10px 24px;
         border: none !important;
         font-weight: 600;
         font-size: 0.9rem;
+        transition: all 0.2s ease;
     }
 
     .stTabs [aria-selected="true"] {
-        background-color: #212635 !important;
-        color: #FFFFFF !important;
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+        box-shadow: 0 4px 14px rgba(255, 255, 255, 0.25);
     }
     
     .stTabs [aria-selected="true"] span {
-        color: #FFFFFF !important;
+        color: #000000 !important;
     }
 
-    /* Inputs et formulaires */
+    /* Champs de saisie */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
-        background-color: #12161F !important;
+        background-color: rgba(255, 255, 255, 0.05) !important;
         color: #FFFFFF !important;
-        border-radius: 8px !important;
-        border: 1px solid #212635 !important;
-        padding: 10px !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        padding: 12px 16px !important;
+        font-size: 0.95rem !important;
     }
     
     .stTextInput>div>div>input:focus, .stNumberInput>div>div>input:focus {
-        border-color: #58A6FF !important;
-        box-shadow: 0 0 0 1px #58A6FF !important;
+        border-color: #0A84FF !important;
+        box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.3) !important;
     }
 
-    /* Boutons */
+    /* Boutons de transaction (Acheter / Vendre) */
     .stButton>button {
-        border-radius: 8px !important;
-        background-color: #238636 !important;
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-        border: 1px solid rgba(240, 246, 252, 0.1) !important;
-        padding: 10px 20px !important;
-        transition: all 0.2s ease;
+        border-radius: 12px !important;
+        background: #FFFFFF !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+        border: none !important;
+        padding: 12px 24px !important;
+        font-size: 0.95rem !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 4px 15px rgba(255, 255, 255, 0.15);
     }
     
     .stButton>button:hover {
-        background-color: #2EA043 !important;
-        border-color: #8B949E !important;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(255, 255, 255, 0.25);
+        background: #F2F2F7 !important;
+        color: #000000 !important;
     }
 
     /* Tableaux */
     div[data-testid="stDataFrame"] {
-        background-color: #12161F;
-        border-radius: 12px;
-        border: 1px solid #212635;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
         padding: 8px;
     }
     
-    /* Ligne de séparation */
     hr {
-        border-color: #212635 !important;
+        border-color: rgba(255, 255, 255, 0.08) !important;
+        margin: 30px 0 !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- INITIALISATION BASE DE DONNÉES ---
+# --- BASE DE DONNÉES ---
 conn = sqlite3.connect('bourse_ecole.db', check_same_thread=False)
 c = conn.cursor()
 
@@ -125,7 +143,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS portfolio
              (username TEXT, ticker TEXT, shares INTEGER, avg_price REAL, PRIMARY KEY(username, ticker))''')
 conn.commit()
 
-# --- FONCTIONS DE CACHE OPTIMISÉES ---
+# --- FONCTIONS REQUÊTES EN DIRECT (AVEC CORRECTION DE LA PÉRIODE) ---
 @st.cache_data(ttl=60)
 def obtenir_prix_actuel(ticker_symbol):
     try:
@@ -141,39 +159,38 @@ def obtenir_details_financiers(ticker_symbol):
         t = yf.Ticker(ticker_symbol)
         info = t.fast_info
         return {
-            "Dernier prix": f"${info['lastPrice']:.2f}",
-            "Ouverture": f"${info['open']:.2f}" if info.get('open') else "N/A",
-            "Plus haut (jour)": f"${info['dayHigh']:.2f}" if info.get('dayHigh') else "N/A",
-            "Plus bas (jour)": f"${info['dayLow']:.2f}" if info.get('dayLow') else "N/A",
-            "Plus haut (52 sem.)": f"${info['yearHigh']:.2f}" if info.get('yearHigh') else "N/A",
-            "Plus bas (52 sem.)": f"${info['yearLow']:.2f}" if info.get('yearLow') else "N/A",
+            "Prix Ouverture": f"${info['open']:.2f}" if info.get('open') else "N/A",
+            "Plus Haut (Jour)": f"${info['dayHigh']:.2f}" if info.get('dayHigh') else "N/A",
+            "Plus Bas (Jour)": f"${info['dayLow']:.2f}" if info.get('dayLow') else "N/A",
+            "Plus Haut (52 sem.)": f"${info['yearHigh']:.2f}" if info.get('yearHigh') else "N/A",
+            "Plus Bas (52 sem.)": f"${info['yearLow']:.2f}" if info.get('yearLow') else "N/A",
         }
     except Exception:
         return None
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=180)
 def obtenir_historique(ticker_symbol, periode):
     try:
+        # Périodes valides yfinance: 1mo, 3mo, 6mo, 1y
         df = yf.Ticker(ticker_symbol).history(period=periode)
         return df
     except Exception:
         return None
 
-# --- GESTION DE LA SESSION ---
+# --- GESTION SESSION ---
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
-st.markdown("<h1 style='font-size: 2.2rem; font-weight: 800; margin-bottom: 20px;'>TERMINAL BOURSIER</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='font-size: 2.4rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 25px;'>PORTFOLIO</h1>", unsafe_allow_html=True)
 
-# --- ECRAN DE CONNEXION / INSCRIPTION ---
+# --- INTERFACE DE CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
-    col_centered = st.columns([1, 1.5, 1])[1]
+    col_centered = st.columns([1, 1.3, 1])[1]
     with col_centered:
-        st.markdown("<br>", unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["Connexion", "Inscription"])
+        tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
         
         with tab1:
-            u_login = st.text_input("Nom d'utilisateur")
+            u_login = st.text_input("Identifiant")
             p_login = st.text_input("Mot de passe", type="password")
             if st.button("Se connecter", use_container_width=True):
                 c.execute("SELECT * FROM users WHERE username=? AND password=?", (u_login, p_login))
@@ -184,27 +201,27 @@ if st.session_state['user'] is None:
                     st.error("Identifiants incorrects.")
 
         with tab2:
-            u_new = st.text_input("Choisir un nom d'utilisateur")
-            p_new = st.text_input("Choisir un mot de passe", type="password")
-            if st.button("Créer un compte", use_container_width=True):
+            u_new = st.text_input("Nouvel identifiant")
+            p_new = st.text_input("Nouveau mot de passe", type="password")
+            if st.button("S'inscrire", use_container_width=True):
                 try:
                     c.execute("INSERT INTO users VALUES (?, ?, 10000.00)", (u_new, p_new))
                     conn.commit()
-                    st.success("Compte créé avec succès. Connexion autorisée.")
+                    st.success("Compte créé. Connexion autorisée.")
                 except sqlite3.IntegrityError:
-                    st.error("Ce nom d'utilisateur est déjà pris.")
+                    st.error("Cet identifiant est déjà utilisé.")
 
 else:
     user = st.session_state['user']
     
-    # Barre supérieure utilisateur
+    # En-tête utilisateur
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #8B949E; font-size: 1.1rem;'>Compte actif : <b style='color: #FFFFFF;'>{user}</b></p>", unsafe_allow_html=True)
+    col_h1.markdown(f"<p style='color: #8E8E93; font-size: 1rem; margin-top: 5px;'>Membre connecté : <b style='color: #FFFFFF;'>{user}</b></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
         st.rerun()
 
-    # Calcul de la valeur globale du portefeuille
+    # Calculs du portefeuille
     c.execute("SELECT cash FROM users WHERE username=?", (user,))
     cash_actuel = c.fetchone()[0]
     
@@ -216,24 +233,24 @@ else:
     profit_total = valeur_totale - 10000.00
     rendement_pct = (profit_total / 10000.00) * 100
 
-    # Cartes de performance globales
+    # Cartes d'indicateurs (Apple Style Metrics)
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("Cash Disponible", f"${cash_actuel:,.2f}")
+    col_m1.metric("Solde Cash", f"${cash_actuel:,.2f}")
     col_m2.metric("Valeur des Actifs", f"${valeur_actions:,.2f}")
-    col_m3.metric("Portefeuille Total", f"${valeur_totale:,.2f}")
-    col_m4.metric("Gain / Perte", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
+    col_m3.metric("Valeur Totale", f"${valeur_totale:,.2f}")
+    col_m4.metric("Rendement Global", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # STRUCTURE PAR ONGLETS
-    tab_trade, tab_port, tab_rank = st.tabs(["Analyse & Ordres", "Mon Portefeuille", "Classement général"])
+    # NAVIGATION PRINCIPALE
+    tab_trade, tab_port, tab_rank = st.tabs(["Marché & Graphiques", "Mon Portefeuille", "Classement"])
 
-    # --- ONGLET 1 : ANALYSE & ORDRES ---
+    # --- ONGLET 1 : MARCHÉ ET ORDRES ---
     with tab_trade:
         col_m, col_s, col_q = st.columns([2, 2, 2])
-        marche = col_m.selectbox("Marché financier", ["États-Unis (NYSE/NASDAQ)", "Canada (TSX)"])
-        raw_symbol = col_s.text_input("Symbole de l'action", "AAPL").strip().upper()
-        qty = col_q.number_input("Nombre d'actions", min_value=1, step=1)
+        marche = col_m.selectbox("Sélectionner le marché", ["États-Unis (NYSE/NASDAQ)", "Canada (TSX)"])
+        raw_symbol = col_s.text_input("Symbole d'action", "AAPL").strip().upper()
+        qty = col_q.number_input("Quantité à négocier", min_value=1, step=1)
 
         symbol = f"{raw_symbol}.TO" if "Canada" in marche and not (raw_symbol.endswith(".TO") or raw_symbol.endswith(".V")) else raw_symbol
 
@@ -241,70 +258,66 @@ else:
             prix = obtenir_prix_actuel(symbol)
             details = obtenir_details_financiers(symbol)
 
-            if prix and details:
+            if prix:
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Barre d'en-tête de l'action
-                col_t1, col_t2 = st.columns([3, 1])
-                col_t1.markdown(f"<h2 style='margin:0;'>{symbol}</h2>", unsafe_allow_html=True)
-                col_t2.markdown(f"<h2 style='margin:0; text-align:right; color:#58A6FF;'>${prix:,.2f}</h2>", unsafe_allow_html=True)
+                # Header Action
+                col_head_left, col_head_right = st.columns([3, 1])
+                col_head_left.markdown(f"<h2 style='margin:0; font-size: 2rem; font-weight:700;'>{symbol}</h2>", unsafe_allow_html=True)
+                col_head_right.markdown(f"<h2 style='margin:0; text-align:right; color:#30D158; font-size: 2rem; font-weight:700;'>${prix:,.2f}</h2>", unsafe_allow_html=True)
 
                 # Sélecteur de période du graphique
-                col_p1, col_p2 = st.columns([4, 1])
-                periode_choisie = col_p2.selectbox("Horizon temporel", ["1m", "3m", "6m", "1y"], format_func=lambda x: {"1m": "1 Mois", "3m": "3 Mois", "6m": "6 Mois", "1y": "1 An"}[x])
+                col_title, col_period = st.columns([4, 1.2])
+                period_map = {"1mo": "1 Mois", "3mo": "3 Mois", "6mo": "6 Mois", "1y": "1 An"}
+                selected_period = col_period.selectbox("Horizon temporel", list(period_map.keys()), format_func=lambda x: period_map[x])
 
-                # Graphique interactif Plotly
-                df_hist = obtenir_historique(symbol, periode_choisie)
+                # RÉCUPÉRATION ET AFFICHAGE GARANTI DU GRAPHIQUE
+                df_hist = obtenir_historique(symbol, selected_period)
+
                 if df_hist is not None and not df_hist.empty:
-                    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25])
-
-                    # Courbe principale de prix
+                    # Graphique fluide style Apple / TradingView
+                    fig = go.Figure()
+                    
+                    # Courbe principale
                     fig.add_trace(go.Scatter(
                         x=df_hist.index, 
                         y=df_hist['Close'], 
                         mode='lines', 
                         name='Prix', 
-                        line=dict(color='#00E676', width=2),
-                        fill='tonexty',
-                        fillcolor='rgba(0, 230, 118, 0.05)'
-                    ), row=1, col=1)
-
-                    # Histogramme des volumes
-                    colors_vol = ['#00E676' if row['Open'] <= row['Close'] else '#FF5252' for _, row in df_hist.iterrows()]
-                    fig.add_trace(go.Bar(
-                        x=df_hist.index, 
-                        y=df_hist['Volume'], 
-                        name='Volume',
-                        marker_color=colors_vol,
-                        opacity=0.5
-                    ), row=2, col=1)
+                        line=dict(color='#30D158', width=2.5),
+                        fill='tozeroy',
+                        fillcolor='rgba(48, 209, 88, 0.08)'
+                    ))
 
                     fig.update_layout(
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)',
-                        margin=dict(l=10, r=10, t=10, b=10),
-                        height=380,
+                        margin=dict(l=0, r=0, t=10, b=0),
+                        height=360,
                         showlegend=False,
-                        font=dict(color='#8B949E'),
-                        xaxis_rangeslider_visible=False
+                        hovermode="x unified",
+                        font=dict(color='#8E8E93', family='-apple-system'),
+                        xaxis=dict(showgrid=False, zeroline=False),
+                        yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', zeroline=False, side='right')
                     )
-                    fig.update_xaxes(showgrid=True, gridcolor='#212635')
-                    fig.update_yaxes(showgrid=True, gridcolor='#212635')
-
                     st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Chargement des données du graphique en cours ou données indisponibles pour cet horizon.")
 
-                # Tableau des indicateurs financiers
-                st.markdown("### Données de marché")
-                df_details = pd.DataFrame(list(details.items()), columns=["Métrique", "Valeur"])
-                st.dataframe(df_details, use_container_width=True, hide_index=True)
+                # Grille des données financières sous le graphique
+                if details:
+                    st.markdown("<h4 style='font-weight:600; margin-top:20px;'>Indicateurs de marché</h4>", unsafe_allow_html=True)
+                    cols_det = st.columns(len(details))
+                    for idx, (k, v) in enumerate(details.items()):
+                        cols_det[idx].metric(k, v)
 
                 st.markdown("<hr>", unsafe_allow_html=True)
                 
-                # Panneau d'exécution des ordres
+                # Panneau de transaction
                 col_b, col_s = st.columns(2)
                 cost_total = prix * qty
 
-                if col_b.button(f"Acheter {qty} action(s) pour ${cost_total:,.2f}", use_container_width=True):
+                if col_b.button(f"Acheter {qty} x {symbol} (${cost_total:,.2f})", use_container_width=True):
                     if cash_actuel >= cost_total:
                         c.execute("UPDATE users SET cash=? WHERE username=?", (cash_actuel - cost_total, user))
                         c.execute("SELECT shares, avg_price FROM portfolio WHERE username=? AND ticker=?", (user, symbol))
@@ -322,7 +335,7 @@ else:
                     else:
                         st.error("Solde en cash insuffisant.")
 
-                if col_s.button(f"Vendre {qty} action(s) pour ${cost_total:,.2f}", use_container_width=True):
+                if col_s.button(f"Vendre {qty} x {symbol} (${cost_total:,.2f})", use_container_width=True):
                     c.execute("SELECT shares FROM portfolio WHERE username=? AND ticker=?", (user, symbol))
                     row = c.fetchone()
                     if row and row[0] >= qty:
@@ -338,7 +351,7 @@ else:
                     else:
                         st.error("Nombre d'actions insuffisant dans votre portefeuille.")
             else:
-                st.warning("Symbole introuvable sur le marché sélectionné.")
+                st.warning("Action non trouvée. Vérifie le symbole (ex: AAPL, NVDA, TSLA, SHOP, TD).")
 
     # --- ONGLET 2 : MON PORTEFEUILLE ---
     with tab_port:
@@ -353,21 +366,21 @@ else:
                 pnl_pct = ((p_actuel - p_moyen) / p_moyen * 100) if p_moyen > 0 else 0
                 
                 data_p.append({
-                    "Action": t,
-                    "Quantité": s,
-                    "Prix d'Achat Moyen": f"${p_moyen:,.2f}",
-                    "Prix du Marché": f"${p_actuel:,.2f}",
+                    "Titre": t,
+                    "Actions": s,
+                    "Prix Moyen": f"${p_moyen:,.2f}",
+                    "Prix Actuel": f"${p_actuel:,.2f}",
                     "Valeur Totale": f"${val_tot:,.2f}",
-                    "Plus/Moins-Value": f"${pnl:+,.2f}",
+                    "Gain / Perte": f"${pnl:+,.2f}",
                     "Rendement": f"{pnl_pct:+.2f}%"
                 })
             st.dataframe(pd.DataFrame(data_p), use_container_width=True, hide_index=True)
         else:
-            st.info("Aucun actif détenu actuellement.")
+            st.info("Aucune position ouverte actuellement.")
 
     # --- ONGLET 3 : CLASSEMENT ---
     with tab_rank:
-        st.markdown("### Classement de la classe")
+        st.markdown("<h3 style='font-weight:700;'>Classement général des élèves</h3>", unsafe_allow_html=True)
         
         c.execute("SELECT username, cash FROM users")
         all_users = c.fetchall()
@@ -379,12 +392,12 @@ else:
             u_actions_val = sum((obtenir_prix_actuel(tk) or 0) * sh for tk, sh in u_pos)
             tot = c_val + u_actions_val
             perf = ((tot - 10000.00) / 10000.00) * 100
-            leaderboard.append({"Rang": 0, "Élève": u, "Portefeuille ($)": tot, "Performance (%)": perf})
+            leaderboard.append({"Rang": 0, "Élève": u, "Valeur du Portefeuille": tot, "Performance": perf})
 
-        df_lb = pd.DataFrame(leaderboard).sort_values(by="Portefeuille ($)", ascending=False).reset_index(drop=True)
+        df_lb = pd.DataFrame(leaderboard).sort_values(by="Valeur du Portefeuille", ascending=False).reset_index(drop=True)
         df_lb["Rang"] = df_lb.index + 1
         
-        df_lb["Portefeuille ($)"] = df_lb["Portefeuille ($)"].map("${:,.2f}".format)
-        df_lb["Performance (%)"] = df_lb["Performance (%)"].map("{:+.2f}%".format)
+        df_lb["Valeur du Portefeuille"] = df_lb["Valeur du Portefeuille"].map("${:,.2f}".format)
+        df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
         
-        st.dataframe(df_lb[["Rang", "Élève", "Portefeuille ($)", "Performance (%)"]], use_container_width=True, hide_index=True)
+        st.dataframe(df_lb[["Rang", "Élève", "Valeur du Portefeuille", "Performance"]], use_container_width=True, hide_index=True)
