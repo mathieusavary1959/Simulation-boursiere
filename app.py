@@ -96,8 +96,8 @@ st.markdown("""
         box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
     }
 
-    /* Boutons d'action */
-    .stButton>button {
+    /* Boutons d'action et boutons Formulaire */
+    .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background-color: #0F172A !important;
         color: #FFFFFF !important;
@@ -109,7 +109,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
     }
     
-    .stButton>button:hover {
+    .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
         background-color: #2563EB !important;
         color: #FFFFFF !important;
         transform: translateY(-1px);
@@ -142,7 +142,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS portfolio
              (username TEXT, ticker TEXT, shares INTEGER, avg_price REAL, PRIMARY KEY(username, ticker))''')
 conn.commit()
 
-# --- FONCTION DE RECHERCHE UNIVERSELLE YAHOO FINANCE ---
+# --- RECHERCHE UNIVERSELLE ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1:
@@ -159,7 +159,6 @@ def rechercher_symbole_universel(query):
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
             
-            # Ne conserver que les actions / ETF
             if symbol and type_disp in ['Equity', 'ETF', 'Action']:
                 results.append({
                     'symbol': symbol,
@@ -169,7 +168,7 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-# --- CACHE DES DONNÉES FINANCIÈRES ---
+# --- CACHE DONNÉES FINANCIÈRES ---
 @st.cache_data(ttl=60)
 def obtenir_prix_actuel(ticker_symbol):
     try:
@@ -216,42 +215,53 @@ if 'user' not in st.session_state:
 
 st.markdown("<h1 style='font-size: 2.2rem; font-weight: 900; color: #0F172A; letter-spacing: -1px; margin-bottom: 20px;'>Bourse & Investissement</h1>", unsafe_allow_html=True)
 
-# --- PORTAIL DE CONNEXION / INSCRIPTION ---
+# --- PORTAIL DE CONNEXION / INSCRIPTION SÉCURISÉ ---
 if st.session_state['user'] is None:
     col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
-        st.markdown("<div style='background:#FFFFFF; padding:30px; border-radius:20px; border:1px solid #E2E8F0; box-shadow:0 10px 25px rgba(0,0,0,0.05);'>", unsafe_allow_html=True)
         tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
         
         with tab1:
-            u_login = st.text_input("Identifiant")
-            p_login = st.text_input("Mot de passe", type="password")
-            if st.button("Se connecter", use_container_width=True):
-                c.execute("SELECT * FROM users WHERE username=? AND password=?", (u_login, p_login))
-                if c.fetchone():
-                    st.session_state['user'] = u_login
-                    st.rerun()
-                else:
-                    st.error("Identifiants incorrects.")
+            with st.form("form_connexion"):
+                u_login = st.text_input("Identifiant", key="login_user")
+                p_login = st.text_input("Mot de passe", type="password", key="login_pass")
+                btn_login = st.form_submit_button("Se connecter", use_container_width=True)
+                
+                if btn_login:
+                    if not u_login or not p_login:
+                        st.error("Veuillez remplir tous les champs.")
+                    else:
+                        c.execute("SELECT * FROM users WHERE username=? AND password=?", (u_login.strip(), p_login))
+                        if c.fetchone():
+                            st.session_state['user'] = u_login.strip()
+                            st.rerun()
+                        else:
+                            st.error("Identifiants incorrects.")
 
         with tab2:
-            u_new = st.text_input("Choisissez un identifiant")
-            p_new = st.text_input("Choisissez un mot de passe", type="password")
-            if st.button("S'inscrire", use_container_width=True):
-                try:
-                    c.execute("INSERT INTO users VALUES (?, ?, 10000.00)", (u_new, p_new))
-                    conn.commit()
-                    st.success("Compte créé avec succès !")
-                except sqlite3.IntegrityError:
-                    st.error("Nom d'utilisateur déjà utilisé.")
-        st.markdown("</div>", unsafe_allow_html=True)
+            with st.form("form_inscription"):
+                u_new = st.text_input("Choisissez un identifiant", key="new_user")
+                p_new = st.text_input("Choisissez un mot de passe", type="password", key="new_pass")
+                btn_signup = st.form_submit_button("S'inscrire", use_container_width=True)
+                
+                if btn_signup:
+                    if not u_new or not p_new:
+                        st.error("Veuillez remplir tous les champs.")
+                    else:
+                        try:
+                            c.execute("INSERT INTO users VALUES (?, ?, 10000.00)", (u_new.strip(), p_new))
+                            conn.commit()
+                            st.success("Compte créé avec succès ! Connectez-vous dans l'onglet 'Connexion'.")
+                        except sqlite3.IntegrityError:
+                            st.error("Nom d'utilisateur déjà utilisé.")
 
 else:
     user = st.session_state['user']
 
     # BANNIÈRE DE PERFORMANCE
     c.execute("SELECT cash FROM users WHERE username=?", (user,))
-    cash_actuel = c.fetchone()[0]
+    res_cash = c.fetchone()
+    cash_actuel = res_cash[0] if res_cash else 10000.00
     
     c.execute("SELECT ticker, shares FROM portfolio WHERE username=?", (user,))
     positions = c.fetchall()
@@ -282,20 +292,16 @@ else:
     with tab_trade:
         st.markdown("<h4 style='font-weight:700; color:#0F172A; margin-bottom:5px;'>Rechercher une entreprise ou une action</h4>", unsafe_allow_html=True)
         
-        # BARRE DE RECHERCHE UNIVERSELLE
         search_query = st.text_input("Tapez un nom d'entreprise ou un symbole (ex: Apple, Tesla, Shopify, TD, Microsoft...)", "Apple")
-        
         selected_ticker = None
         
         if search_query:
             resultats = rechercher_symbole_universel(search_query)
-            
             if resultats:
                 options_dict = {res['label']: res['symbol'] for res in resultats}
                 choix_label = st.selectbox("Sélectionnez l'action exacte dans la liste :", list(options_dict.keys()))
                 selected_ticker = options_dict[choix_label]
             else:
-                # Si aucun résultat direct, on tente le symbole brut tape par l'utilisateur
                 selected_ticker = search_query.strip().upper()
 
         if selected_ticker:
@@ -312,11 +318,9 @@ else:
 
                 st.markdown("<br>", unsafe_allow_html=True)
 
-                # DISPOSITION : GRAPHIQUE À GAUCHE (2/3) + PANNEAU TRANSACTION À DROITE (1/3)
                 col_chart_side, col_order_side = st.columns([2.2, 1])
 
                 with col_chart_side:
-                    # En-tête de l'action sélectionnée
                     st.markdown(f"""
                         <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:10px;">
                             <div>
@@ -331,12 +335,10 @@ else:
                         </div>
                     """, unsafe_allow_html=True)
 
-                    # Sélecteur d'horizon temporel
                     col_t_space, col_period = st.columns([3, 1.2])
                     period_map = {"1mo": "1 Mois", "3mo": "3 Mois", "6mo": "6 Mois", "1y": "1 An"}
                     selected_period = col_period.selectbox("Horizon", list(period_map.keys()), format_func=lambda x: period_map[x])
 
-                    # GRAPHIQUE INTERACTIF PLOTLY
                     df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
                         fig = go.Figure()
@@ -363,7 +365,6 @@ else:
                         )
                         st.plotly_chart(fig, use_container_width=True)
 
-                    # Métriques boursières
                     st.markdown("### Statistiques clés")
                     stats_df = pd.DataFrame([
                         {"Ouverture": details["Ouverture"], "Plus Haut": details["Plus Haut"], "Plus Bas": details["Plus Bas"]},
@@ -371,7 +372,6 @@ else:
                     ])
                     st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
-                # PANNEAU D'ORDRE (TICKET D'ACHAT/VENTE)
                 with col_order_side:
                     st.markdown("""
                         <div style="background:#FFFFFF; border:1px solid #E2E8F0; border-radius:18px; padding:22px; box-shadow:0 10px 25px rgba(0,0,0,0.03);">
@@ -437,7 +437,7 @@ else:
 
                     st.markdown("</div>", unsafe_allow_html=True)
             else:
-                st.warning("Aucune donnée financière trouvée pour cette recherche. Essayez un autre nom d'entreprise.")
+                st.warning("Aucune donnée financière trouvée pour cette recherche.")
 
     # --- ONGLET 2 : MON PORTEFEUILLE ---
     with tab_port:
@@ -482,11 +482,10 @@ else:
             perf = ((tot - 10000.00) / 10000.00) * 100
             leaderboard.append({"Élève": u, "Portefeuille ($)": tot, "Performance (%)": perf})
 
-        df_lb = pd.DataFrame(leaderboard).sort_values(by="Portefeuille ($)", ascending=False).reset_index(drop=True)
-        df_lb.index += 1
-        df_lb['Rang'] = df_lb.index
-        
-        df_lb["Portefeuille ($)"] = df_lb["Portefeuille ($)"].map("${:,.2f}".format)
-        df_lb["Performance (%)"] = df_lb["Performance (%)"].map("{:+.2f}%".format)
-        
-        st.dataframe(df_lb[['Rang', 'Élève', 'Portefeuille ($)', 'Performance (%)']], use_container_width=True, hide_index=True)
+        if leaderboard:
+            df_lb = pd.DataFrame(leaderboard).sort_values(by="Portefeuille ($)", ascending=False).reset_index(drop=True)
+            df_lb.index += 1
+            df_lb['Rang'] = df_lb.index
+            df_lb["Portefeuille ($)"] = df_lb["Portefeuille ($)"].map("${:,.2f}".format)
+            df_lb["Performance (%)"] = df_lb["Performance (%)"].map("{:+.2f}%".format)
+            st.dataframe(df_lb[['Rang', 'Élève', 'Portefeuille ($)', 'Performance (%)']], use_container_width=True, hide_index=True)
