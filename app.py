@@ -284,10 +284,10 @@ else:
         st.rerun()
 
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("Solde Cash", f"${cash_actuel:,.2f}")
+    col_m1.metric("Argent disponible", f"${cash_actuel:,.2f}")
     col_m2.metric("Valeur Actions", f"${valeur_actions:,.2f}")
     col_m3.metric("Valeur Totale", f"${valeur_totale:,.2f}")
-    col_m4.metric("Performance Global", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
+    col_m4.metric("Gains ou Pertes", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -400,7 +400,7 @@ else:
                                 <span style="font-weight:700; color:#0F172A;">${prix:,.2f}</span>
                             </div>
                             <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-                                <span style="color:#64748B; font-size:0.9rem;">Cash disponible</span>
+                                <span style="color:#64748B; font-size:0.9rem;">Argent disponible</span>
                                 <span style="font-weight:700; color:#0F172A;">${cash_actuel:,.2f}</span>
                             </div>
                             <hr style="margin:10px 0 !important;">
@@ -436,7 +436,7 @@ else:
                             st.success(f"Achat de {qty} action(s) confirmé.")
                             st.rerun()
                         else:
-                            st.error("Solde cash insuffisant.")
+                            st.error("Solde d'argent disponible insuffisant.")
 
                     if col_b_sell.button("Vendre", use_container_width=True):
                         c.execute("SELECT shares FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
@@ -550,16 +550,15 @@ else:
                     c.execute("SELECT ticker, shares, avg_price FROM portfolio WHERE username=?", (eleve_choisi,))
                     e_positions = c.fetchall()
                     
-                    # FIX DE L'ERREUR : Prise en compte du 3e argument (avg_price)
                     e_val_actions = sum((obtenir_prix_actuel(tk) or 0) * sh for tk, sh, _ in e_positions)
                     e_tot = e_cash + e_val_actions
                     e_perf = ((e_tot - 10000.00) / 10000.00) * 100
                     
                     col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-                    col_e1.metric("Cash Disponible", f"${e_cash:,.2f}")
+                    col_e1.metric("Argent disponible", f"${e_cash:,.2f}")
                     col_e2.metric("Actions", f"${e_val_actions:,.2f}")
                     col_e3.metric("Valeur Totale", f"${e_tot:,.2f}")
-                    col_e4.metric("Performance", f"${e_tot-10000.00:,.2f}", f"{e_perf:+.2f}%")
+                    col_e4.metric("Gains ou Pertes", f"${e_tot-10000.00:,.2f}", f"{e_perf:+.2f}%")
                     
                     st.markdown("#### Positions en cours")
                     if e_positions:
