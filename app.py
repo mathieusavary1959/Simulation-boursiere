@@ -140,7 +140,13 @@ c.execute('''CREATE TABLE IF NOT EXISTS users
              (username TEXT PRIMARY KEY, password TEXT, cash REAL)''')
 c.execute('''CREATE TABLE IF NOT EXISTS portfolio 
              (username TEXT, ticker TEXT, shares INTEGER, avg_price REAL, PRIMARY KEY(username, ticker))''')
-conn.commit()
+
+# MIGRATION AUTOMATIQUE : ajoute la colonne avg_price aux anciennes bases de données
+try:
+    c.execute("ALTER TABLE portfolio ADD COLUMN avg_price REAL DEFAULT 0.0")
+    conn.commit()
+except sqlite3.OperationalError:
+    pass  # La colonne existe déjà, on continue normalement
 
 # --- RECHERCHE UNIVERSELLE ---
 @st.cache_data(ttl=3600)
