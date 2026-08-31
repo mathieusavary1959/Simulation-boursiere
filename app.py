@@ -4,11 +4,12 @@ import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+from datetime import datetime
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Simulateur Boursier", layout="wide")
+st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
 
-# --- DESIGN MODERN FINTECH (LIGHT MODE PRO - STYLE REVOLUT / STRIPE) ---
+# --- DESIGN MODERN FINTECH (LIGHT MODE PRO) ---
 st.markdown("""
     <style>
     .stApp {
@@ -49,7 +50,7 @@ st.markdown("""
         letter-spacing: 0.8px;
     }
 
-    /* Onglets de navigation */
+    /* Navigation par Onglets */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background-color: #E2E8F0;
@@ -90,13 +91,8 @@ st.markdown("""
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
         font-weight: 500;
     }
-    
-    .stTextInput>div>div>input:focus, .stNumberInput>div>div>input:focus {
-        border-color: #2563EB !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
-    }
 
-    /* Boutons d'action et boutons Formulaire */
+    /* Boutons */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background-color: #0F172A !important;
@@ -132,21 +128,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- BASE DE DONNÉES SQLITE ---
+# --- BASE DE DONNÉES SQLITE ET STRUCTURE ---
 conn = sqlite3.connect('bourse_ecole.db', check_same_thread=False)
 c = conn.cursor()
 
 c.execute('''CREATE TABLE IF NOT EXISTS users 
              (username TEXT PRIMARY KEY, password TEXT, cash REAL)''')
+
 c.execute('''CREATE TABLE IF NOT EXISTS portfolio 
              (username TEXT, ticker TEXT, shares INTEGER, avg_price REAL, PRIMARY KEY(username, ticker))''')
 
-# MIGRATION AUTOMATIQUE : ajoute la colonne avg_price aux anciennes bases de données
+c.execute('''CREATE TABLE IF NOT EXISTS transactions 
+             (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, ticker TEXT, type TEXT, shares INTEGER, price REAL, total REAL, timestamp TEXT)''')
+
+# Migration automatique si ancienne base de données sans avg_price
 try:
     c.execute("ALTER TABLE portfolio ADD COLUMN avg_price REAL DEFAULT 0.0")
     conn.commit()
 except sqlite3.OperationalError:
-    pass  # La colonne existe déjà, on continue normalement
+    pass
 
 # --- RECHERCHE UNIVERSELLE ---
 @st.cache_data(ttl=3600)
@@ -221,7 +221,7 @@ if 'user' not in st.session_state:
 
 st.markdown("<h1 style='font-size: 2.2rem; font-weight: 900; color: #0F172A; letter-spacing: -1px; margin-bottom: 20px;'>Bourse & Investissement</h1>", unsafe_allow_html=True)
 
-# --- PORTAIL DE CONNEXION / INSCRIPTION SÉCURISÉ ---
+# --- PORTAIL DE CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
     col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
@@ -246,7 +246,7 @@ if st.session_state['user'] is None:
 
         with tab2:
             with st.form("form_inscription"):
-                u_new = st.text_input("Choisissez un identifiant", key="new_user")
+                u_new = st.text_input("Choisissez un identifiant (ex: PrenomNom)", key="new_user")
                 p_new = st.text_input("Choisissez un mot de passe", type="password", key="new_pass")
                 btn_signup = st.form_submit_button("S'inscrire", use_container_width=True)
                 
@@ -264,7 +264,7 @@ if st.session_state['user'] is None:
 else:
     user = st.session_state['user']
 
-    # BANNIÈRE DE PERFORMANCE
+    # BANNIÈRE DE PERFORMANCE DE L'UTILISATEUR
     c.execute("SELECT cash FROM users WHERE username=?", (user,))
     res_cash = c.fetchone()
     cash_actuel = res_cash[0] if res_cash else 10000.00
@@ -292,7 +292,13 @@ else:
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # NAVIGATION PRINCIPALE
-    tab_trade, tab_port, tab_rank = st.tabs(["Marché & Analyse", "Mes Positions", "Classement"])
+    tab_trade, tab_port, tab_hist, tab_rank, tab_teacher = st.tabs([
+        "Marché & Analyse", 
+        "Mes Positions", 
+        "Mon Historique", 
+        "Classement", 
+        "Supervision Prof"
+    ])
 
     # --- ONGLET 1 : ANALYSE & TRANSACTION ---
     with tab_trade:
@@ -406,7 +412,8 @@ else:
                     """, unsafe_allow_html=True)
 
                     col_b_buy, col_b_sell = st.columns(2)
-                    
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                     if col_b_buy.button("Acheter", use_container_width=True):
                         if cash_actuel >= cost_total:
                             c.execute("UPDATE users SET cash=? WHERE username=?", (cash_actuel - cost_total, user))
@@ -419,6 +426,11 @@ else:
                                 c.execute("UPDATE portfolio SET shares=?, avg_price=? WHERE username=? AND ticker=?", (n_shares, n_price, user, selected_ticker))
                             else:
                                 c.execute("INSERT INTO portfolio VALUES (?, ?, ?, ?)", (user, selected_ticker, qty, prix))
+                            
+                            # Enregistrement dans l'historique des transactions
+                            c.execute("INSERT INTO transactions VALUES (NULL, ?, ?, 'ACHAT', ?, ?, ?, ?)",
+                                      (user, selected_ticker, qty, prix, cost_total, now_str))
+                            
                             conn.commit()
                             st.success(f"Achat de {qty} action(s) confirmé.")
                             st.rerun()
@@ -435,6 +447,11 @@ else:
                                 c.execute("UPDATE portfolio SET shares=? WHERE username=? AND ticker=?", (rem, user, selected_ticker))
                             else:
                                 c.execute("DELETE FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
+                            
+                            # Enregistrement dans l'historique des transactions
+                            c.execute("INSERT INTO transactions VALUES (NULL, ?, ?, 'VENTE', ?, ?, ?, ?)",
+                                      (user, selected_ticker, qty, prix, cost_total, now_str))
+                            
                             conn.commit()
                             st.success(f"Vente de {qty} action(s) confirmée.")
                             st.rerun()
@@ -445,7 +462,7 @@ else:
             else:
                 st.warning("Aucune donnée financière trouvée pour cette recherche.")
 
-    # --- ONGLET 2 : MON PORTEFEUILLE ---
+    # --- ONGLET 2 : MES POSITIONS ---
     with tab_port:
         c.execute("SELECT ticker, shares, avg_price FROM portfolio WHERE username=?", (user,))
         pos_user = c.fetchall()
@@ -472,10 +489,23 @@ else:
         else:
             st.info("Vous n'avez aucune position ouverte actuellement.")
 
-    # --- ONGLET 3 : CLASSEMENT ---
-    with tab_rank:
-        st.markdown("<h3 style='font-weight:800; color:#0F172A;'>Classement de la classe</h3>", unsafe_allow_html=True)
+    # --- ONGLET 3 : MON HISTORIQUE DE TRANSACTIONS ---
+    with tab_hist:
+        st.markdown("<h3 style='font-weight:800; color:#0F172A;'>Journal de vos transactions</h3>", unsafe_allow_html=True)
+        c.execute("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=? ORDER BY id DESC", (user,))
+        txs = c.fetchall()
         
+        if txs:
+            df_tx = pd.DataFrame(txs, columns=["Date & Heure", "Type", "Action", "Quantité", "Prix Unitaire ($)", "Montant Total ($)"])
+            df_tx["Prix Unitaire ($)"] = df_tx["Prix Unitaire ($)"].map("${:,.2f}".format)
+            df_tx["Montant Total ($)"] = df_tx["Montant Total ($)"].map("${:,.2f}".format)
+            st.dataframe(df_tx, use_container_width=True, hide_index=True)
+        else:
+            st.info("Aucune transaction enregistrée.")
+
+    # --- ONGLET 4 : CLASSEMENT ---
+    with tab_rank:
+        st.markdown("<h3 style='font-weight:800; color:#0F172A;'>Classement général</h3>", unsafe_allow_html=True)
         c.execute("SELECT username, cash FROM users")
         all_users = c.fetchall()
         
@@ -495,3 +525,68 @@ else:
             df_lb["Portefeuille ($)"] = df_lb["Portefeuille ($)"].map("${:,.2f}".format)
             df_lb["Performance (%)"] = df_lb["Performance (%)"].map("{:+.2f}%".format)
             st.dataframe(df_lb[['Rang', 'Élève', 'Portefeuille ($)', 'Performance (%)']], use_container_width=True, hide_index=True)
+
+    # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
+    with tab_teacher:
+        st.markdown("<h3 style='font-weight:800; color:#0F172A;'>Tableau de bord Enseignant</h3>", unsafe_allow_html=True)
+        
+        is_prof_user = user.lower() in ['prof', 'enseignant', 'admin']
+        pin_input = ""
+        
+        if not is_prof_user:
+            pin_input = st.text_input("Accès restreint. Entrez le PIN Enseignant :", type="password")
+        
+        if is_prof_user or pin_input == "1234":
+            c.execute("SELECT username FROM users ORDER BY username ASC")
+            liste_eleves = [r[0] for r in c.fetchall()]
+            
+            if liste_eleves:
+                eleve_choisi = st.selectbox("Inspecter le compte de l'élève :", liste_eleves)
+                
+                if eleve_choisi:
+                    c.execute("SELECT cash FROM users WHERE username=?", (eleve_choisi,))
+                    e_cash = c.fetchone()[0]
+                    
+                    c.execute("SELECT ticker, shares, avg_price FROM portfolio WHERE username=?", (eleve_choisi,))
+                    e_positions = c.fetchall()
+                    
+                    e_val_actions = sum((obtenir_prix_actuel(tk) or 0) * sh for tk, sh in e_positions)
+                    e_tot = e_cash + e_val_actions
+                    e_perf = ((e_tot - 10000.00) / 10000.00) * 100
+                    
+                    col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+                    col_e1.metric("Cash Disponible", f"${e_cash:,.2f}")
+                    col_e2.metric("Actions", f"${e_val_actions:,.2f}")
+                    col_e3.metric("Valeur Totale", f"${e_tot:,.2f}")
+                    col_e4.metric("Performance", f"${e_tot-10000.00:,.2f}", f"{e_perf:+.2f}%")
+                    
+                    st.markdown("#### Positions en cours")
+                    if e_positions:
+                        d_ep = []
+                        for t, s, pm in e_positions:
+                            pa = obtenir_prix_actuel(t) or 0.0
+                            pm = pm or pa
+                            val_t = s * pa
+                            pnl = (pa - pm) * s
+                            d_ep.append({
+                                "Action": t, "Quantité": s, "Prix Moyen": f"${pm:,.2f}", 
+                                "Prix Actuel": f"${pa:,.2f}", "Valeur Totale": f"${val_t:,.2f}", "P&L": f"${pnl:+,.2f}"
+                            })
+                        st.dataframe(pd.DataFrame(d_ep), use_container_width=True, hide_index=True)
+                    else:
+                        st.write("Aucune position active.")
+                    
+                    st.markdown("#### Journal d'achat et de vente")
+                    c.execute("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=? ORDER BY id DESC", (eleve_choisi,))
+                    e_txs = c.fetchall()
+                    if e_txs:
+                        df_etx = pd.DataFrame(e_txs, columns=["Date & Heure", "Type", "Action", "Quantité", "Prix Unitaire ($)", "Total ($)"])
+                        df_etx["Prix Unitaire ($)"] = df_etx["Prix Unitaire ($)"].map("${:,.2f}".format)
+                        df_etx["Total ($)"] = df_etx["Total ($)"].map("${:,.2f}".format)
+                        st.dataframe(df_etx, use_container_width=True, hide_index=True)
+                    else:
+                        st.write("Aucune transaction effectuée.")
+            else:
+                st.info("Aucun élève inscrit pour le moment.")
+        elif pin_input:
+            st.error("PIN incorrect.")
