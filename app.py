@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
@@ -141,7 +142,6 @@ c.execute('''CREATE TABLE IF NOT EXISTS portfolio
 c.execute('''CREATE TABLE IF NOT EXISTS transactions 
              (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, ticker TEXT, type TEXT, shares INTEGER, price REAL, total REAL, timestamp TEXT)''')
 
-# Migration automatique si ancienne base de données sans avg_price
 try:
     c.execute("ALTER TABLE portfolio ADD COLUMN avg_price REAL DEFAULT 0.0")
     conn.commit()
@@ -412,7 +412,9 @@ else:
                     """, unsafe_allow_html=True)
 
                     col_b_buy, col_b_sell = st.columns(2)
-                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # HORODATAGE EN HEURE DU QUÉBEC (America/Toronto)
+                    now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
 
                     if col_b_buy.button("Acheter", use_container_width=True):
                         if cash_actuel >= cost_total:
@@ -427,7 +429,7 @@ else:
                             else:
                                 c.execute("INSERT INTO portfolio VALUES (?, ?, ?, ?)", (user, selected_ticker, qty, prix))
                             
-                            # Enregistrement dans l'historique des transactions
+                            # Enregistrement de la transaction horodatée à l'heure locale
                             c.execute("INSERT INTO transactions VALUES (NULL, ?, ?, 'ACHAT', ?, ?, ?, ?)",
                                       (user, selected_ticker, qty, prix, cost_total, now_str))
                             
@@ -448,7 +450,7 @@ else:
                             else:
                                 c.execute("DELETE FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
                             
-                            # Enregistrement dans l'historique des transactions
+                            # Enregistrement de la transaction horodatée à l'heure locale
                             c.execute("INSERT INTO transactions VALUES (NULL, ?, ?, 'VENTE', ?, ?, ?, ?)",
                                       (user, selected_ticker, qty, prix, cost_total, now_str))
                             
@@ -536,7 +538,7 @@ else:
         if not is_prof_user:
             pin_input = st.text_input("Accès restreint. Entrez le PIN Enseignant :", type="password")
         
-        if is_prof_user or pin_input == "1234":
+        if is_prof_user or pin_input == "1959":
             c.execute("SELECT username FROM users ORDER BY username ASC")
             liste_eleves = [r[0] for r in c.fetchall()]
             
