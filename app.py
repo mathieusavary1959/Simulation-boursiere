@@ -16,7 +16,7 @@ c.execute('''CREATE TABLE IF NOT EXISTS portfolio
 conn.commit()
 
 # --- SYSTEME DE CACHE POUR ÉVITER LES BLOCAGES ---
-@st.cache_data(ttl=60)  # Récupère le prix une fois par minute max pour toute la classe
+@st.cache_data(ttl=60)
 def obtenir_prix(ticker_symbol):
     try:
         data = yf.Ticker(ticker_symbol)
@@ -61,14 +61,12 @@ else:
     # --- TABLEAU DE BORD DE L'ÉLÈVE ---
     user = st.session_state['user']
     
-    # Barre supérieure avec bouton déconnexion
     col_head1, col_head2 = st.columns([4, 1])
     col_head1.write(f"### Bienvenue, **{user}** 👋")
     if col_head2.button("Se déconnecter"):
         st.session_state['user'] = None
         st.rerun()
 
-    # Solde de l'élève
     c.execute("SELECT cash FROM users WHERE username=?", (user,))
     cash = c.fetchone()[0]
     
@@ -78,26 +76,32 @@ else:
     st.write("---")
     st.subheader("Passer un ordre sur le marché")
     
-    col_ticker, col_qty, col_action = st.columns([2, 2, 2])
-    symbol = col_ticker.text_input("Symbole de l'action (ex: AAPL, TSLA, NVDA, MSFT)", "AAPL").upper()
+    col_marche, col_ticker, col_qty = st.columns([2, 2, 2])
+    
+    marche = col_marche.selectbox("Marché", ["🇺🇸 États-Unis (NYSE/NASDAQ)", "🇨🇦 Canada (TSX)"])
+    raw_symbol = col_ticker.text_input("Symbole (ex: AAPL ou TD, SHOP, RY)", "TD").strip().upper()
     qty = col_qty.number_input("Quantité d'actions", min_value=1, step=1)
     
-    prix_actuel = obtenir_prix(symbol)
+    # Formater automatiquement le symbole pour le Canada si nécessaire
+    if "Canada" in marche and not (raw_symbol.endswith(".TO") or raw_symbol.endswith(".V")):
+        symbol = f"{raw_symbol}.TO"
+    else:
+        symbol = raw_symbol
+
+    prix_actuel = obtenir_prix(symbol) if symbol else None
     
     if prix_actuel:
         st.info(f"Cours en direct de **{symbol}** : **{prix_actuel} $** | Coût total : **{prix_actuel * qty:,.2f} $**")
         
         col_buy, col_sell = st.columns(2)
         
-        # Action : ACHETER
+        # ACHETER
         if col_buy.button("Acheter", use_container_width=True):
             cout_total = prix_actuel * qty
             if cash >= cout_total:
-                # Déduire du cash
                 nouveau_cash = cash - cout_total
                 c.execute("UPDATE users SET cash=? WHERE username=?", (nouveau_cash, user))
                 
-                # Mettre à jour le portefeuille
                 c.execute("SELECT shares FROM portfolio WHERE username=? AND ticker=?", (user, symbol))
                 row = c.fetchone()
                 if row:
@@ -111,7 +115,7 @@ else:
             else:
                 st.error("Solde en cash insuffisant !")
                 
-        # Action : VENDRE
+        # VENDRE
         if col_sell.button("Vendre", use_container_width=True):
             c.execute("SELECT shares FROM portfolio WHERE username=? AND ticker=?", (user, symbol))
             row = c.fetchone()
@@ -132,16 +136,16 @@ else:
             else:
                 st.error("Tu ne possèdes pas assez d'actions pour cette vente !")
     else:
-        st.warning("Symbole introuvable ou erreur de connexion au marché.")
+        if raw_symbol:
+            st.warning(f"Symbole '{symbol}' introuvable. Vérifie le symbole ou change de marché.")
 
-    # SECTION 2 : AFFICHAGE DU PORTEFEUILLE
+    # SECTION 2 : PORTEFEUILLE
     st.write("---")
     st.subheader("Ton Portefeuille Actuel")
     
     df_portfolio = pd.read_sql_query("SELECT ticker as Action, shares as Quantité FROM portfolio WHERE username=?", conn, params=(user,))
     
     if not df_portfolio.empty:
-        # Calcul de la valeur actuelle
         valeurs_actuelles = []
         for index, row in df_portfolio.iterrows():
             p = obtenir_prix(row['Action']) or 0
