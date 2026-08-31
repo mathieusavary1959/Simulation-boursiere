@@ -413,7 +413,7 @@ else:
 
                     col_b_buy, col_b_sell = st.columns(2)
                     
-                    # HORODATAGE EN HEURE DU QUÉBEC (America/Toronto)
+                    # HORODATAGE EN HEURE DU QUÉBEC
                     now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
 
                     if col_b_buy.button("Acheter", use_container_width=True):
@@ -429,7 +429,6 @@ else:
                             else:
                                 c.execute("INSERT INTO portfolio VALUES (?, ?, ?, ?)", (user, selected_ticker, qty, prix))
                             
-                            # Enregistrement de la transaction horodatée à l'heure locale
                             c.execute("INSERT INTO transactions VALUES (NULL, ?, ?, 'ACHAT', ?, ?, ?, ?)",
                                       (user, selected_ticker, qty, prix, cost_total, now_str))
                             
@@ -450,7 +449,6 @@ else:
                             else:
                                 c.execute("DELETE FROM portfolio WHERE username=? AND ticker=?", (user, selected_ticker))
                             
-                            # Enregistrement de la transaction horodatée à l'heure locale
                             c.execute("INSERT INTO transactions VALUES (NULL, ?, ?, 'VENTE', ?, ?, ?, ?)",
                                       (user, selected_ticker, qty, prix, cost_total, now_str))
                             
@@ -552,7 +550,8 @@ else:
                     c.execute("SELECT ticker, shares, avg_price FROM portfolio WHERE username=?", (eleve_choisi,))
                     e_positions = c.fetchall()
                     
-                    e_val_actions = sum((obtenir_prix_actuel(tk) or 0) * sh for tk, sh in e_positions)
+                    # FIX DE L'ERREUR : Prise en compte du 3e argument (avg_price)
+                    e_val_actions = sum((obtenir_prix_actuel(tk) or 0) * sh for tk, sh, _ in e_positions)
                     e_tot = e_cash + e_val_actions
                     e_perf = ((e_tot - 10000.00) / 10000.00) * 100
                     
