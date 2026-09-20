@@ -111,35 +111,36 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Cartes Métriques Blanches à Relief & Effet de Survol */
+    /* Cartes Métriques Blanches à Relief */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0 !important;
         border-radius: 18px !important;
-        padding: 22px 26px !important;
-        box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.04), 0 2px 4px -1px rgba(15, 23, 42, 0.02) !important;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        padding: 18px 20px !important;
+        box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.04) !important;
+        transition: all 0.25s ease !important;
     }
     div[data-testid="stMetric"]:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 12px 24px -4px rgba(15, 23, 42, 0.08), 0 4px 8px -2px rgba(15, 23, 42, 0.04) !important;
-        border-color: #CBD5E1 !important;
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px -4px rgba(15, 23, 42, 0.08) !important;
     }
     div[data-testid="stMetricValue"] {
-        font-size: 2.1rem !important;
+        font-size: 1.6rem !important;
         font-weight: 800 !important;
         color: #0F172A !important;
-        letter-spacing: -0.03em;
+        letter-spacing: -0.02em;
+        white-space: nowrap !important;
+        overflow: visible !important;
     }
     div[data-testid="stMetricLabel"] {
         color: #64748B !important;
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         text-transform: uppercase;
         font-weight: 700;
         letter-spacing: 0.06em;
     }
 
-    /* --- STYLE MODERNE ET DESIGN POUR LES ONGLETS --- */
+    /* --- STYLE MODERNE DES ONGLETS --- */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px !important;
         background-color: #F1F5F9 !important;
@@ -166,13 +167,13 @@ st.markdown("""
     .stTabs [aria-selected="true"] {
         background-color: #FFFFFF !important;
         color: #2563EB !important;
-        box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.15), 0 2px 4px -1px rgba(15, 23, 42, 0.06) !important;
+        box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.15) !important;
     }
     .stTabs [data-baseweb="tab-border"], .stTabs [data-baseweb="tab-highlight"] {
         display: none !important;
     }
 
-    /* Boutons avec Profondeur 3D et Effet de Pression au Clic */
+    /* Boutons avec Effet 3D */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
@@ -182,8 +183,6 @@ st.markdown("""
         padding: 12px 24px !important;
         box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
         transition: all 0.12s ease !important;
-        position: relative;
-        top: 0px;
     }
     .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
         background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
@@ -195,7 +194,7 @@ st.markdown("""
         box-shadow: 0 1px 0 #1E40AF, 0 3px 6px rgba(37, 99, 235, 0.2) !important;
     }
 
-    /* Champs de Saisie Nets & Lisibles */
+    /* Champs de Saisie */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #FFFFFF !important;
         color: #0F172A !important;
@@ -203,14 +202,9 @@ st.markdown("""
         border: 1px solid #CBD5E1 !important;
         padding: 11px 16px !important;
         font-weight: 500 !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.03) !important;
-    }
-    .stTextInput>div>div>input:focus, .stSelectbox>div>div:focus {
-        border-color: #2563EB !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
     }
 
-    /* Tableau Personnalisé Compatible Écran & Impression */
+    /* Tableau Personnalisé */
     .custom-table {
         width: 100%;
         border-collapse: collapse;
@@ -238,9 +232,6 @@ st.markdown("""
         color: #0F172A;
         font-weight: 500;
         font-size: 0.92rem;
-    }
-    .custom-table tr:last-child td {
-        border-bottom: none;
     }
 
     hr { border-color: #E2E8F0 !important; margin: 30px 0 !important; }
@@ -462,15 +453,35 @@ else:
                 }
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
                 .stTabs [data-baseweb="tab-list"], .stButton, button, 
-                iframe, hr, .stSelectbox, .stNumberInput, .brand-banner {
+                iframe, hr, .stSelectbox, .stNumberInput, .brand-banner,
+                div[data-testid="stMetric"] {
                     display: none !important;
                 }
                 .print-header {
                     display: block !important;
-                    margin-bottom: 25px;
-                    border-bottom: 2px solid #0F172A;
-                    padding-bottom: 12px;
+                    margin-bottom: 20px;
                     color: #0F172A !important;
+                }
+                .print-summary-table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                    margin-bottom: 20px !important;
+                    text-align: center !important;
+                    border: 1px solid #CBD5E1 !important;
+                }
+                .print-summary-table th, .print-summary-table td {
+                    border: 1px solid #CBD5E1 !important;
+                    padding: 8px 12px !important;
+                    font-size: 11pt !important;
+                    color: #000000 !important;
+                }
+                .print-summary-table th {
+                    background-color: #F1F5F9 !important;
+                    font-weight: 700 !important;
+                    text-transform: uppercase !important;
+                    font-size: 9pt !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                 }
                 .custom-table {
                     width: 100% !important;
@@ -480,7 +491,7 @@ else:
                 .custom-table th, .custom-table td {
                     border: 1px solid #CBD5E1 !important;
                     padding: 8px 10px !important;
-                    font-size: 11px !important;
+                    font-size: 10pt !important;
                     color: #000000 !important;
                 }
                 .custom-table th {
@@ -494,17 +505,41 @@ else:
         """, unsafe_allow_html=True)
 
         date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
+        pnl_color_print = "#10B981" if profit_total >= 0 else "#EF4444"
+
+        # EN-TÊTE DÉDIÉ IMPRESSION ET PDF (CONTIENT LES 4 MONTANTS)
         st.markdown(f"""
             <div class="print-header">
-                <h2 style="margin:0; color:#0F172A;">Rapport de Portefeuille Boursier — Monde & Finance</h2>
-                <p style="margin:6px 0; font-size:1.05rem;"><b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date :</b> {date_impression}</p>
-                <p style="margin:6px 0; font-size:1.05rem;"><b>Valeur totale :</b> ${valeur_totale:,.2f} &nbsp;|&nbsp; <b>Disponible :</b> ${cash_actuel:,.2f} &nbsp;|&nbsp; <b>Gains/Pertes :</b> ${profit_total:,.2f} ({rendement_pct:+.2f}%)</p>
+                <div style="border-bottom: 2px solid #0F172A; padding-bottom: 10px; margin-bottom: 14px;">
+                    <h2 style="margin:0; color:#0F172A; font-size: 1.5rem; font-weight:800;">Rapport de Portefeuille Boursier — Monde & Finance</h2>
+                    <p style="margin:6px 0 0 0; font-size:1rem; color:#334155;">
+                        <b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date d'impression :</b> {date_impression}
+                    </p>
+                </div>
+                <table class="print-summary-table">
+                    <thead>
+                        <tr>
+                            <th>Disponible (Cash)</th>
+                            <th>Actions Possédées</th>
+                            <th>Valeur Totale</th>
+                            <th>Gains / Pertes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><b>${cash_actuel:,.2f}</b></td>
+                            <td><b>${valeur_actions:,.2f}</b></td>
+                            <td><b>${valeur_totale:,.2f}</b></td>
+                            <td style="color:{pnl_color_print};"><b>${profit_total:+,.2f} ({rendement_pct:+.2f}%)</b></td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         """, unsafe_allow_html=True)
 
         col_p1, col_p2 = st.columns([3, 1])
         with col_p1:
-            st.markdown(f"### Mes Positions Actuelles")
+            st.markdown("### Mes Positions Actuelles")
         with col_p2:
             components.html("""
                 <button onclick="window.parent.print()" style="
