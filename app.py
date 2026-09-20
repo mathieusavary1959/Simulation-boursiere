@@ -4,6 +4,8 @@ import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+import base64
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -13,7 +15,57 @@ st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
 # --- LISTE DES GROUPES ÉCOLE (501 À 510) ---
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)]
 
-# --- DESIGN MODERN FINTECH (LIGHT MODE PRO) ---
+# --- SYNCHRONISATION ET SAUVEGARDE GITHUB AUTOMATIQUE ---
+DB_FILE = "bourse_ecole.db"
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+REPO_NAME = st.secrets.get("REPO_NAME", "")
+
+def charger_db_depuis_github():
+    """Télécharge le fichier de base de données depuis GitHub au démarrage"""
+    if not GITHUB_TOKEN or not REPO_NAME:
+        return
+    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{DB_FILE}"
+    headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+    try:
+        r = requests.get(url, headers=headers, timeout=5)
+        if r.status_code == 200:
+            content = r.json().get("content", "")
+            file_data = base64.b64decode(content)
+            with open(DB_FILE, "wb") as f:
+                f.write(file_data)
+    except Exception:
+        pass
+
+def sauvegarder_db_sur_github():
+    """Envoie la base de données mise à jour sur GitHub"""
+    if not GITHUB_TOKEN or not REPO_NAME or not os.path.exists(DB_FILE):
+        return
+    url = f"https://api.github.com/repos/{REPO_NAME}/contents/{DB_FILE}"
+    headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+    try:
+        r_get = requests.get(url, headers=headers, timeout=5)
+        sha = r_get.json().get("sha", "") if r_get.status_code == 200 else None
+        
+        with open(DB_FILE, "rb") as f:
+            encoded_content = base64.b64encode(f.read()).decode("utf-8")
+            
+        payload = {
+            "message": "Mise à jour automatique - Bourse École",
+            "content": encoded_content
+        }
+        if sha:
+            payload["sha"] = sha
+            
+        requests.put(url, headers=headers, json=payload, timeout=5)
+    except Exception:
+        pass
+
+# Charger la dernière version des données au démarrage
+if 'db_loaded' not in st.session_state:
+    charger_db_depuis_github()
+    st.session_state['db_loaded'] = True
+
+# --- DESIGN MODERN FINTECH ---
 st.markdown("""
     <style>
     .stApp {
@@ -24,26 +76,18 @@ st.markdown("""
     
     #MainMenu, footer, header {visibility: hidden;}
 
-    /* Cartes d'indicateurs */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 16px;
         padding: 20px 24px;
         box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03);
-        transition: all 0.2s ease;
-    }
-    
-    div[data-testid="stMetric"]:hover {
-        border-color: #CBD5E1;
-        box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.06);
     }
     
     div[data-testid="stMetricValue"] {
         font-size: 2rem !important;
         font-weight: 800 !important;
         color: #0F172A !important;
-        letter-spacing: -0.5px;
     }
 
     div[data-testid="stMetricLabel"] {
@@ -51,16 +95,13 @@ st.markdown("""
         font-size: 0.8rem;
         text-transform: uppercase;
         font-weight: 700;
-        letter-spacing: 0.8px;
     }
 
-    /* Navigation par Onglets */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background-color: #E2E8F0;
         padding: 6px;
         border-radius: 14px;
-        border: none;
         max-width: fit-content;
         margin-bottom: 25px;
     }
@@ -70,9 +111,7 @@ st.markdown("""
         border-radius: 10px;
         color: #475569 !important;
         padding: 10px 22px;
-        border: none !important;
         font-weight: 700;
-        font-size: 0.95rem;
     }
 
     .stTabs [aria-selected="true"] {
@@ -80,23 +119,15 @@ st.markdown("""
         color: #0F172A !important;
         box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
     }
-    
-    .stTabs [aria-selected="true"] span {
-        color: #0F172A !important;
-    }
 
-    /* Champs de saisie */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #FFFFFF !important;
         color: #0F172A !important;
         border-radius: 12px !important;
         border: 1px solid #CBD5E1 !important;
         padding: 10px 14px !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
-        font-weight: 500;
     }
 
-    /* Boutons */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background-color: #0F172A !important;
@@ -104,24 +135,17 @@ st.markdown("""
         font-weight: 700 !important;
         border: none !important;
         padding: 12px 24px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.2s ease !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
     }
     
     .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
         background-color: #2563EB !important;
         color: #FFFFFF !important;
-        transform: translateY(-1px);
-        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.25);
     }
 
-    /* Tableaux */
     div[data-testid="stDataFrame"] {
         background-color: #FFFFFF;
         border-radius: 16px;
         border: 1px solid #E2E8F0;
-        box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03);
         padding: 8px;
     }
     
@@ -132,8 +156,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- BASE DE DONNÉES SQLITE ET STRUCTURE ---
-conn = sqlite3.connect('bourse_ecole.db', check_same_thread=False)
+# --- BASE DE DONNÉES SQLITE ---
+conn = sqlite3.connect(DB_FILE, check_same_thread=False)
 c = conn.cursor()
 
 c.execute('''CREATE TABLE IF NOT EXISTS users 
@@ -268,6 +292,7 @@ if st.session_state['user'] is None:
                         try:
                             c.execute("INSERT INTO users VALUES (?, ?, 10000.00, ?)", (u_new.strip(), p_new, g_new))
                             conn.commit()
+                            sauvegarder_db_sur_github() # Sauvegarde automatique GitHub
                             st.success("Compte créé avec succès ! Connectez-vous dans l'onglet 'Connexion'.")
                         except sqlite3.IntegrityError:
                             st.error("Nom d'utilisateur déjà utilisé.")
@@ -444,6 +469,7 @@ else:
                                       (user, selected_ticker, qty, prix, cost_total, now_str))
                             
                             conn.commit()
+                            sauvegarder_db_sur_github() # Sauvegarde automatique GitHub
                             st.success(f"Achat de {qty} action(s) confirmé.")
                             st.rerun()
                         else:
@@ -464,6 +490,7 @@ else:
                                       (user, selected_ticker, qty, prix, cost_total, now_str))
                             
                             conn.commit()
+                            sauvegarder_db_sur_github() # Sauvegarde automatique GitHub
                             st.success(f"Vente de {qty} action(s) confirmée.")
                             st.rerun()
                         else:
