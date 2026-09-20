@@ -139,28 +139,37 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* Barre d'Onglets Flottante */
+    /* --- STYLE MODERNE ET DESIGN POUR LES ONGLETS --- */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #E2E8F0 !important;
-        padding: 6px;
-        border-radius: 16px;
-        border: 1px solid #CBD5E1;
-        margin-bottom: 28px;
+        gap: 8px !important;
+        background-color: #F1F5F9 !important;
+        padding: 6px !important;
+        border-radius: 16px !important;
+        border: 1px solid #E2E8F0 !important;
+        margin-bottom: 28px !important;
     }
     .stTabs [data-baseweb="tab"] {
+        height: auto !important;
         background-color: transparent !important;
         border-radius: 12px !important;
         color: #64748B !important;
         padding: 10px 22px !important;
         font-weight: 700 !important;
-        font-size: 0.88rem;
-        transition: all 0.2s ease !important;
+        font-size: 0.9rem !important;
+        border: none !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #0F172A !important;
+        background-color: rgba(255, 255, 255, 0.6) !important;
     }
     .stTabs [aria-selected="true"] {
         background-color: #FFFFFF !important;
-        color: #0F172A !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+        color: #2563EB !important;
+        box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.15), 0 2px 4px -1px rgba(15, 23, 42, 0.06) !important;
+    }
+    .stTabs [data-baseweb="tab-border"], .stTabs [data-baseweb="tab-highlight"] {
+        display: none !important;
     }
 
     /* Boutons avec Profondeur 3D et Effet de Pression au Clic */
@@ -201,7 +210,7 @@ st.markdown("""
         box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
     }
 
-    /* Tableau Personnalisé Compatible Impression */
+    /* Tableau Personnalisé Compatible Écran & Impression */
     .custom-table {
         width: 100%;
         border-collapse: collapse;
@@ -531,36 +540,9 @@ else:
                 pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
                 options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
 
-                html_rows += f"""
-                <tr>
-                    <td><b>{tk}</b></td>
-                    <td>{sh}</td>
-                    <td>${pm:,.2f}</td>
-                    <td>${pa:,.2f}</td>
-                    <td>${val:,.2f}</td>
-                    <td style="color:{pnl_color}; font-weight:700;">${pnl:+,.2f}</td>
-                    <td style="color:{pnl_color}; font-weight:700;">{pnl_pct:+.2f}%</td>
-                </tr>
-                """
+                html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>${pm:,.2f}</td><td>${pa:,.2f}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
 
-            table_html = f"""
-            <table class="custom-table">
-                <thead>
-                    <tr>
-                        <th>Action</th>
-                        <th>Quantité</th>
-                        <th>Prix Moyen</th>
-                        <th>Prix Actuel</th>
-                        <th>Valeur</th>
-                        <th>Gain / Perte</th>
-                        <th>Rendement</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {html_rows}
-                </tbody>
-            </table>
-            """
+            table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
             st.markdown(table_html, unsafe_allow_html=True)
 
             st.markdown("<hr>", unsafe_allow_html=True)
