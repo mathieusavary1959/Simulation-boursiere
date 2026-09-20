@@ -10,7 +10,7 @@ from sqlalchemy import text
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
 
-LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)]
+LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
 conn = st.connection("postgres", type="sql")
