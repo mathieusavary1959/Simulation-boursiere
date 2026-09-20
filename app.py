@@ -17,7 +17,6 @@ LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
 conn = st.connection("postgres", type="sql")
 
-# Création automatique des tables (exécutée UNE SEULE FOIS au démarrage)
 @st.cache_resource
 def init_db():
     with conn.session as session:
@@ -57,7 +56,7 @@ def init_db():
 
 init_db()
 
-# --- DESIGN PREMIUM STYLE MONDE & FINANCE ---
+# --- DESIGN STYLE NETFLIX & NÉON ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -66,31 +65,36 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
+    /* Fond Sombre Style Netflix / Dashboard Moderne */
     .stApp {
-        background-color: #F8FAFC;
-        color: #0F172A;
+        background: #080C14 !important;
+        color: #F8FAFC !important;
     }
 
     #MainMenu, footer, header { visibility: hidden; }
 
-    /* En-tête Institutionnel Monde & Finance */
+    /* Bannière d'en-tête Néon Glassmorphism */
     .brand-banner {
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-        padding: 24px 32px;
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 100%);
+        border: 1px solid rgba(56, 189, 248, 0.25);
         border-radius: 20px;
+        padding: 24px 32px;
         color: #FFFFFF;
         margin-bottom: 28px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12);
+        box-shadow: 0 0 25px rgba(56, 189, 248, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(12px);
         display: flex;
         justify-content: space-between;
         align-items: center;
     }
     .brand-title {
-        font-size: 1.8rem;
+        font-size: 1.9rem;
         font-weight: 800;
         letter-spacing: -0.02em;
+        background: linear-gradient(90deg, #FFFFFF 0%, #38BDF8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         margin: 0;
-        color: #FFFFFF;
     }
     .brand-subtitle {
         color: #94A3B8;
@@ -99,9 +103,10 @@ st.markdown("""
         margin-top: 4px;
     }
     .brand-badge {
-        background-color: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        padding: 6px 14px;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid #38BDF8;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+        padding: 6px 16px;
         border-radius: 30px;
         font-size: 0.8rem;
         font-weight: 700;
@@ -110,98 +115,107 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Cartes de métriques Financières */
+    /* Cartes de Métriques avec Profondeur et Effet Survol Néon */
     div[data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 18px;
-        padding: 22px 26px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -2px rgba(0, 0, 0, 0.02);
-        transition: all 0.25s ease;
+        background: rgba(15, 23, 42, 0.75) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 18px !important;
+        padding: 20px 24px !important;
+        box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
     div[data-testid="stMetric"]:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 20px -3px rgba(0, 0, 0, 0.05);
-        border-color: #CBD5E1;
+        transform: translateY(-4px);
+        border-color: rgba(56, 189, 248, 0.5) !important;
+        box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.7), 0 0 20px rgba(56, 189, 248, 0.2) !important;
     }
     div[data-testid="stMetricValue"] {
-        font-size: 2.1rem !important;
+        font-size: 2rem !important;
         font-weight: 800 !important;
-        color: #0F172A !important;
+        color: #F8FAFC !important;
         letter-spacing: -0.03em;
     }
     div[data-testid="stMetricLabel"] {
-        color: #64748B !important;
+        color: #94A3B8 !important;
         font-size: 0.78rem;
         text-transform: uppercase;
         font-weight: 700;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.08em;
     }
 
-    /* Navigation par Onglets (Barre Flottante Style Dashboard) */
+    /* Onglets de Navigation (Style Pilule Netflix) */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
-        background-color: #F1F5F9;
+        background: rgba(15, 23, 42, 0.8) !important;
         padding: 6px;
         border-radius: 16px;
-        max-width: fit-content;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.4);
         margin-bottom: 28px;
-        border: 1px solid #E2E8F0;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: transparent;
-        border-radius: 12px;
-        color: #64748B !important;
-        padding: 10px 24px;
-        font-weight: 700;
-        font-size: 0.88rem;
-        transition: all 0.2s;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #FFFFFF !important;
-        color: #0F172A !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
-    }
-
-    /* Champs de Saisie et Boutons Premium */
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
-        background-color: #FFFFFF !important;
-        color: #0F172A !important;
+        background-color: transparent !important;
         border-radius: 12px !important;
-        border: 1px solid #CBD5E1 !important;
-        padding: 11px 16px !important;
-        font-weight: 500 !important;
-    }
-    .stTextInput>div>div>input:focus, .stSelectbox>div>div:focus {
-        border-color: #2563EB !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
-    }
-    .stButton>button, div[data-testid="stFormSubmitButton"]>button {
-        border-radius: 12px !important;
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important;
-        color: #FFFFFF !important;
+        color: #94A3B8 !important;
+        padding: 10px 22px !important;
         font-weight: 700 !important;
-        border: none !important;
-        padding: 12px 24px !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
+        font-size: 0.88rem;
         transition: all 0.2s ease !important;
     }
-    .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
+    .stTabs [aria-selected="true"] {
         background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.22) !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 0 15px rgba(37, 99, 235, 0.5) !important;
     }
 
-    /* Tableaux de données */
+    /* Boutons 3D avec Profondeur et Clic Réaliste */
+    .stButton>button, div[data-testid="stFormSubmitButton"]>button {
+        border-radius: 12px !important;
+        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        border: 1px solid rgba(56, 189, 248, 0.3) !important;
+        padding: 12px 24px !important;
+        box-shadow: 0 4px 0 #020617, 0 8px 16px rgba(0, 0, 0, 0.5), 0 0 10px rgba(56, 189, 248, 0.1) !important;
+        transition: all 0.12s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: relative;
+        top: 0px;
+    }
+    .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
+        background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
+        border-color: #60A5FA !important;
+        box-shadow: 0 6px 0 #020617, 0 12px 24px rgba(37, 99, 235, 0.4), 0 0 20px rgba(56, 189, 248, 0.4) !important;
+        transform: translateY(-2px);
+    }
+    .stButton>button:active, div[data-testid="stFormSubmitButton"]>button:active {
+        transform: translateY(3px) !important;
+        box-shadow: 0 1px 0 #020617, 0 4px 8px rgba(0, 0, 0, 0.6) !important;
+    }
+
+    /* Champs de Saisie Profonds */
+    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
+        background-color: rgba(15, 23, 42, 0.9) !important;
+        color: #F8FAFC !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        padding: 11px 16px !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+    }
+    .stTextInput>div>div>input:focus, .stSelectbox>div>div:focus {
+        border-color: #38BDF8 !important;
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    /* Tableaux de Données */
     div[data-testid="stDataFrame"] {
-        background-color: #FFFFFF;
+        background-color: rgba(15, 23, 42, 0.8);
         border-radius: 18px;
-        border: 1px solid #E2E8F0;
-        padding: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 8px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.3);
     }
 
-    hr { border-color: #E2E8F0 !important; margin: 30px 0 !important; }
+    hr { border-color: rgba(255, 255, 255, 0.1) !important; margin: 30px 0 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -258,7 +272,7 @@ def obtenir_historique(ticker_symbol, periode):
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
-# BANNIÈRE D'EN-TÊTE
+# BANNIÈRE D'EN-TÊTE NÉON
 st.markdown("""
     <div class="brand-banner">
         <div>
@@ -314,7 +328,7 @@ else:
     rendement_pct = (profit_total / 10000.00) * 100
 
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #64748B; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#E2E8F0; padding:3px 10px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
+    col_h1.markdown(f"<p style='color: #94A3B8; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #F8FAFC;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(56, 189, 248, 0.15); color:#38BDF8; border:1px solid #38BDF8; padding:3px 12px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
         st.rerun()
@@ -345,7 +359,7 @@ else:
             details = obtenir_details_financiers(selected_ticker)
             if details:
                 prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
-                chart_color = "#10B981" if var >= 0 else "#EF4444"
+                chart_color = "#38BDF8" if var >= 0 else "#EF4444"
                 signe = "+" if var >= 0 else ""
 
                 col_chart, col_order = st.columns([2.2, 1])
@@ -356,7 +370,7 @@ else:
                     df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
                         fig = go.Figure(go.Scatter(x=df_hist.index, y=df_hist['Close'], mode='lines', line=dict(color=chart_color, width=3)))
-                        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=10, b=0))
+                        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=10, b=0), font=dict(color="#94A3B8"))
                         st.plotly_chart(fig, use_container_width=True)
 
                 with col_order:
@@ -403,7 +417,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-    # --- ONGLET 2 : POSITIONS ET VENTE RAPIDE (AVEC IMPRESSION PRO) ---
+    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     with tab_port:
         st.markdown("""
             <style>
@@ -414,6 +428,7 @@ else:
                     overflow: visible !important;
                     position: static !important;
                     background-color: #FFFFFF !important;
+                    color: #000000 !important;
                 }
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
                 .stTabs [data-baseweb="tab-list"], .stButton, button, 
@@ -425,6 +440,7 @@ else:
                     margin-bottom: 25px;
                     border-bottom: 2px solid #0F172A;
                     padding-bottom: 12px;
+                    color: #0F172A !important;
                 }
             }
             .print-header { display: none; }
@@ -446,17 +462,18 @@ else:
         with col_p2:
             components.html("""
                 <button onclick="window.parent.print()" style="
-                    background-color: #0F172A;
-                    color: white;
-                    border: none;
+                    background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
+                    color: #38BDF8;
+                    border: 1px solid rgba(56, 189, 248, 0.4);
                     padding: 10px 18px;
                     border-radius: 12px;
-                    font-weight: bold;
+                    font-weight: 700;
                     cursor: pointer;
                     width: 100%;
-                    font-family: sans-serif;
-                    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-                ">
+                    font-family: 'Plus Jakarta Sans', sans-serif;
+                    box-shadow: 0 4px 0 #020617, 0 0 15px rgba(56, 189, 248, 0.2);
+                    transition: all 0.15s ease;
+                " onmousedown="this.style.transform='translateY(3px)'; this.style.boxShadow='0 1px 0 #020617'" onmouseup="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 0 #020617, 0 0 15px rgba(56, 189, 248, 0.2)'">
                     🖨️ Imprimer / PDF
                 </button>
             """, height=45)
