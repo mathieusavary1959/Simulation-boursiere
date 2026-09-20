@@ -6,9 +6,10 @@ import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
+import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
+st.set_page_config(page_title="Monde & Finance — Simulation Boursière", page_icon="📈", layout="wide")
 
 # Liste des 10 groupes + Groupe Enseignants
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
@@ -56,22 +57,151 @@ def init_db():
 
 init_db()
 
-# --- DESIGN MODERN FINTECH ---
+# --- DESIGN PREMIUM STYLE MONDE & FINANCE ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F8FAFC; color: #0F172A; font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; }
-    #MainMenu, footer, header {visibility: hidden;}
-    div[data-testid="stMetric"] { background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; padding: 20px 24px; }
-    div[data-testid="stMetricValue"] { font-size: 2rem !important; font-weight: 800 !important; color: #0F172A !important; }
-    div[data-testid="stMetricLabel"] { color: #64748B !important; font-size: 0.8rem; text-transform: uppercase; font-weight: 700; }
-    .stTabs [data-baseweb="tab-list"] { gap: 6px; background-color: #E2E8F0; padding: 6px; border-radius: 14px; max-width: fit-content; margin-bottom: 25px; }
-    .stTabs [data-baseweb="tab"] { background-color: transparent; border-radius: 10px; color: #475569 !important; padding: 10px 22px; font-weight: 700; }
-    .stTabs [aria-selected="true"] { background-color: #FFFFFF !important; color: #0F172A !important; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08); }
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div { background-color: #FFFFFF !important; color: #0F172A !important; border-radius: 12px !important; border: 1px solid #CBD5E1 !important; padding: 10px 14px !important; }
-    .stButton>button, div[data-testid="stFormSubmitButton"]>button { border-radius: 12px !important; background-color: #0F172A !important; color: #FFFFFF !important; font-weight: 700 !important; border: none !important; padding: 12px 24px !important; }
-    .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover { background-color: #2563EB !important; color: #FFFFFF !important; }
-    div[data-testid="stDataFrame"] { background-color: #FFFFFF; border-radius: 16px; border: 1px solid #E2E8F0; padding: 8px; }
-    hr { border-color: #E2E8F0 !important; margin: 25px 0 !important; }
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    .stApp {
+        background-color: #F8FAFC;
+        color: #0F172A;
+    }
+
+    #MainMenu, footer, header { visibility: hidden; }
+
+    /* En-tête Institutionnel Monde & Finance */
+    .brand-banner {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        padding: 24px 32px;
+        border-radius: 20px;
+        color: #FFFFFF;
+        margin-bottom: 28px;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .brand-title {
+        font-size: 1.8rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin: 0;
+        color: #FFFFFF;
+    }
+    .brand-subtitle {
+        color: #94A3B8;
+        font-size: 0.88rem;
+        font-weight: 500;
+        margin-top: 4px;
+    }
+    .brand-badge {
+        background-color: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 6px 14px;
+        border-radius: 30px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #38BDF8;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    /* Cartes de métriques Financières */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 18px;
+        padding: 22px 26px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -2px rgba(0, 0, 0, 0.02);
+        transition: all 0.25s ease;
+    }
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 20px -3px rgba(0, 0, 0, 0.05);
+        border-color: #CBD5E1;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 2.1rem !important;
+        font-weight: 800 !important;
+        color: #0F172A !important;
+        letter-spacing: -0.03em;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #64748B !important;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+    }
+
+    /* Navigation par Onglets (Barre Flottante Style Dashboard) */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #F1F5F9;
+        padding: 6px;
+        border-radius: 16px;
+        max-width: fit-content;
+        margin-bottom: 28px;
+        border: 1px solid #E2E8F0;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent;
+        border-radius: 12px;
+        color: #64748B !important;
+        padding: 10px 24px;
+        font-weight: 700;
+        font-size: 0.88rem;
+        transition: all 0.2s;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+    }
+
+    /* Champs de Saisie et Boutons Premium */
+    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        border-radius: 12px !important;
+        border: 1px solid #CBD5E1 !important;
+        padding: 11px 16px !important;
+        font-weight: 500 !important;
+    }
+    .stTextInput>div>div>input:focus, .stSelectbox>div>div:focus {
+        border-color: #2563EB !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+    }
+    .stButton>button, div[data-testid="stFormSubmitButton"]>button {
+        border-radius: 12px !important;
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        border: none !important;
+        padding: 12px 24px !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
+        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.22) !important;
+    }
+
+    /* Tableaux de données */
+    div[data-testid="stDataFrame"] {
+        background-color: #FFFFFF;
+        border-radius: 18px;
+        border: 1px solid #E2E8F0;
+        padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+
+    hr { border-color: #E2E8F0 !important; margin: 30px 0 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -128,7 +258,16 @@ def obtenir_historique(ticker_symbol, periode):
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
-st.markdown("<h1 style='font-size: 2.2rem; font-weight: 900; color: #0F172A;'>Bourse & Investissement</h1>", unsafe_allow_html=True)
+# BANNIÈRE D'EN-TÊTE
+st.markdown("""
+    <div class="brand-banner">
+        <div>
+            <div class="brand-title">MONDE & FINANCE</div>
+            <div class="brand-subtitle">Plateforme d'Apprentissage & Simulation Boursière</div>
+        </div>
+        <div class="brand-badge">Édition Scolaire</div>
+    </div>
+""", unsafe_allow_html=True)
 
 # --- PORTAIL CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
@@ -175,7 +314,7 @@ else:
     rendement_pct = (profit_total / 10000.00) * 100
 
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #64748B;'>Portefeuille : <b style='color: #0F172A;'>{user}</b> ({groupe_actuel})</p>", unsafe_allow_html=True)
+    col_h1.markdown(f"<p style='color: #64748B; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#E2E8F0; padding:3px 10px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
         st.rerun()
@@ -184,7 +323,7 @@ else:
     col_m1.metric("Disponible", f"${cash_actuel:,.2f}")
     col_m2.metric("Actions", f"${valeur_actions:,.2f}")
     col_m3.metric("Valeur Totale", f"${valeur_totale:,.2f}")
-    col_m4.metric("Gains/Pertes", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
+    col_m4.metric("Gains / Pertes", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -213,7 +352,7 @@ else:
                 with col_chart:
                     st.markdown(f"### {selected_ticker} — ${prix:,.2f} ({signe}{var_pct:.2f}%)")
                     period_map = {"1mo": "1 Mois", "3mo": "3 Mois", "6mo": "6 Mois", "1y": "1 An"}
-                    selected_period = st.selectbox("Horizon", list(period_map.keys()), format_func=lambda x: period_map[x])
+                    selected_period = st.selectbox("Horizon d'analyse", list(period_map.keys()), format_func=lambda x: period_map[x])
                     df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
                         fig = go.Figure(go.Scatter(x=df_hist.index, y=df_hist['Close'], mode='lines', line=dict(color=chart_color, width=3)))
@@ -264,13 +403,11 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-# --- ONGLET 2 : POSITIONS ET VENTE RAPIDE ---
+    # --- ONGLET 2 : POSITIONS ET VENTE RAPIDE (AVEC IMPRESSION PRO) ---
     with tab_port:
-        # Style CSS d'impression : force Streamlit à afficher tout son contenu sur la page imprimée
         st.markdown("""
             <style>
             @media print {
-                /* 1. Déblocage complet des conteneurs Streamlit */
                 html, body, .stApp, [data-testid="stAppViewContainer"], section.main, .block-container {
                     height: auto !important;
                     min-height: auto !important;
@@ -278,15 +415,11 @@ else:
                     position: static !important;
                     background-color: #FFFFFF !important;
                 }
-                
-                /* 2. Masquer la navigation, les onglets et les formulaires de vente */
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
                 .stTabs [data-baseweb="tab-list"], .stButton, button, 
-                iframe, hr, .stSelectbox, .stNumberInput {
+                iframe, hr, .stSelectbox, .stNumberInput, .brand-banner {
                     display: none !important;
                 }
-                
-                /* 3. Afficher uniquement l'en-tête officiel */
                 .print-header {
                     display: block !important;
                     margin-bottom: 25px;
@@ -298,18 +431,15 @@ else:
             </style>
         """, unsafe_allow_html=True)
 
-        # En-tête visible uniquement sur le document imprimé / PDF
         date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
         st.markdown(f"""
             <div class="print-header">
-                <h2 style="margin:0; color:#0F172A;">Rapport de Portefeuille Boursier — Preuve d'Investissement</h2>
-                <p style="margin:5px 0; font-size:1.1rem;"><b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date :</b> {date_impression}</p>
-                <p style="margin:5px 0; font-size:1.1rem;"><b>Valeur totale :</b> ${valeur_totale:,.2f} &nbsp;|&nbsp; <b>Solde disponible :</b> ${cash_actuel:,.2f} &nbsp;|&nbsp; <b>Gains/Pertes :</b> ${profit_total:,.2f} ({rendement_pct:+.2f}%)</p>
+                <h2 style="margin:0; color:#0F172A;">Rapport de Portefeuille Boursier — Monde & Finance</h2>
+                <p style="margin:6px 0; font-size:1.05rem;"><b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date :</b> {date_impression}</p>
+                <p style="margin:6px 0; font-size:1.05rem;"><b>Valeur totale :</b> ${valeur_totale:,.2f} &nbsp;|&nbsp; <b>Disponible :</b> ${cash_actuel:,.2f} &nbsp;|&nbsp; <b>Gains/Pertes :</b> ${profit_total:,.2f} ({rendement_pct:+.2f}%)</p>
             </div>
         """, unsafe_allow_html=True)
 
-        # En-tête de la section et bouton d'impression
-        import streamlit.components.v1 as components
         col_p1, col_p2 = st.columns([3, 1])
         with col_p1:
             st.markdown(f"### Mes Positions Actuelles")
@@ -320,11 +450,12 @@ else:
                     color: white;
                     border: none;
                     padding: 10px 18px;
-                    border-radius: 10px;
+                    border-radius: 12px;
                     font-weight: bold;
                     cursor: pointer;
                     width: 100%;
                     font-family: sans-serif;
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
                 ">
                     🖨️ Imprimer / PDF
                 </button>
