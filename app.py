@@ -302,6 +302,44 @@ else:
             </div>
         """, unsafe_allow_html=True)
 
+       # --- ONGLET 2 : POSITIONS ET VENTE RAPIDE ---
+    with tab_port:
+        # Style spécial impression : masque le menu Streamlit et les boutons lors de l'impression papier/PDF
+        st.markdown("""
+            <style>
+            @media print {
+                .stTabs [data-baseweb="tab-list"],
+                .stButton,
+                button,
+                iframe,
+                header,
+                footer {
+                    display: none !important;
+                }
+                .stApp {
+                    background-color: #FFFFFF !important;
+                }
+                .print-header {
+                    display: block !important;
+                    margin-bottom: 20px;
+                    border-bottom: 2px solid #0F172A;
+                    padding-bottom: 10px;
+                }
+            }
+            .print-header { display: none; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # En-tête visible uniquement à l'impression
+        date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
+        st.markdown(f"""
+            <div class="print-header">
+                <h2>Rapport de Portefeuille Boursier — Preuve d'Investissement</h2>
+                <p><b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date :</b> {date_impression}</p>
+                <p><b>Valeur totale du compte :</b> ${valeur_totale:,.2f} &nbsp;|&nbsp; <b>Gains/Pertes :</b> ${profit_total:,.2f} ({rendement_pct:+.2f}%)</p>
+            </div>
+        """, unsafe_allow_html=True)
+
         # Bouton d'impression (qui déclenche la boîte d'impression du navigateur)
         import streamlit.components.v1 as components
         col_p1, col_p2 = st.columns([3, 1])
@@ -323,6 +361,50 @@ else:
                     🖨️ Imprimer / PDF
                 </button>
             """, height=45)
+
+        p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+        if not p_all.empty:
+            rows = []
+            options_vente = {}
+            for _, r in p_all.iterrows():
+                tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
+                pa = obtenir_prix_actuel(tk) or 0.0
+                pm = pm or pa
+                val = sh * pa
+                pnl = (pa - pm) * sh
+                pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
+                rows.append({"Action": tk, "Quantité": sh, "Prix Moyen": f"${pm:,.2f}", "Prix Actuel": f"${pa:,.2f}", "Valeur": f"${val:,.2f}", "Gain/Perte": f"${pnl:+,.2f}", "Rendement": f"{pnl_pct:+.2f}%"})
+                options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
+
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown("### 💸 Vendre rapidement mes positions")
+
+            col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
+            with col_v1:
+                choix_v = st.selectbox("Sélectionnez l'action à vendre :", list(options_vente.keys()))
+                tk_v, max_sh, pa_v = options_vente[choix_v]
+            with col_v2:
+                qty_v = st.number_input("Quantité à vendre :", min_value=1, max_value=max_sh, value=min(1, max_sh), step=1)
+            with col_v3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                total_vente = qty_v * pa_v
+                if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
+                    now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                    with conn.session as session:
+                        session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_vente, "u": user})
+                        rem = max_sh - qty_v
+                        if rem > 0:
+                            session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
+                        else:
+                            session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
+                        session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
+                                        {"u": user, "t": tk_v, "s": qty_v, "p": pa_v, "tot": total_vente, "time": now_str})
+                        session.commit()
+                    st.success(f"Vente de {qty_v} action(s) {tk_v} confirmée !")
+                    st.rerun()
+        else: st.info("Vous n'avez aucune position ouverte actuellement.")
 
         p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         if not p_all.empty:
