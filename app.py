@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
 
-# --- LISTE DES GROUPES ÉCOLE ---
-LISTE_GROUPES = ["Groupe 502", "Groupe 505", "Groupe 507", "Groupe 508"]
+# --- LISTE DES GROUPES ÉCOLE (501 À 510) ---
+LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)]
 
 # --- DESIGN MODERN FINTECH (LIGHT MODE PRO) ---
 st.markdown("""
@@ -153,7 +153,7 @@ except sqlite3.OperationalError:
     pass
 
 try:
-    c.execute("ALTER TABLE users ADD COLUMN groupe TEXT DEFAULT 'Groupe 502'")
+    c.execute("ALTER TABLE users ADD COLUMN groupe TEXT DEFAULT 'Groupe 501'")
     conn.commit()
 except sqlite3.OperationalError:
     pass
