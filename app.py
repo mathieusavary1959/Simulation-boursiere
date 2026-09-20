@@ -264,8 +264,66 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-    # --- ONGLET 2 : POSITIONS ET VENTE RAPIDE ---
+   # --- ONGLET 2 : POSITIONS ET VENTE RAPIDE ---
     with tab_port:
+        # Style spécial impression : masque le menu Streamlit et les boutons lors de l'impression papier/PDF
+        st.markdown("""
+            <style>
+            @media print {
+                .stTabs [data-baseweb="tab-list"],
+                .stButton,
+                button,
+                iframe,
+                header,
+                footer {
+                    display: none !important;
+                }
+                .stApp {
+                    background-color: #FFFFFF !important;
+                }
+                .print-header {
+                    display: block !important;
+                    margin-bottom: 20px;
+                    border-bottom: 2px solid #0F172A;
+                    padding-bottom: 10px;
+                }
+            }
+            .print-header { display: none; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        # En-tête visible uniquement à l'impression
+        date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
+        st.markdown(f"""
+            <div class="print-header">
+                <h2>Rapport de Portefeuille Boursier — Preuve d'Investissement</h2>
+                <p><b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date :</b> {date_impression}</p>
+                <p><b>Valeur totale du compte :</b> ${valeur_totale:,.2f} &nbsp;|&nbsp; <b>Gains/Pertes :</b> ${profit_total:,.2f} ({rendement_pct:+.2f}%)</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Bouton d'impression (qui déclenche la boîte d'impression du navigateur)
+        import streamlit.components.v1 as components
+        col_p1, col_p2 = st.columns([3, 1])
+        with col_p1:
+            st.markdown(f"### Mes Positions Actuelles")
+        with col_p2:
+            components.html("""
+                <button onclick="window.print()" style="
+                    background-color: #0F172A;
+                    color: white;
+                    border: none;
+                    padding: 10px 18px;
+                    border-radius: 10px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    width: 100%;
+                    font-family: sans-serif;
+                ">
+                    🖨️ Imprimer / PDF
+                </button>
+            """, height=45)
+
         p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         if not p_all.empty:
             rows = []
