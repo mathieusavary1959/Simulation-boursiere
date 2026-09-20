@@ -10,6 +10,7 @@ from sqlalchemy import text
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Simulateur Boursier - École", layout="wide")
 
+# Liste des 10 groupes + Groupe Enseignants
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
@@ -53,7 +54,6 @@ def init_db():
         except Exception:
             session.rollback()
 
-# Lancement unique de l'initialisation
 init_db()
 
 # --- DESIGN MODERN FINTECH ---
@@ -232,53 +232,83 @@ else:
                         if cash_actuel >= cost_total:
                             with conn.session as session:
                                 session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_total, "u": user})
-                                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": selected_ticker}, ttl=0)
+                                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                                 if not p_res.empty:
-                                    anc_s, anc_p = p_res.iloc[0]['shares'], p_res.iloc[0]['avg_price'] or prix
+                                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix)
                                     n_s = anc_s + qty
                                     n_p = ((anc_s * anc_p) + (qty * prix)) / n_s
-                                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND ticker=:t"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
+                                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
                                 else:
-                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker, "s": qty, "p": prix})
+                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix})
                                 session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'ACHAT', :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker, "s": qty, "p": prix, "tot": cost_total, "time": now_str})
+                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
                                 session.commit()
-                            st.success(f"Achat de {qty} {selected_ticker} effectué !")
+                            st.success(f"Achat de {qty} {selected_ticker.upper()} effectué !")
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
                     if col_s.button("Vendre", use_container_width=True):
-                        p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": selected_ticker}, ttl=0)
-                        if not p_res.empty and p_res.iloc[0]['shares'] >= qty:
+                        p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
+                        if not p_res.empty and int(p_res.iloc[0]['shares']) >= qty:
                             with conn.session as session:
                                 session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_total, "u": user})
-                                rem = p_res.iloc[0]['shares'] - qty
+                                rem = int(p_res.iloc[0]['shares']) - qty
                                 if rem > 0:
-                                    session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": selected_ticker})
+                                    session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
                                 else:
-                                    session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": selected_ticker})
+                                    session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
                                 session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker, "s": qty, "p": prix, "tot": cost_total, "time": now_str})
+                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
                                 session.commit()
-                            st.success(f"Vente de {qty} {selected_ticker} effectuée !")
+                            st.success(f"Vente de {qty} {selected_ticker.upper()} effectuée !")
                             st.rerun()
-                        else: st.error("Actions insuffisantes.")
+                        else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-    # --- ONGLET 2 : POSITIONS ---
+    # --- ONGLET 2 : POSITIONS ET VENTE RAPIDE ---
     with tab_port:
         p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         if not p_all.empty:
             rows = []
+            options_vente = {}
             for _, r in p_all.iterrows():
-                tk, sh, pm = r['ticker'], r['shares'], r['avg_price']
+                tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
                 pa = obtenir_prix_actuel(tk) or 0.0
                 pm = pm or pa
                 val = sh * pa
                 pnl = (pa - pm) * sh
                 pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
                 rows.append({"Action": tk, "Quantité": sh, "Prix Moyen": f"${pm:,.2f}", "Prix Actuel": f"${pa:,.2f}", "Valeur": f"${val:,.2f}", "Gain/Perte": f"${pnl:+,.2f}", "Rendement": f"{pnl_pct:+.2f}%"})
+                options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
+
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        else: st.info("Aucune position ouverte.")
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown("### 💸 Vendre rapidement mes positions")
+
+            col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
+            with col_v1:
+                choix_v = st.selectbox("Sélectionnez l'action à vendre :", list(options_vente.keys()))
+                tk_v, max_sh, pa_v = options_vente[choix_v]
+            with col_v2:
+                qty_v = st.number_input("Quantité à vendre :", min_value=1, max_value=max_sh, value=min(1, max_sh), step=1)
+            with col_v3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                total_vente = qty_v * pa_v
+                if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
+                    now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                    with conn.session as session:
+                        session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_vente, "u": user})
+                        rem = max_sh - qty_v
+                        if rem > 0:
+                            session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
+                        else:
+                            session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
+                        session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
+                                        {"u": user, "t": tk_v, "s": qty_v, "p": pa_v, "tot": total_vente, "time": now_str})
+                        session.commit()
+                    st.success(f"Vente de {qty_v} action(s) {tk_v} confirmée !")
+                    st.rerun()
+        else: st.info("Vous n'avez aucune position ouverte actuellement.")
 
     # --- ONGLET 3 : HISTORIQUE ---
     with tab_hist:
