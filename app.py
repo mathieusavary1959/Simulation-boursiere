@@ -15,38 +15,46 @@ LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)]
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
 conn = st.connection("postgres", type="sql")
 
-# Création automatique des tables
-with conn.session as session:
-    session.execute(text('''
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT,
-            cash DOUBLE PRECISION,
-            groupe TEXT
-        );
-    '''))
-    session.execute(text('''
-        CREATE TABLE IF NOT EXISTS portfolio (
-            username TEXT,
-            ticker TEXT,
-            shares INT,
-            avg_price DOUBLE PRECISION,
-            PRIMARY KEY(username, ticker)
-        );
-    '''))
-    session.execute(text('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id SERIAL PRIMARY KEY,
-            username TEXT,
-            ticker TEXT,
-            type TEXT,
-            shares INT,
-            price DOUBLE PRECISION,
-            total DOUBLE PRECISION,
-            timestamp TEXT
-        );
-    '''))
-    session.commit()
+# Création automatique des tables (exécutée UNE SEULE FOIS au démarrage)
+@st.cache_resource
+def init_db():
+    with conn.session as session:
+        try:
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password TEXT,
+                    cash DOUBLE PRECISION,
+                    groupe TEXT
+                );
+            '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS portfolio (
+                    username TEXT,
+                    ticker TEXT,
+                    shares INT,
+                    avg_price DOUBLE PRECISION,
+                    PRIMARY KEY(username, ticker)
+                );
+            '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT,
+                    ticker TEXT,
+                    type TEXT,
+                    shares INT,
+                    price DOUBLE PRECISION,
+                    total DOUBLE PRECISION,
+                    timestamp TEXT
+                );
+            '''))
+            session.commit()
+        except Exception:
+            session.rollback()
+
+# Lancement unique de l'initialisation
+init_db()
 
 # --- DESIGN MODERN FINTECH ---
 st.markdown("""
