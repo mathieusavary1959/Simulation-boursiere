@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 import requests
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
@@ -292,6 +291,33 @@ def obtenir_prix_actuel(ticker_symbol):
         return round(float(prix), 4) if prix else None
     except Exception:
         return None
+
+# OPTIMISATION POINT 3 : Téléchargement groupé pour le Classement
+@st.cache_data(ttl=60, show_spinner=False)
+def obtenir_prix_groupes(tickers_list):
+    if not tickers_list:
+        return {}
+    try:
+        clean_tickers = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
+        if not clean_tickers:
+            return {}
+        
+        # Une seule requête réseau pour l'ensemble des titres
+        data = yf.Tickers(" ".join(clean_tickers))
+        prix_dict = {}
+        for tk in clean_tickers:
+            try:
+                info = data.tickers[tk].fast_info
+                px = info.get('lastPrice') or info.get('regularMarketPrice')
+                if px is not None:
+                    prix_dict[tk] = round(float(px), 4)
+                else:
+                    prix_dict[tk] = None
+            except Exception:
+                prix_dict[tk] = None
+        return prix_dict
+    except Exception:
+        return {}
 
 @st.cache_data(ttl=30)
 def obtenir_details_financiers(ticker_symbol):
@@ -768,7 +794,7 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ (POINT 3) ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
@@ -779,11 +805,9 @@ else:
         
         all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=10)
         
-        unique_tickers = all_positions_df['ticker'].unique() if not all_positions_df.empty else []
-        prix_dict = {}
-        for tk in unique_tickers:
-            p_live = obtenir_prix_actuel(tk)
-            prix_dict[tk] = p_live
+        # Récupération ultra-rapide de TOUS les prix en une seule requête groupée
+        unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
+        prix_dict = obtenir_prix_groupes(unique_tickers)
             
         lb = []
         for _, r in users_df.iterrows():
@@ -793,7 +817,7 @@ else:
             u_val_act = 0.0
             if not u_p.empty:
                 for _, row in u_p.iterrows():
-                    tk_sym = row['ticker']
+                    tk_sym = str(row['ticker']).upper()
                     px = prix_dict.get(tk_sym)
                     px_f = px if px is not None else float(row['avg_price'] or 0.0)
                     u_val_act += px_f * row['shares']
