@@ -79,7 +79,6 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* Fond principal assombri pour meilleur contraste */
     .stApp {
         background-color: #E2E8F0 !important;
         color: #0F172A !important;
@@ -124,7 +123,6 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Cartes Métriques à fort relief */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF !important;
         border: 1.5px solid #CBD5E1 !important;
@@ -154,7 +152,6 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* Onglets mieux définis */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px !important;
         background-color: #CBD5E1 !important;
@@ -187,7 +184,6 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Boutons */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
@@ -204,7 +200,6 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
-    /* Champs de texte et sélecteurs */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #FFFFFF !important;
         color: #0F172A !important;
@@ -214,7 +209,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Style du sélecteur d'horizon (Pills) */
     div[data-testid="stRadio"] > label {
         font-weight: 800 !important;
         color: #334155 !important;
@@ -236,7 +230,6 @@ st.markdown("""
         font-size: 0.88rem !important;
     }
 
-    /* Tableaux haute lisibilité */
     .custom-table {
         width: 100%;
         border-collapse: collapse;
@@ -270,7 +263,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES (30s) ---
+# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
@@ -319,7 +312,8 @@ def obtenir_details_financiers(ticker_symbol):
         }
     except Exception: return None
 
-@st.cache_data(ttl=180)
+# Extrait les données avec un cache de 5 minutes pour basculer instantanément sans latence réseau
+@st.cache_data(ttl=300, show_spinner=False)
 def obtenir_historique(ticker_symbol, periode):
     try:
         interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
@@ -430,76 +424,77 @@ else:
                 chart_color = "#10B981" if var >= 0 else "#EF4444"
                 fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
                 signe = "+" if var >= 0 else ""
-                
-                # Format dynamique pour les titres
                 fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
 
                 col_chart, col_order = st.columns([2.2, 1])
+                
                 with col_chart:
                     st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
-                    
-                    period_map = {
-                        "1d": "1 Jour",
-                        "5d": "5 Jours",
-                        "1mo": "1 Mois",
-                        "3mo": "3 Mois",
-                        "6mo": "6 Mois",
-                        "1y": "1 An"
-                    }
-                    
-                    selected_period = st.radio(
-                        "Horizon d'analyse",
-                        options=list(period_map.keys()),
-                        format_func=lambda x: period_map[x],
-                        horizontal=True,
-                        key="horizon_selector"
-                    )
 
-                    df_hist = obtenir_historique(selected_ticker, selected_period)
-                    if df_hist is not None and not df_hist.empty:
-                        # --- ADAPTATION DYNAMIQUE DE L'ÉCHELLE Y ---
-                        min_p = float(df_hist['Close'].min())
-                        max_p = float(df_hist['Close'].max())
-                        delta = max_p - min_p
+                    # --- FRAGMENT DU GRAPHIQUE (Mise à jour ultra-rapide et locale) ---
+                    @st.fragment
+                    def afficher_graphique_interactif(ticker):
+                        period_map = {
+                            "1d": "1 Jour",
+                            "5d": "5 Jours",
+                            "1mo": "1 Mois",
+                            "3mo": "3 Mois",
+                            "6mo": "6 Mois",
+                            "1y": "1 An"
+                        }
                         
-                        # Calcule une marge de 8% pour éviter que la courbe ne touche les bords
-                        padding = delta * 0.08 if delta > 0 else min_p * 0.02
-                        y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
-                        y_max = max_p + padding
-
-                        # Précision adaptative (4 décimales si < 1$, sinon 2 décimales)
-                        tick_fmt = "$.4f" if max_p < 1 else "$.2f"
-
-                        fig = go.Figure()
-                        
-                        fig.add_trace(go.Scatter(
-                            x=df_hist.index,
-                            y=df_hist['Close'],
-                            mode='lines',
-                            line=dict(color=chart_color, width=2.5),
-                            fill='tozeroy',
-                            fillcolor=fill_color,
-                            hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
-                        ))
-                        
-                        fig.update_layout(
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            height=340,
-                            margin=dict(l=10, r=10, t=10, b=10),
-                            xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
-                            yaxis=dict(
-                                range=[y_min, y_max],  # Zoom dynamique automatique !
-                                showgrid=True, 
-                                gridcolor='#CBD5E1', 
-                                gridwidth=0.8, 
-                                zeroline=False, 
-                                side="right",
-                                tickformat=tick_fmt
-                            ),
-                            font=dict(color="#334155", family="Plus Jakarta Sans")
+                        selected_period = st.radio(
+                            "Horizon d'analyse",
+                            options=list(period_map.keys()),
+                            format_func=lambda x: period_map[x],
+                            horizontal=True,
+                            key=f"horizon_{ticker}"
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+
+                        df_hist = obtenir_historique(ticker, selected_period)
+                        if df_hist is not None and not df_hist.empty:
+                            min_p = float(df_hist['Close'].min())
+                            max_p = float(df_hist['Close'].max())
+                            delta = max_p - min_p
+                            
+                            padding = delta * 0.08 if delta > 0 else min_p * 0.02
+                            y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
+                            y_max = max_p + padding
+
+                            tick_fmt = "$.4f" if max_p < 1 else "$.2f"
+
+                            fig = go.Figure()
+                            
+                            fig.add_trace(go.Scatter(
+                                x=df_hist.index,
+                                y=df_hist['Close'],
+                                mode='lines',
+                                line=dict(color=chart_color, width=2.5),
+                                fill='tozeroy',
+                                fillcolor=fill_color,
+                                hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
+                            ))
+                            
+                            fig.update_layout(
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                height=340,
+                                margin=dict(l=10, r=10, t=10, b=10),
+                                xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
+                                yaxis=dict(
+                                    range=[y_min, y_max],
+                                    showgrid=True, 
+                                    gridcolor='#CBD5E1', 
+                                    gridwidth=0.8, 
+                                    zeroline=False, 
+                                    side="right",
+                                    tickformat=tick_fmt
+                                ),
+                                font=dict(color="#334155", family="Plus Jakarta Sans")
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                    afficher_graphique_interactif(selected_ticker)
 
                 with col_order:
                     st.markdown("### Passer un ordre")
