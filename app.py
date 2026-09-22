@@ -70,7 +70,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN MODERNE ---
+# --- DESIGN HAUT CONTRASTE & SOIGNÉ ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -79,8 +79,9 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
+    /* Fond principal assombri pour meilleur contraste */
     .stApp {
-        background-color: #F8FAFC !important;
+        background-color: #E2E8F0 !important;
         color: #0F172A !important;
     }
 
@@ -91,12 +92,12 @@ st.markdown("""
         border-radius: 20px;
         padding: 24px 32px;
         color: #FFFFFF;
-        margin-bottom: 28px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
+        margin-bottom: 24px;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid #334155;
     }
     .brand-title {
         font-size: 1.9rem;
@@ -123,17 +124,19 @@ st.markdown("""
         text-transform: uppercase;
     }
 
+    /* Cartes Métriques à fort relief */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF !important;
-        border: 1px solid #E2E8F0 !important;
+        border: 1.5px solid #CBD5E1 !important;
         border-radius: 18px !important;
         padding: 18px 20px !important;
-        box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.04) !important;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08) !important;
         transition: all 0.25s ease !important;
     }
     div[data-testid="stMetric"]:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 20px -4px rgba(15, 23, 42, 0.08) !important;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12) !important;
+        border-color: #94A3B8 !important;
     }
     div[data-testid="stMetricValue"] {
         font-size: 1.6rem !important;
@@ -144,26 +147,27 @@ st.markdown("""
         overflow: visible !important;
     }
     div[data-testid="stMetricLabel"] {
-        color: #64748B !important;
-        font-size: 0.75rem;
+        color: #475569 !important;
+        font-size: 0.78rem;
         text-transform: uppercase;
-        font-weight: 700;
+        font-weight: 800;
         letter-spacing: 0.06em;
     }
 
+    /* Onglets mieux définis */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px !important;
-        background-color: #F1F5F9 !important;
+        background-color: #CBD5E1 !important;
         padding: 6px !important;
         border-radius: 16px !important;
-        border: 1px solid #E2E8F0 !important;
-        margin-bottom: 28px !important;
+        border: 1px solid #94A3B8 !important;
+        margin-bottom: 24px !important;
     }
     .stTabs [data-baseweb="tab"] {
         height: auto !important;
         background-color: transparent !important;
         border-radius: 12px !important;
-        color: #64748B !important;
+        color: #334155 !important;
         padding: 10px 22px !important;
         font-weight: 700 !important;
         font-size: 0.9rem !important;
@@ -177,12 +181,13 @@ st.markdown("""
     .stTabs [aria-selected="true"] {
         background-color: #FFFFFF !important;
         color: #2563EB !important;
-        box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.15) !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2) !important;
     }
     .stTabs [data-baseweb="tab-border"], .stTabs [data-baseweb="tab-highlight"] {
         display: none !important;
     }
 
+    /* Boutons */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
@@ -198,54 +203,52 @@ st.markdown("""
         box-shadow: 0 6px 0 #1E40AF, 0 10px 20px rgba(37, 99, 235, 0.3) !important;
         transform: translateY(-2px);
     }
-    .stButton>button:active, div[data-testid="stFormSubmitButton"]>button:active {
-        transform: translateY(3px) !important;
-        box-shadow: 0 1px 0 #1E40AF, 0 3px 6px rgba(37, 99, 235, 0.2) !important;
-    }
 
+    /* Champs de texte et sélecteurs */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #FFFFFF !important;
         color: #0F172A !important;
         border-radius: 12px !important;
-        border: 1px solid #CBD5E1 !important;
+        border: 1.5px solid #94A3B8 !important;
         padding: 11px 16px !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
     }
 
+    /* Tableaux haute lisibilité */
     .custom-table {
         width: 100%;
         border-collapse: collapse;
         background-color: #FFFFFF;
         border-radius: 14px;
         overflow: hidden;
-        border: 1px solid #E2E8F0;
+        border: 1.5px solid #CBD5E1;
         margin-bottom: 24px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        box-shadow: 0 4px 14px rgba(0,0,0,0.05);
     }
     .custom-table th {
         background-color: #F1F5F9;
-        color: #475569;
-        font-weight: 700;
+        color: #1E293B;
+        font-weight: 800;
         padding: 14px 18px;
         text-align: left;
-        border-bottom: 1px solid #E2E8F0;
+        border-bottom: 1.5px solid #CBD5E1;
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: 0.78rem;
         letter-spacing: 0.05em;
     }
     .custom-table td {
         padding: 14px 18px;
-        border-bottom: 1px solid #F1F5F9;
+        border-bottom: 1px solid #E2E8F0;
         color: #0F172A;
-        font-weight: 500;
-        font-size: 0.92rem;
+        font-weight: 600;
+        font-size: 0.93rem;
     }
 
-    hr { border-color: #E2E8F0 !important; margin: 30px 0 !important; }
+    hr { border-color: #CBD5E1 !important; margin: 28px 0 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES (TTL AUGMENTÉ À 30s) ---
+# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES (30s) ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
@@ -298,7 +301,7 @@ def obtenir_historique(ticker_symbol, periode):
     try: return yf.Ticker(ticker_symbol).history(period=periode)
     except Exception: return None
 
-# --- GESTION DE SESSION SÉCURISÉE (SANS URL) ---
+# --- GESTION DE SESSION SÉCURISÉE ---
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
@@ -352,16 +355,22 @@ else:
     groupe_actuel = res_u.iloc[0]['groupe'] if not res_u.empty else "Non assigné"
 
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #64748B; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#E2E8F0; color:#0F172A; padding:3px 12px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
+    col_h1.markdown(f"<p style='color: #475569; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#CBD5E1; color:#0F172A; padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
         st.rerun()
 
-    # --- COMPOSANT DES CARTES MÉTRIQUES (RAFRAÎCHISSEMENT TOUTES LES 30s) ---
+    # --- METRIQUES LIVE (SECOURS SI PRIX INDISPONIBLE) ---
     @st.fragment(run_every="30s")
     def afficher_metrics_live():
-        pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-        valeur_actions = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df.iterrows())
+        pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+        valeur_actions = 0.0
+        for _, row in pos_df.iterrows():
+            px_actuel = obtenir_prix_actuel(row['ticker'])
+            # Fallback sur le prix d'achat si le flux en direct prend une seconde à répondre
+            px_final = px_actuel if px_actuel is not None else float(row['avg_price'] or 0.0)
+            valeur_actions += px_final * row['shares']
+
         valeur_totale = cash_actuel + valeur_actions
         profit_total = valeur_totale - 10000.00
         rendement_pct = (profit_total / 10000.00) * 100
@@ -378,7 +387,7 @@ else:
 
     tab_trade, tab_port, tab_hist, tab_rank, tab_teacher = st.tabs(["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"])
 
-    # --- ONGLET 1 : MARCHE & ACHAT/VENTE (SÉCURISÉ) ---
+    # --- ONGLET 1 : MARCHE & ACHAT/VENTE ---
     with tab_trade:
         search_query = st.text_input("Rechercher une action ou entreprise", "Apple")
         selected_ticker = None
@@ -405,7 +414,7 @@ else:
                     df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
                         fig = go.Figure(go.Scatter(x=df_hist.index, y=df_hist['Close'], mode='lines', line=dict(color=chart_color, width=3)))
-                        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=10, b=0), font=dict(color="#64748B"))
+                        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=10, b=0), font=dict(color="#475569"))
                         st.plotly_chart(fig, use_container_width=True)
 
                 with col_order:
@@ -539,8 +548,13 @@ else:
 
         @st.fragment(run_every="30s")
         def afficher_positions_live():
-            pos_df_live = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-            val_actions_live = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df_live.iterrows())
+            pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            val_actions_live = 0.0
+            for _, r in pos_df_live.iterrows():
+                px_a = obtenir_prix_actuel(r['ticker'])
+                px_f = px_a if px_a is not None else float(r['avg_price'] or 0.0)
+                val_actions_live += px_f * r['shares']
+
             val_totale_live = cash_actuel + val_actions_live
             prof_total_live = val_totale_live - 10000.00
             rend_pct_live = (prof_total_live / 10000.00) * 100
@@ -606,8 +620,8 @@ else:
 
                 for _, r in p_all.iterrows():
                     tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
-                    pa = obtenir_prix_actuel(tk) or 0.0
-                    pm = pm or pa
+                    pa_live = obtenir_prix_actuel(tk)
+                    pa = pa_live if pa_live is not None else pm
                     val = sh * pa
                     pnl = (pa - pm) * sh
                     pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
@@ -668,7 +682,7 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ET SÉCURISÉ ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ (CHARGEMENT ULTRA-RAPIDE) ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
@@ -677,13 +691,27 @@ else:
         else:
             users_df = conn.query("SELECT username, cash, groupe FROM users WHERE groupe=:g", params={"g": grp_filter}, ttl=10)
         
-        all_positions_df = conn.query("SELECT username, ticker, shares FROM portfolio", ttl=10)
+        all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=10)
         
+        # Dictionnaire global des prix pour éviter de solliciter Yahoo à chaque élève
+        unique_tickers = all_positions_df['ticker'].unique() if not all_positions_df.empty else []
+        prix_dict = {}
+        for tk in unique_tickers:
+            p_live = obtenir_prix_actuel(tk)
+            prix_dict[tk] = p_live  # Peut être None, géré plus bas
+            
         lb = []
         for _, r in users_df.iterrows():
             u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
             u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
-            u_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in u_p.iterrows()) if not u_p.empty else 0.0
+            
+            u_val_act = 0.0
+            if not u_p.empty:
+                for _, row in u_p.iterrows():
+                    tk_sym = row['ticker']
+                    px = prix_dict.get(tk_sym)
+                    px_f = px if px is not None else float(row['avg_price'] or 0.0)
+                    u_val_act += px_f * row['shares']
             
             tot = u_cash + u_val_act
             perf = ((tot - 10000.00) / 10000.00) * 100
@@ -721,8 +749,8 @@ else:
                         tk = str(row['ticker'])
                         sh = int(row['shares'])
                         pm = float(row['avg_price'] or 0.0)
-                        pa = obtenir_prix_actuel(tk) or 0.0
-                        pm = pm or pa
+                        pa_live = obtenir_prix_actuel(tk)
+                        pa = pa_live if pa_live is not None else pm
                         val = sh * pa
                         pnl = (pa - pm) * sh
                         pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
