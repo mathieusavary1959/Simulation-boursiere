@@ -245,7 +245,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES ---
+# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES (TTL AUGMENTÉ À 30s) ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
@@ -266,7 +266,7 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
     try:
         data = yf.Ticker(ticker_symbol).fast_info
@@ -275,7 +275,7 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=30)
 def obtenir_details_financiers(ticker_symbol):
     try:
         info = yf.Ticker(ticker_symbol).fast_info
@@ -298,12 +298,9 @@ def obtenir_historique(ticker_symbol, periode):
     try: return yf.Ticker(ticker_symbol).history(period=periode)
     except Exception: return None
 
-# --- GESTION DE SESSION AVEC PERSISTENCE PAR URL ---
-if 'user' not in st.session_state or st.session_state['user'] is None:
-    if "user" in st.query_params:
-        st.session_state['user'] = st.query_params["user"]
-    else:
-        st.session_state['user'] = None
+# --- GESTION DE SESSION SÉCURISÉE (SANS URL) ---
+if 'user' not in st.session_state:
+    st.session_state['user'] = None
 
 # BANNIÈRE D'EN-TÊTE
 st.markdown("""
@@ -329,7 +326,6 @@ if st.session_state['user'] is None:
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
                         st.session_state['user'] = u_login.strip()
-                        st.query_params["user"] = u_login.strip()
                         st.rerun()
                     else: st.error("Identifiants incorrects.")
 
@@ -359,11 +355,10 @@ else:
     col_h1.markdown(f"<p style='color: #64748B; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#E2E8F0; color:#0F172A; padding:3px 12px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
-        st.query_params.clear()
         st.rerun()
 
-    # --- COMPOSANT DES CARTES MÉTRIQUES ---
-    @st.fragment(run_every="10s")
+    # --- COMPOSANT DES CARTES MÉTRIQUES (RAFRAÎCHISSEMENT TOUTES LES 30s) ---
+    @st.fragment(run_every="30s")
     def afficher_metrics_live():
         pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         valeur_actions = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df.iterrows())
@@ -421,12 +416,10 @@ else:
 
                     col_b, col_s = st.columns(2)
                     
-                    # --- BOUTON ACHETER AVEC ANTI-SPAM ---
                     if col_b.button("Acheter", use_container_width=True):
                         if not verifier_cooldown(user, delai_secondes=3):
                             st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
                         else:
-                            # Re-vérification du cash réel en BDD à l'instant T
                             c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
                             cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
                             
@@ -446,17 +439,15 @@ else:
                                         session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'ACHAT', :s, :p, :tot, :time)"),
                                                         {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
                                         session.commit()
-                                    time.sleep(1) # Pause de sécurité UI
+                                    time.sleep(1)
                                 st.success(f"Achat de {qty} {selected_ticker.upper()} effectué !")
                                 st.rerun()
                             else: st.error("Fonds insuffisants.")
 
-                    # --- BOUTON VENDRE AVEC ANTI-SPAM ---
                     if col_s.button("Vendre", use_container_width=True):
                         if not verifier_cooldown(user, delai_secondes=3):
                             st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
                         else:
-                            # Re-vérification des actions réelles possédées en BDD à l'instant T
                             p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                             shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
@@ -473,7 +464,7 @@ else:
                                         session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
                                                         {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
                                         session.commit()
-                                    time.sleep(1) # Pause de sécurité UI
+                                    time.sleep(1)
                                 st.success(f"Vente de {qty} {selected_ticker.upper()} effectuée !")
                                 st.rerun()
                             else: st.error("Vous ne possédez pas cette quantité d'actions.")
@@ -546,7 +537,7 @@ else:
             </style>
         """, unsafe_allow_html=True)
 
-        @st.fragment(run_every="10s")
+        @st.fragment(run_every="30s")
         def afficher_positions_live():
             pos_df_live = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
             val_actions_live = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df_live.iterrows())
@@ -645,7 +636,6 @@ else:
                         if not verifier_cooldown(user, delai_secondes=3):
                             st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
                         else:
-                            # Re-vérification BDD en temps réel
                             check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk_v}, ttl=0)
                             sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
 
@@ -678,14 +668,16 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ET SÉCURISÉ ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
-        query_u = "SELECT username, cash, groupe FROM users" if grp_filter == "Tous les groupes" else f"SELECT username, cash, groupe FROM users WHERE groupe='{grp_filter}'"
-        users_df = conn.query(query_u, ttl=5)
+        if grp_filter == "Tous les groupes":
+            users_df = conn.query("SELECT username, cash, groupe FROM users", ttl=10)
+        else:
+            users_df = conn.query("SELECT username, cash, groupe FROM users WHERE groupe=:g", params={"g": grp_filter}, ttl=10)
         
-        all_positions_df = conn.query("SELECT username, ticker, shares FROM portfolio", ttl=5)
+        all_positions_df = conn.query("SELECT username, ticker, shares FROM portfolio", ttl=10)
         
         lb = []
         for _, r in users_df.iterrows():
@@ -705,13 +697,17 @@ else:
             df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
             st.dataframe(df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']], use_container_width=True, hide_index=True)
 
-    # --- ONGLET 5 : SUPERVISION PROFESSEUR (AVEC BOUTON RESET ÉLÈVE) ---
+    # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
     with tab_teacher:
         pin = st.text_input("PIN Enseignant :", type="password") if user.lower() not in ['prof', 'admin'] else "1959"
         if pin == "1959":
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
-            q_e = "SELECT username FROM users ORDER BY username" if grp_p == "Tous les groupes" else f"SELECT username FROM users WHERE groupe='{grp_p}' ORDER BY username"
-            e_list = conn.query(q_e, ttl=5)['username'].tolist()
+            
+            if grp_p == "Tous les groupes":
+                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=5)['username'].tolist()
+            else:
+                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=5)['username'].tolist()
+                
             if e_list:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
                 e_data = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0).iloc[0]
@@ -750,7 +746,6 @@ else:
                 with col_top_prof1:
                     st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
                 with col_top_prof2:
-                    # BOUTON POUR CORRIGER/RÉINITIALISER L'ÉLÈVE
                     if st.button(f"⚠️ Réinitialiser {e_sel} (10 000 $)", use_container_width=True):
                         with conn.session as session:
                             session.execute(text("UPDATE users SET cash = 10000.00 WHERE username = :u"), {"u": e_sel})
@@ -760,7 +755,6 @@ else:
                         st.success(f"Le compte de {e_sel} a été réinitialisé à 10 000 $ !")
                         st.rerun()
 
-                # Métriques globales de l'élève
                 col_t1, col_t2, col_t3, col_t4 = st.columns(4)
                 col_t1.metric("Disponible (Cash)", f"${e_cash:,.2f}")
                 col_t2.metric("Actions Possédées", f"${e_val_act:,.2f}")
