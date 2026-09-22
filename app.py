@@ -238,7 +238,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- RECHERCHE UNIVERSELLE & DONNÉES FINANCIÈRES ---
+# --- RECHERCHE UNIVERSELLE & DONNÉES FINANCIÈRES (TTL RÉDUIT À 5 SECONDES) ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
@@ -259,12 +259,12 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=5)  # Mis à jour à 5 secondes pour rafraîchissement temps réel
 def obtenir_prix_actuel(ticker_symbol):
     try: return round(float(yf.Ticker(ticker_symbol).fast_info['lastPrice']), 2)
     except Exception: return None
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=5)  # Mis à jour à 5 secondes
 def obtenir_details_financiers(ticker_symbol):
     try:
         info = yf.Ticker(ticker_symbol).fast_info
@@ -287,9 +287,12 @@ def obtenir_historique(ticker_symbol, periode):
     try: return yf.Ticker(ticker_symbol).history(period=periode)
     except Exception: return None
 
-# --- GESTION DE SESSION ---
-if 'user' not in st.session_state:
-    st.session_state['user'] = None
+# --- GESTION DE SESSION AVEC PERSISTENCE PAR URL (CONSERVE LA CONNEXION APRÈS F5) ---
+if 'user' not in st.session_state or st.session_state['user'] is None:
+    if "user" in st.query_params:
+        st.session_state['user'] = st.query_params["user"]
+    else:
+        st.session_state['user'] = None
 
 # BANNIÈRE D'EN-TÊTE
 st.markdown("""
@@ -315,6 +318,7 @@ if st.session_state['user'] is None:
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
                         st.session_state['user'] = u_login.strip()
+                        st.query_params["user"] = u_login.strip()  # Enregistre dans l'URL pour garder la session
                         st.rerun()
                     else: st.error("Identifiants incorrects.")
 
@@ -340,23 +344,29 @@ else:
     cash_actuel = float(res_u.iloc[0]['cash']) if not res_u.empty else 10000.00
     groupe_actuel = res_u.iloc[0]['groupe'] if not res_u.empty else "Non assigné"
 
-    pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-    valeur_actions = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df.iterrows())
-    valeur_totale = cash_actuel + valeur_actions
-    profit_total = valeur_totale - 10000.00
-    rendement_pct = (profit_total / 10000.00) * 100
-
     col_h1, col_h2 = st.columns([4, 1])
     col_h1.markdown(f"<p style='color: #64748B; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#E2E8F0; color:#0F172A; padding:3px 12px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
+        st.query_params.clear()  # Efface l'URL lors de la déconnexion
         st.rerun()
 
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("Disponible", f"${cash_actuel:,.2f}")
-    col_m2.metric("Actions", f"${valeur_actions:,.2f}")
-    col_m3.metric("Valeur Totale", f"${valeur_totale:,.2f}")
-    col_m4.metric("Gains / Pertes", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
+    # --- COMPOSANT DES CARTES MÉTRIQUES (RAFRAÎCHISSEMENT AUTO TOUTES LES 5S) ---
+    @st.fragment(run_every="5s")
+    def afficher_metrics_live():
+        pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+        valeur_actions = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df.iterrows())
+        valeur_totale = cash_actuel + valeur_actions
+        profit_total = valeur_totale - 10000.00
+        rendement_pct = (profit_total / 10000.00) * 100
+
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Disponible", f"${cash_actuel:,.2f}")
+        col_m2.metric("Actions", f"${valeur_actions:,.2f}")
+        col_m3.metric("Valeur Totale", f"${valeur_totale:,.2f}")
+        col_m4.metric("Gains / Pertes", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
+
+    afficher_metrics_live()
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -436,7 +446,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
+    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO (RAFRAÎCHISSEMENT AUTO TOUTES LES 5S) ---
     with tab_port:
         st.markdown("""
             <style>
@@ -504,109 +514,120 @@ else:
             </style>
         """, unsafe_allow_html=True)
 
-        date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
-        pnl_color_print = "#10B981" if profit_total >= 0 else "#EF4444"
+        # COMPOSANT DES POSITIONS MIS À JOUR EN TEMPS RÉEL (TOUTES LES 5 SECONDES)
+        @st.fragment(run_every="5s")
+        def afficher_positions_live():
+            pos_df_live = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            val_actions_live = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df_live.iterrows())
+            val_totale_live = cash_actuel + val_actions_live
+            prof_total_live = val_totale_live - 10000.00
+            rend_pct_live = (prof_total_live / 10000.00) * 100
 
-        # EN-TÊTE DÉDIÉ IMPRESSION ET PDF (CONTIENT LES 4 MONTANTS)
-        st.markdown(f"""
-            <div class="print-header">
-                <div style="border-bottom: 2px solid #0F172A; padding-bottom: 10px; margin-bottom: 14px;">
-                    <h2 style="margin:0; color:#0F172A; font-size: 1.5rem; font-weight:800;">Rapport de Portefeuille Boursier — Monde & Finance</h2>
-                    <p style="margin:6px 0 0 0; font-size:1rem; color:#334155;">
-                        <b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date d'impression :</b> {date_impression}
-                    </p>
+            date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
+            pnl_color_print = "#10B981" if prof_total_live >= 0 else "#EF4444"
+
+            # EN-TÊTE DÉDIÉ IMPRESSION
+            st.markdown(f"""
+                <div class="print-header">
+                    <div style="border-bottom: 2px solid #0F172A; padding-bottom: 10px; margin-bottom: 14px;">
+                        <h2 style="margin:0; color:#0F172A; font-size: 1.5rem; font-weight:800;">Rapport de Portefeuille Boursier — Monde & Finance</h2>
+                        <p style="margin:6px 0 0 0; font-size:1rem; color:#334155;">
+                            <b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date d'impression :</b> {date_impression}
+                        </p>
+                    </div>
+                    <table class="print-summary-table">
+                        <thead>
+                            <tr>
+                                <th>Disponible (Cash)</th>
+                                <th>Actions Possédées</th>
+                                <th>Valeur Totale</th>
+                                <th>Gains / Pertes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><b>${cash_actuel:,.2f}</b></td>
+                                <td><b>${val_actions_live:,.2f}</b></td>
+                                <td><b>${val_totale_live:,.2f}</b></td>
+                                <td style="color:{pnl_color_print};"><b>${prof_total_live:+,.2f} ({rend_pct_live:+.2f}%)</b></td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-                <table class="print-summary-table">
-                    <thead>
-                        <tr>
-                            <th>Disponible (Cash)</th>
-                            <th>Actions Possédées</th>
-                            <th>Valeur Totale</th>
-                            <th>Gains / Pertes</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><b>${cash_actuel:,.2f}</b></td>
-                            <td><b>${valeur_actions:,.2f}</b></td>
-                            <td><b>${valeur_totale:,.2f}</b></td>
-                            <td style="color:{pnl_color_print};"><b>${profit_total:+,.2f} ({rendement_pct:+.2f}%)</b></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-        col_p1, col_p2 = st.columns([3, 1])
-        with col_p1:
-            st.markdown("### Mes Positions Actuelles")
-        with col_p2:
-            components.html("""
-                <button onclick="window.parent.print()" style="
-                    background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
-                    color: #FFFFFF;
-                    border: none;
-                    padding: 10px 18px;
-                    border-radius: 12px;
-                    font-weight: 700;
-                    cursor: pointer;
-                    width: 100%;
-                    font-family: 'Plus Jakarta Sans', sans-serif;
-                    box-shadow: 0 4px 0 #020617, 0 6px 12px rgba(15, 23, 42, 0.2);
-                    transition: all 0.12s ease;
-                " onmousedown="this.style.transform='translateY(3px)'; this.style.boxShadow='0 1px 0 #020617'" onmouseup="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 0 #020617, 0 6px 12px rgba(15, 23, 42, 0.2)'">
-                    🖨️ Imprimer / PDF
-                </button>
-            """, height=45)
+            col_p1, col_p2 = st.columns([3, 1])
+            with col_p1:
+                st.markdown("### Mes Positions Actuelles")
+            with col_p2:
+                components.html("""
+                    <button onclick="window.parent.print()" style="
+                        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
+                        color: #FFFFFF;
+                        border: none;
+                        padding: 10px 18px;
+                        border-radius: 12px;
+                        font-weight: 700;
+                        cursor: pointer;
+                        width: 100%;
+                        font-family: 'Plus Jakarta Sans', sans-serif;
+                        box-shadow: 0 4px 0 #020617, 0 6px 12px rgba(15, 23, 42, 0.2);
+                        transition: all 0.12s ease;
+                    " onmousedown="this.style.transform='translateY(3px)'; this.style.boxShadow='0 1px 0 #020617'" onmouseup="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 0 #020617, 0 6px 12px rgba(15, 23, 42, 0.2)'">
+                        🖨️ Imprimer / PDF
+                    </button>
+                """, height=45)
 
-        p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-        if not p_all.empty:
-            options_vente = {}
-            html_rows = ""
+            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            if not p_all.empty:
+                options_vente = {}
+                html_rows = ""
 
-            for _, r in p_all.iterrows():
-                tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
-                pa = obtenir_prix_actuel(tk) or 0.0
-                pm = pm or pa
-                val = sh * pa
-                pnl = (pa - pm) * sh
-                pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
+                for _, r in p_all.iterrows():
+                    tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
+                    pa = obtenir_prix_actuel(tk) or 0.0
+                    pm = pm or pa
+                    val = sh * pa
+                    pnl = (pa - pm) * sh
+                    pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
 
-                pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
-                options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
+                    pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
+                    options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
 
-                html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>${pm:,.2f}</td><td>${pa:,.2f}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
+                    html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>${pm:,.2f}</td><td>${pa:,.2f}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
 
-            table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
-            st.markdown(table_html, unsafe_allow_html=True)
+                table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
+                st.markdown(table_html, unsafe_allow_html=True)
 
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown("### 💸 Vendre rapidement mes positions")
+                st.markdown("<hr>", unsafe_allow_html=True)
+                st.markdown("### 💸 Vendre rapidement mes positions")
 
-            col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
-            with col_v1:
-                choix_v = st.selectbox("Sélectionnez l'action à vendre :", list(options_vente.keys()))
-                tk_v, max_sh, pa_v = options_vente[choix_v]
-            with col_v2:
-                qty_v = st.number_input("Quantité à vendre :", min_value=1, max_value=max_sh, value=min(1, max_sh), step=1)
-            with col_v3:
-                st.markdown("<br>", unsafe_allow_html=True)
-                total_vente = qty_v * pa_v
-                if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
-                    now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                    with conn.session as session:
-                        session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_vente, "u": user})
-                        rem = max_sh - qty_v
-                        if rem > 0:
-                            session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
-                        else:
-                            session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
-                        session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
-                                        {"u": user, "t": tk_v, "s": qty_v, "p": pa_v, "tot": total_vente, "time": now_str})
-                        session.commit()
-                    st.success(f"Vente de {qty_v} action(s) {tk_v} confirmée !")
-                    st.rerun()
-        else: st.info("Vous n'avez aucune position ouverte actuellement.")
+                col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
+                with col_v1:
+                    choix_v = st.selectbox("Sélectionnez l'action à vendre :", list(options_vente.keys()))
+                    tk_v, max_sh, pa_v = options_vente[choix_v]
+                with col_v2:
+                    qty_v = st.number_input("Quantité à vendre :", min_value=1, max_value=max_sh, value=min(1, max_sh), step=1)
+                with col_v3:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    total_vente = qty_v * pa_v
+                    if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
+                        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                        with conn.session as session:
+                            session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_vente, "u": user})
+                            rem = max_sh - qty_v
+                            if rem > 0:
+                                session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
+                            else:
+                                session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
+                            session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
+                                            {"u": user, "t": tk_v, "s": qty_v, "p": pa_v, "tot": total_vente, "time": now_str})
+                            session.commit()
+                        st.success(f"Vente de {qty_v} action(s) {tk_v} confirmée !")
+                        st.rerun()
+            else: st.info("Vous n'avez aucune position ouverte actuellement.")
+
+        afficher_positions_live()
 
     # --- ONGLET 3 : HISTORIQUE ---
     with tab_hist:
