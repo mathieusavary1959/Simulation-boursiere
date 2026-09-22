@@ -214,6 +214,28 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
+    /* Style personnalisé du sélecteur d'horizon (Radio horizontal) */
+    div[data-testid="stRadio"] > label {
+        font-weight: 800 !important;
+        color: #334155 !important;
+        font-size: 0.85rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 6px;
+    }
+    div[data-testid="stRadio"] > div {
+        flex-direction: row !important;
+        gap: 8px !important;
+        background-color: #FFFFFF;
+        padding: 6px;
+        border-radius: 14px;
+        border: 1.5px solid #CBD5E1;
+    }
+    div[data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {
+        font-weight: 700 !important;
+        font-size: 0.88rem !important;
+    }
+
     /* Tableaux haute lisibilité */
     .custom-table {
         width: 100%;
@@ -298,7 +320,10 @@ def obtenir_details_financiers(ticker_symbol):
 
 @st.cache_data(ttl=180)
 def obtenir_historique(ticker_symbol, periode):
-    try: return yf.Ticker(ticker_symbol).history(period=periode)
+    try:
+        # Adaptation dynamique de l'intervalle pour 1d et 5d
+        interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
+        return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
 
 # --- GESTION DE SESSION SÉCURISÉE ---
@@ -367,7 +392,6 @@ else:
         valeur_actions = 0.0
         for _, row in pos_df.iterrows():
             px_actuel = obtenir_prix_actuel(row['ticker'])
-            # Fallback sur le prix d'achat si le flux en direct prend une seconde à répondre
             px_final = px_actuel if px_actuel is not None else float(row['avg_price'] or 0.0)
             valeur_actions += px_final * row['shares']
 
@@ -404,17 +428,55 @@ else:
             if details:
                 prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
                 chart_color = "#10B981" if var >= 0 else "#EF4444"
+                fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
                 signe = "+" if var >= 0 else ""
 
                 col_chart, col_order = st.columns([2.2, 1])
                 with col_chart:
                     st.markdown(f"### {selected_ticker} — ${prix:,.2f} ({signe}{var_pct:.2f}%)")
-                    period_map = {"1mo": "1 Mois", "3mo": "3 Mois", "6mo": "6 Mois", "1y": "1 An"}
-                    selected_period = st.selectbox("Horizon d'analyse", list(period_map.keys()), format_func=lambda x: period_map[x])
+                    
+                    # Horizon sous forme de sélecteur horizontal moderne (pills)
+                    period_map = {
+                        "1d": "1 Jour",
+                        "5d": "5 Jours",
+                        "1mo": "1 Mois",
+                        "3mo": "3 Mois",
+                        "6mo": "6 Mois",
+                        "1y": "1 An"
+                    }
+                    
+                    selected_period = st.radio(
+                        "Horizon d'analyse",
+                        options=list(period_map.keys()),
+                        format_func=lambda x: period_map[x],
+                        horizontal=True,
+                        key="horizon_selector"
+                    )
+
                     df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
-                        fig = go.Figure(go.Scatter(x=df_hist.index, y=df_hist['Close'], mode='lines', line=dict(color=chart_color, width=3)))
-                        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=10, b=0), font=dict(color="#475569"))
+                        fig = go.Figure()
+                        
+                        # Graphique en aire avec dégradé sous la courbe
+                        fig.add_trace(go.Scatter(
+                            x=df_hist.index,
+                            y=df_hist['Close'],
+                            mode='lines',
+                            line=dict(color=chart_color, width=2.5),
+                            fill='tozeroy',
+                            fillcolor=fill_color,
+                            hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:$.2f}</b><extra></extra>'
+                        ))
+                        
+                        fig.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            height=340,
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
+                            yaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False, side="right"),
+                            font=dict(color="#334155", family="Plus Jakarta Sans")
+                        )
                         st.plotly_chart(fig, use_container_width=True)
 
                 with col_order:
@@ -693,12 +755,11 @@ else:
         
         all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=10)
         
-        # Dictionnaire global des prix pour éviter de solliciter Yahoo à chaque élève
         unique_tickers = all_positions_df['ticker'].unique() if not all_positions_df.empty else []
         prix_dict = {}
         for tk in unique_tickers:
             p_live = obtenir_prix_actuel(tk)
-            prix_dict[tk] = p_live  # Peut être None, géré plus bas
+            prix_dict[tk] = p_live
             
         lb = []
         for _, r in users_df.iterrows():
