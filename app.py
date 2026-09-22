@@ -56,6 +56,36 @@ def init_db():
 
 init_db()
 
+# --- FILTRE DE VALIDATION DES BOURSES NORD-AMÉRICAINES ---
+def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
+    symbol_upper = symbol.upper().strip()
+    
+    # Suffixes boursiers internationaux à bloquer absolument
+    suffixes_interdits = (
+        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX', 
+        '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
+    )
+    if symbol_upper.endswith(suffixes_interdits):
+        return False
+        
+    # Si le symbole contient un point (ex: TD.TO), valider que c'est un marché canadien
+    if '.' in symbol_upper:
+        suffix = symbol_upper.split('.')[-1]
+        if suffix not in ['TO', 'V', 'CN', 'NE']:
+            return False
+
+    # Liste des bourses nord-américaines valides
+    mots_cles_na = [
+        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO', 
+        'VENTURE', 'CBOE', 'AMERICAN', 'PNK', 'NMS', 'NYQ', 'NGM', 'NCM', 'TOR', 'VAN'
+    ]
+    
+    comb = f"{exch_code} {exch_disp}".upper()
+    if comb.strip():
+        return any(kw in comb for kw in mots_cles_na)
+        
+    return True
+
 # --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN) ---
 def verifier_cooldown(username, delai_secondes=3):
     res = conn.query("SELECT timestamp FROM transactions WHERE username=:u ORDER BY id DESC LIMIT 1", params={"u": username}, ttl=0)
@@ -266,7 +296,7 @@ st.markdown("""
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=12&newsCount=0"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     try:
         r = requests.get(url, headers=headers, timeout=4)
@@ -277,8 +307,11 @@ def rechercher_symbole_universel(query):
             shortname = quote.get('shortname') or quote.get('longname') or symbol
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
+            
+            # FILTRAGE : Uniquement actions/ETF nord-américains
             if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
-                results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
+                if est_marche_nord_americain(symbol, exch_code=quote.get('exchange', ''), exch_disp=exch):
+                    results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
         return results
     except Exception:
         return []
@@ -325,6 +358,10 @@ def obtenir_prix_groupes(tickers_list):
 
 @st.cache_data(ttl=30)
 def obtenir_details_financiers(ticker_symbol):
+    # Validation préalable de la bourse
+    if not est_marche_nord_americain(ticker_symbol):
+        return {"erreur": "non_na"}
+
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.fast_info
@@ -351,6 +388,7 @@ def obtenir_details_financiers(ticker_symbol):
         else:
             open_p = float(open_p)
 
+        currency = info.get('currency', 'USD')
         change = last - open_p
         change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
         fmt = ".4f" if last < 1 else ".2f"
@@ -364,6 +402,7 @@ def obtenir_details_financiers(ticker_symbol):
             "Prix": last, 
             "Variation": change, 
             "VariationPct": change_pct,
+            "Devise": currency,
             "Ouverture": f"${open_p:{fmt}}",
             "Plus Haut": f"${high_p:{fmt}}",
             "Plus Bas": f"${low_p:{fmt}}",
@@ -477,12 +516,12 @@ else:
     # --- ONGLET 1 : MARCHE & ACHAT/VENTE ---
     with tab_trade:
         search_query = st.text_input(
-            "🔎 Rechercher une action ou entreprise (ex: Apple, Tesla, NVDA, Microsoft...)",
+            "🔎 Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
             value="",
-            placeholder="Tapez le nom d'une entreprise ou un symbole (ex: AAPL)..."
+            placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
         )
         
-        selected_ticker = "AAPL" # Action par défaut pour garantir que le graphique/achats sont toujours là
+        selected_ticker = "AAPL" # Action par défaut
         
         if search_query and len(search_query.strip()) > 0:
             query_clean = search_query.strip()
@@ -496,8 +535,10 @@ else:
 
         details = obtenir_details_financiers(selected_ticker)
         
-        if details:
-            prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
+        if details == {"erreur": "non_na"}:
+            st.error(f"⚠️ **Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permutées.")
+        elif details:
+            prix, var, var_pct, devise = details["Prix"], details["Variation"], details["VariationPct"], details["Devise"]
             chart_color = "#10B981" if var >= 0 else "#EF4444"
             fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
             signe = "+" if var >= 0 else ""
@@ -506,7 +547,7 @@ else:
             col_chart, col_order = st.columns([2.2, 1])
             
             with col_chart:
-                st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
+                st.markdown(f"### {selected_ticker} — {fmt_prix} {devise} ({signe}{var_pct:.2f}%)")
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -576,7 +617,7 @@ else:
                 st.markdown("### Passer un ordre")
                 qty = st.number_input("Quantité", min_value=1, step=1, value=1)
                 cost_total = prix * qty
-                st.write(f"Total estimé : **${cost_total:,.2f}**")
+                st.write(f"Total estimé : **${cost_total:,.2f} {devise}**")
 
                 col_b, col_s = st.columns(2)
                 
@@ -631,7 +672,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
         else:
-            st.error(f"⚠️ Impossible de charger les données financières pour '{selected_ticker}'. Vérifiez le symbole boursier (ex: AAPL, TSLA, MSFT).")
+            st.error(f"⚠️ Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
     # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     with tab_port:
