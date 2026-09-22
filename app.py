@@ -214,7 +214,7 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Style personnalisé du sélecteur d'horizon (Radio horizontal) */
+    /* Style du sélecteur d'horizon (Pills) */
     div[data-testid="stRadio"] > label {
         font-weight: 800 !important;
         color: #334155 !important;
@@ -296,7 +296,7 @@ def obtenir_prix_actuel(ticker_symbol):
     try:
         data = yf.Ticker(ticker_symbol).fast_info
         prix = data.get('lastPrice') or data.get('regularMarketPrice')
-        return round(float(prix), 2) if prix else None
+        return round(float(prix), 4) if prix else None
     except Exception:
         return None
 
@@ -308,20 +308,20 @@ def obtenir_details_financiers(ticker_symbol):
         open_price = info.get('open', last)
         change = last - open_price
         change_pct = (change / open_price) * 100 if open_price else 0
+        fmt = ".4f" if last < 1 else ".2f"
         return {
             "Prix": last, "Variation": change, "VariationPct": change_pct,
-            "Ouverture": f"${info['open']:.2f}" if info.get('open') else "N/A",
-            "Plus Haut": f"${info['dayHigh']:.2f}" if info.get('dayHigh') else "N/A",
-            "Plus Bas": f"${info['dayLow']:.2f}" if info.get('dayLow') else "N/A",
-            "52 sem. Haut": f"${info['yearHigh']:.2f}" if info.get('yearHigh') else "N/A",
-            "52 sem. Bas": f"${info['yearLow']:.2f}" if info.get('yearLow') else "N/A",
+            "Ouverture": f"${info['open']:{fmt}}" if info.get('open') else "N/A",
+            "Plus Haut": f"${info['dayHigh']:{fmt}}" if info.get('dayHigh') else "N/A",
+            "Plus Bas": f"${info['dayLow']:{fmt}}" if info.get('dayLow') else "N/A",
+            "52 sem. Haut": f"${info['yearHigh']:{fmt}}" if info.get('yearHigh') else "N/A",
+            "52 sem. Bas": f"${info['yearLow']:{fmt}}" if info.get('yearLow') else "N/A",
         }
     except Exception: return None
 
 @st.cache_data(ttl=180)
 def obtenir_historique(ticker_symbol, periode):
     try:
-        # Adaptation dynamique de l'intervalle pour 1d et 5d
         interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
         return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
@@ -385,7 +385,7 @@ else:
         st.session_state['user'] = None
         st.rerun()
 
-    # --- METRIQUES LIVE (SECOURS SI PRIX INDISPONIBLE) ---
+    # --- METRIQUES LIVE ---
     @st.fragment(run_every="30s")
     def afficher_metrics_live():
         pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
@@ -430,12 +430,14 @@ else:
                 chart_color = "#10B981" if var >= 0 else "#EF4444"
                 fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
                 signe = "+" if var >= 0 else ""
+                
+                # Format dynamique pour les titres
+                fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
 
                 col_chart, col_order = st.columns([2.2, 1])
                 with col_chart:
-                    st.markdown(f"### {selected_ticker} — ${prix:,.2f} ({signe}{var_pct:.2f}%)")
+                    st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
                     
-                    # Horizon sous forme de sélecteur horizontal moderne (pills)
                     period_map = {
                         "1d": "1 Jour",
                         "5d": "5 Jours",
@@ -455,9 +457,21 @@ else:
 
                     df_hist = obtenir_historique(selected_ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
+                        # --- ADAPTATION DYNAMIQUE DE L'ÉCHELLE Y ---
+                        min_p = float(df_hist['Close'].min())
+                        max_p = float(df_hist['Close'].max())
+                        delta = max_p - min_p
+                        
+                        # Calcule une marge de 8% pour éviter que la courbe ne touche les bords
+                        padding = delta * 0.08 if delta > 0 else min_p * 0.02
+                        y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
+                        y_max = max_p + padding
+
+                        # Précision adaptative (4 décimales si < 1$, sinon 2 décimales)
+                        tick_fmt = "$.4f" if max_p < 1 else "$.2f"
+
                         fig = go.Figure()
                         
-                        # Graphique en aire avec dégradé sous la courbe
                         fig.add_trace(go.Scatter(
                             x=df_hist.index,
                             y=df_hist['Close'],
@@ -465,7 +479,7 @@ else:
                             line=dict(color=chart_color, width=2.5),
                             fill='tozeroy',
                             fillcolor=fill_color,
-                            hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:$.2f}</b><extra></extra>'
+                            hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
                         ))
                         
                         fig.update_layout(
@@ -474,7 +488,15 @@ else:
                             height=340,
                             margin=dict(l=10, r=10, t=10, b=10),
                             xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
-                            yaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False, side="right"),
+                            yaxis=dict(
+                                range=[y_min, y_max],  # Zoom dynamique automatique !
+                                showgrid=True, 
+                                gridcolor='#CBD5E1', 
+                                gridwidth=0.8, 
+                                zeroline=False, 
+                                side="right",
+                                tickformat=tick_fmt
+                            ),
                             font=dict(color="#334155", family="Plus Jakarta Sans")
                         )
                         st.plotly_chart(fig, use_container_width=True)
@@ -689,9 +711,12 @@ else:
                     pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
 
                     pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
+                    fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
+                    fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
+                    
                     options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
 
-                    html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>${pm:,.2f}</td><td>${pa:,.2f}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
+                    html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>{fmt_pm}</td><td>{fmt_pa}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
 
                 table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
@@ -744,7 +769,7 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ (CHARGEMENT ULTRA-RAPIDE) ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
@@ -817,11 +842,14 @@ else:
                         pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
                         e_val_act += val
 
+                        fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
+                        fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
+
                         pos_rows.append({
                             "Action": tk,
                             "Quantité": sh,
-                            "Prix Moyen": f"${pm:,.2f}",
-                            "Prix Actuel": f"${pa:,.2f}",
+                            "Prix Moyen": fmt_pm,
+                            "Prix Actuel": fmt_pa,
                             "Valeur Totale": f"${val:,.2f}",
                             "Gain / Perte": f"${pnl:+,.2f}",
                             "Rendement": f"{pnl_pct:+.2f}%"
