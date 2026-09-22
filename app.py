@@ -292,7 +292,6 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
-# OPTIMISATION POINT 3 : Téléchargement groupé pour le Classement
 @st.cache_data(ttl=60, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
     if not tickers_list:
@@ -302,7 +301,6 @@ def obtenir_prix_groupes(tickers_list):
         if not clean_tickers:
             return {}
         
-        # Une seule requête réseau pour l'ensemble des titres
         data = yf.Tickers(" ".join(clean_tickers))
         prix_dict = {}
         for tk in clean_tickers:
@@ -334,7 +332,7 @@ def obtenir_details_financiers(ticker_symbol):
             "Plus Haut": f"${info['dayHigh']:{fmt}}" if info.get('dayHigh') else "N/A",
             "Plus Bas": f"${info['dayLow']:{fmt}}" if info.get('dayLow') else "N/A",
             "52 sem. Haut": f"${info['yearHigh']:{fmt}}" if info.get('yearHigh') else "N/A",
-            "52 sem. Bas": f"${info['yearLow']:{fmt}}" if info.get('yearLow') else "N/A",
+            "52 sem. Bas": f"${info['yearBas']:{fmt}}" if info.get('yearLow') else "N/A",
         }
     except Exception: return None
 
@@ -439,17 +437,24 @@ else:
 
     tab_trade, tab_port, tab_hist, tab_rank, tab_teacher = st.tabs(["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"])
 
-    # --- ONGLET 1 : MARCHE & ACHAT/VENTE ---
+    # --- ONGLET 1 : MARCHE & ACHAT/VENTE (POINT 4 : RECHERCHE VIDE PAR DÉFAUT) ---
     with tab_trade:
-        search_query = st.text_input("Rechercher une action ou entreprise", "Apple")
+        search_query = st.text_input(
+            "Rechercher une action ou entreprise",
+            value="",
+            placeholder="Ex: Apple, Tesla, NVDA, Microsoft..."
+        )
         selected_ticker = None
-        if search_query:
+        if search_query and len(search_query.strip()) > 0:
             resultats = rechercher_symbole_universel(search_query)
             if resultats:
                 options_dict = {res['label']: res['symbol'] for res in resultats}
                 choix_label = st.selectbox("Sélectionnez l'action :", list(options_dict.keys()))
                 selected_ticker = options_dict[choix_label]
-            else: selected_ticker = search_query.strip().upper()
+            else:
+                selected_ticker = search_query.strip().upper()
+        else:
+            st.info("💡 Tapez le nom d'une entreprise ou un symbole boursier ci-dessus pour afficher le graphique et passer une transaction.")
 
         if selected_ticker:
             details = obtenir_details_financiers(selected_ticker)
@@ -772,7 +777,7 @@ else:
                                     session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_vente, "u": user})
                                     rem = sh_real - qty_v
                                     if rem > 0:
-                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
+                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": tk_v})
                                     else:
                                         session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
                                     session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
@@ -794,7 +799,7 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ (POINT 3) ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
@@ -805,7 +810,6 @@ else:
         
         all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=10)
         
-        # Récupération ultra-rapide de TOUS les prix en une seule requête groupée
         unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
         prix_dict = obtenir_prix_groupes(unique_tickers)
             
