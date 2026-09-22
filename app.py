@@ -65,7 +65,6 @@ st.markdown("""
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* Fond Clair & Épuré */
     .stApp {
         background-color: #F8FAFC !important;
         color: #0F172A !important;
@@ -73,7 +72,6 @@ st.markdown("""
 
     #MainMenu, footer, header { visibility: hidden; }
 
-    /* Bannière d'en-tête Institutionnelle & Moderne */
     .brand-banner {
         background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
         border-radius: 20px;
@@ -111,7 +109,6 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Cartes Métriques Blanches à Relief */
     div[data-testid="stMetric"] {
         background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0 !important;
@@ -140,7 +137,6 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* --- STYLE MODERNE DES ONGLETS --- */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px !important;
         background-color: #F1F5F9 !important;
@@ -173,7 +169,6 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Boutons avec Effet 3D */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
@@ -194,7 +189,6 @@ st.markdown("""
         box-shadow: 0 1px 0 #1E40AF, 0 3px 6px rgba(37, 99, 235, 0.2) !important;
     }
 
-    /* Champs de Saisie */
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #FFFFFF !important;
         color: #0F172A !important;
@@ -204,7 +198,6 @@ st.markdown("""
         font-weight: 500 !important;
     }
 
-    /* Tableau Personnalisé */
     .custom-table {
         width: 100%;
         border-collapse: collapse;
@@ -238,7 +231,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- RECHERCHE UNIVERSELLE & DONNÉES FINANCIÈRES (TTL RÉDUIT À 5 SECONDES) ---
+# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES (TTL 15 SECONDES) ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
@@ -259,12 +252,16 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-@st.cache_data(ttl=5)  # Mis à jour à 5 secondes pour rafraîchissement temps réel
+@st.cache_data(ttl=15, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
-    try: return round(float(yf.Ticker(ticker_symbol).fast_info['lastPrice']), 2)
-    except Exception: return None
+    try:
+        data = yf.Ticker(ticker_symbol).fast_info
+        prix = data.get('lastPrice') or data.get('regularMarketPrice')
+        return round(float(prix), 2) if prix else None
+    except Exception:
+        return None
 
-@st.cache_data(ttl=5)  # Mis à jour à 5 secondes
+@st.cache_data(ttl=15)
 def obtenir_details_financiers(ticker_symbol):
     try:
         info = yf.Ticker(ticker_symbol).fast_info
@@ -287,7 +284,7 @@ def obtenir_historique(ticker_symbol, periode):
     try: return yf.Ticker(ticker_symbol).history(period=periode)
     except Exception: return None
 
-# --- GESTION DE SESSION AVEC PERSISTENCE PAR URL (CONSERVE LA CONNEXION APRÈS F5) ---
+# --- GESTION DE SESSION AVEC PERSISTENCE PAR URL ---
 if 'user' not in st.session_state or st.session_state['user'] is None:
     if "user" in st.query_params:
         st.session_state['user'] = st.query_params["user"]
@@ -318,7 +315,7 @@ if st.session_state['user'] is None:
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
                         st.session_state['user'] = u_login.strip()
-                        st.query_params["user"] = u_login.strip()  # Enregistre dans l'URL pour garder la session
+                        st.query_params["user"] = u_login.strip()
                         st.rerun()
                     else: st.error("Identifiants incorrects.")
 
@@ -340,7 +337,7 @@ if st.session_state['user'] is None:
 
 else:
     user = st.session_state['user']
-    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
+    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=5)
     cash_actuel = float(res_u.iloc[0]['cash']) if not res_u.empty else 10000.00
     groupe_actuel = res_u.iloc[0]['groupe'] if not res_u.empty else "Non assigné"
 
@@ -348,13 +345,13 @@ else:
     col_h1.markdown(f"<p style='color: #64748B; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#E2E8F0; color:#0F172A; padding:3px 12px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
-        st.query_params.clear()  # Efface l'URL lors de la déconnexion
+        st.query_params.clear()
         st.rerun()
 
-    # --- COMPOSANT DES CARTES MÉTRIQUES (RAFRAÎCHISSEMENT AUTO TOUTES LES 5S) ---
-    @st.fragment(run_every="5s")
+    # --- COMPOSANT DES CARTES MÉTRIQUES (RAFRAÎCHISSEMENT AUTO TOUTES LES 10S) ---
+    @st.fragment(run_every="10s")
     def afficher_metrics_live():
-        pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+        pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
         valeur_actions = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df.iterrows())
         valeur_totale = cash_actuel + valeur_actions
         profit_total = valeur_totale - 10000.00
@@ -446,7 +443,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO (RAFRAÎCHISSEMENT AUTO TOUTES LES 5S) ---
+    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO (RAFRAÎCHISSEMENT AUTO TOUTES LES 10S) ---
     with tab_port:
         st.markdown("""
             <style>
@@ -514,10 +511,9 @@ else:
             </style>
         """, unsafe_allow_html=True)
 
-        # COMPOSANT DES POSITIONS MIS À JOUR EN TEMPS RÉEL (TOUTES LES 5 SECONDES)
-        @st.fragment(run_every="5s")
+        @st.fragment(run_every="10s")
         def afficher_positions_live():
-            pos_df_live = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            pos_df_live = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
             val_actions_live = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in pos_df_live.iterrows())
             val_totale_live = cash_actuel + val_actions_live
             prof_total_live = val_totale_live - 10000.00
@@ -526,7 +522,6 @@ else:
             date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
             pnl_color_print = "#10B981" if prof_total_live >= 0 else "#EF4444"
 
-            # EN-TÊTE DÉDIÉ IMPRESSION
             st.markdown(f"""
                 <div class="print-header">
                     <div style="border-bottom: 2px solid #0F172A; padding-bottom: 10px; margin-bottom: 14px;">
@@ -578,7 +573,7 @@ else:
                     </button>
                 """, height=45)
 
-            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
             if not p_all.empty:
                 options_vente = {}
                 html_rows = ""
@@ -631,23 +626,31 @@ else:
 
     # --- ONGLET 3 : HISTORIQUE ---
     with tab_hist:
-        tx_all = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=0)
+        tx_all = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=5)
         if not tx_all.empty:
             tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ (1 SEULE REQUÊTE GLOBAL AU LIEU D'UNE BOUCLE SQL) ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
+        
+        # 1. Charger tous les utilisateurs concernés (Mise en cache 10s)
         query_u = "SELECT username, cash, groupe FROM users" if grp_filter == "Tous les groupes" else f"SELECT username, cash, groupe FROM users WHERE groupe='{grp_filter}'"
-        users_df = conn.query(query_u, ttl=0)
+        users_df = conn.query(query_u, ttl=10)
+        
+        # 2. Charger TOUTES les positions du portefeuille en 1 seule requête SQL globale
+        all_positions_df = conn.query("SELECT username, ticker, shares FROM portfolio", ttl=10)
         
         lb = []
         for _, r in users_df.iterrows():
             u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
-            u_p = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": u_name}, ttl=0)
-            u_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in u_p.iterrows())
+            
+            # Filtrer directement en mémoire Pandas (sans interroger PostgreSQL à chaque itération)
+            u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
+            u_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in u_p.iterrows()) if not u_p.empty else 0.0
+            
             tot = u_cash + u_val_act
             perf = ((tot - 10000.00) / 10000.00) * 100
             lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf})
@@ -666,14 +669,14 @@ else:
         if pin == "1959":
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
             q_e = "SELECT username FROM users ORDER BY username" if grp_p == "Tous les groupes" else f"SELECT username FROM users WHERE groupe='{grp_p}' ORDER BY username"
-            e_list = conn.query(q_e, ttl=0)['username'].tolist()
+            e_list = conn.query(q_e, ttl=10)['username'].tolist()
             if e_list:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
-                e_data = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0).iloc[0]
+                e_data = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=5).iloc[0]
                 e_cash, e_grp = float(e_data['cash']), e_data['groupe']
-                e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
-                e_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in e_pos.iterrows())
+                e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=5)
+                e_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in e_pos.iterrows()) if not e_pos.empty else 0.0
                 st.markdown(f"#### Fiche de {e_sel} ({e_grp})")
                 st.metric("Total", f"${e_cash + e_val_act:,.2f}", f"{((e_cash + e_val_act - 10000)/10000)*100:+.2f}%")
                 st.dataframe(e_pos, use_container_width=True, hide_index=True)
-                st.dataframe(conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0), use_container_width=True, hide_index=True)
+                st.dataframe(conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=5), use_container_width=True, hide_index=True)
