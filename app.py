@@ -231,7 +231,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES (TTL 15 SECONDES) ---
+# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
@@ -348,7 +348,7 @@ else:
         st.query_params.clear()
         st.rerun()
 
-    # --- COMPOSANT DES CARTES MÉTRIQUES (RAFRAÎCHISSEMENT AUTO TOUTES LES 10S) ---
+    # --- COMPOSANT DES CARTES MÉTRIQUES ---
     @st.fragment(run_every="10s")
     def afficher_metrics_live():
         pos_df = conn.query("SELECT ticker, shares FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
@@ -443,7 +443,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO (RAFRAÎCHISSEMENT AUTO TOUTES LES 10S) ---
+    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     with tab_port:
         st.markdown("""
             <style>
@@ -632,22 +632,18 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ (1 SEULE REQUÊTE GLOBAL AU LIEU D'UNE BOUCLE SQL) ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
-        # 1. Charger tous les utilisateurs concernés (Mise en cache 10s)
         query_u = "SELECT username, cash, groupe FROM users" if grp_filter == "Tous les groupes" else f"SELECT username, cash, groupe FROM users WHERE groupe='{grp_filter}'"
         users_df = conn.query(query_u, ttl=10)
         
-        # 2. Charger TOUTES les positions du portefeuille en 1 seule requête SQL globale
         all_positions_df = conn.query("SELECT username, ticker, shares FROM portfolio", ttl=10)
         
         lb = []
         for _, r in users_df.iterrows():
             u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
-            
-            # Filtrer directement en mémoire Pandas (sans interroger PostgreSQL à chaque itération)
             u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
             u_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in u_p.iterrows()) if not u_p.empty else 0.0
             
@@ -663,7 +659,7 @@ else:
             df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
             st.dataframe(df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']], use_container_width=True, hide_index=True)
 
-    # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
+    # --- ONGLET 5 : SUPERVISION PROFESSEUR (ENRICHIE AVEC DÉTAILS DE GAINS & RENDEMENT) ---
     with tab_teacher:
         pin = st.text_input("PIN Enseignant :", type="password") if user.lower() not in ['prof', 'admin'] else "1959"
         if pin == "1959":
@@ -675,8 +671,55 @@ else:
                 e_data = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=5).iloc[0]
                 e_cash, e_grp = float(e_data['cash']), e_data['groupe']
                 e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=5)
-                e_val_act = sum((obtenir_prix_actuel(row['ticker']) or 0) * row['shares'] for _, row in e_pos.iterrows()) if not e_pos.empty else 0.0
-                st.markdown(f"#### Fiche de {e_sel} ({e_grp})")
-                st.metric("Total", f"${e_cash + e_val_act:,.2f}", f"{((e_cash + e_val_act - 10000)/10000)*100:+.2f}%")
-                st.dataframe(e_pos, use_container_width=True, hide_index=True)
-                st.dataframe(conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=5), use_container_width=True, hide_index=True)
+                
+                # Calcul détaillé du portefeuille de l'élève
+                pos_rows = []
+                e_val_act = 0.0
+                if not e_pos.empty:
+                    for _, row in e_pos.iterrows():
+                        tk = str(row['ticker'])
+                        sh = int(row['shares'])
+                        pm = float(row['avg_price'] or 0.0)
+                        pa = obtenir_prix_actuel(tk) or 0.0
+                        pm = pm or pa
+                        val = sh * pa
+                        pnl = (pa - pm) * sh
+                        pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
+                        e_val_act += val
+
+                        pos_rows.append({
+                            "Action": tk,
+                            "Quantité": sh,
+                            "Prix Moyen": f"${pm:,.2f}",
+                            "Prix Actuel": f"${pa:,.2f}",
+                            "Valeur Totale": f"${val:,.2f}",
+                            "Gain / Perte": f"${pnl:+,.2f}",
+                            "Rendement": f"{pnl_pct:+.2f}%"
+                        })
+
+                e_tot = e_cash + e_val_act
+                e_pnl = e_tot - 10000.00
+                e_perf = (e_pnl / 10000.00) * 100
+
+                st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
+
+                # Métriques globales de l'élève
+                col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+                col_t1.metric("Disponible (Cash)", f"${e_cash:,.2f}")
+                col_t2.metric("Actions Possédées", f"${e_val_act:,.2f}")
+                col_t3.metric("Valeur Totale", f"${e_tot:,.2f}")
+                col_t4.metric("Gains / Pertes", f"${e_pnl:+,.2f}", f"{e_perf:+.2f}%")
+
+                st.markdown("##### Portefeuille Détaillé")
+                if pos_rows:
+                    st.dataframe(pd.DataFrame(pos_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info("Cet élève n'a aucune position ouverte actuellement.")
+
+                st.markdown("##### Historique des Transactions")
+                tx_e = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=5)
+                if not tx_e.empty:
+                    tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
+                    st.dataframe(tx_e, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Aucune transaction enregistrée.")
