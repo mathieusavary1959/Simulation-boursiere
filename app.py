@@ -266,10 +266,10 @@ st.markdown("""
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=8&newsCount=0"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     try:
-        r = requests.get(url, headers=headers, timeout=3)
+        r = requests.get(url, headers=headers, timeout=4)
         data = r.json()
         results = []
         for quote in data.get('quotes', []):
@@ -277,7 +277,7 @@ def rechercher_symbole_universel(query):
             shortname = quote.get('shortname') or quote.get('longname') or symbol
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
-            if symbol and type_disp in ['Equity', 'ETF', 'Action']:
+            if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
                 results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
         return results
     except Exception:
@@ -286,9 +286,15 @@ def rechercher_symbole_universel(query):
 @st.cache_data(ttl=30, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
     try:
-        data = yf.Ticker(ticker_symbol).fast_info
-        prix = data.get('lastPrice') or data.get('regularMarketPrice')
-        return round(float(prix), 4) if prix else None
+        t = yf.Ticker(ticker_symbol)
+        data = t.fast_info
+        prix = data.get('lastPrice') or data.get('regularMarketPrice') or data.get('last_price')
+        if prix is not None and not pd.isna(prix) and float(prix) > 0:
+            return round(float(prix), 4)
+        hist = t.history(period="1d")
+        if not hist.empty:
+            return round(float(hist['Close'].iloc[-1]), 4)
+        return None
     except Exception:
         return None
 
@@ -306,8 +312,8 @@ def obtenir_prix_groupes(tickers_list):
         for tk in clean_tickers:
             try:
                 info = data.tickers[tk].fast_info
-                px = info.get('lastPrice') or info.get('regularMarketPrice')
-                if px is not None:
+                px = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
+                if px is not None and not pd.isna(px):
                     prix_dict[tk] = round(float(px), 4)
                 else:
                     prix_dict[tk] = None
@@ -320,21 +326,52 @@ def obtenir_prix_groupes(tickers_list):
 @st.cache_data(ttl=30)
 def obtenir_details_financiers(ticker_symbol):
     try:
-        info = yf.Ticker(ticker_symbol).fast_info
-        last = info['lastPrice']
-        open_price = info.get('open', last)
-        change = last - open_price
-        change_pct = (change / open_price) * 100 if open_price else 0
+        t = yf.Ticker(ticker_symbol)
+        info = t.fast_info
+        
+        last = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
+        if last is None or pd.isna(last) or float(last) <= 0:
+            hist = t.history(period="2d")
+            if not hist.empty:
+                last = float(hist['Close'].iloc[-1])
+            else:
+                return None
+        else:
+            last = float(last)
+
+        open_p = info.get('open') or info.get('openPrice')
+        if open_p is None or pd.isna(open_p):
+            hist = t.history(period="2d")
+            if len(hist) >= 2:
+                open_p = float(hist['Close'].iloc[-2])
+            elif not hist.empty:
+                open_p = float(hist['Open'].iloc[-1])
+            else:
+                open_p = last
+        else:
+            open_p = float(open_p)
+
+        change = last - open_p
+        change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
         fmt = ".4f" if last < 1 else ".2f"
+
+        high_p = info.get('dayHigh', last)
+        low_p = info.get('dayLow', last)
+        y_high = info.get('yearHigh', last)
+        y_low = info.get('yearLow', last)
+
         return {
-            "Prix": last, "Variation": change, "VariationPct": change_pct,
-            "Ouverture": f"${info['open']:{fmt}}" if info.get('open') else "N/A",
-            "Plus Haut": f"${info['dayHigh']:{fmt}}" if info.get('dayHigh') else "N/A",
-            "Plus Bas": f"${info['dayLow']:{fmt}}" if info.get('dayLow') else "N/A",
-            "52 sem. Haut": f"${info['yearHigh']:{fmt}}" if info.get('yearHigh') else "N/A",
-            "52 sem. Bas": f"${info['yearBas']:{fmt}}" if info.get('yearLow') else "N/A",
+            "Prix": last, 
+            "Variation": change, 
+            "VariationPct": change_pct,
+            "Ouverture": f"${open_p:{fmt}}",
+            "Plus Haut": f"${high_p:{fmt}}",
+            "Plus Bas": f"${low_p:{fmt}}",
+            "52 sem. Haut": f"${y_high:{fmt}}",
+            "52 sem. Bas": f"${y_low:{fmt}}"
         }
-    except Exception: return None
+    except Exception:
+        return None
 
 @st.cache_data(ttl=300, show_spinner=False)
 def obtenir_historique(ticker_symbol, periode):
@@ -437,161 +474,164 @@ else:
 
     tab_trade, tab_port, tab_hist, tab_rank, tab_teacher = st.tabs(["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"])
 
-    # --- ONGLET 1 : MARCHE & ACHAT/VENTE (POINT 4 : RECHERCHE VIDE PAR DÉFAUT) ---
+    # --- ONGLET 1 : MARCHE & ACHAT/VENTE ---
     with tab_trade:
         search_query = st.text_input(
-            "Rechercher une action ou entreprise",
+            "🔎 Rechercher une action ou entreprise (ex: Apple, Tesla, NVDA, Microsoft...)",
             value="",
-            placeholder="Ex: Apple, Tesla, NVDA, Microsoft..."
+            placeholder="Tapez le nom d'une entreprise ou un symbole (ex: AAPL)..."
         )
-        selected_ticker = None
+        
+        selected_ticker = "AAPL" # Action par défaut pour garantir que le graphique/achats sont toujours là
+        
         if search_query and len(search_query.strip()) > 0:
-            resultats = rechercher_symbole_universel(search_query)
+            query_clean = search_query.strip()
+            resultats = rechercher_symbole_universel(query_clean)
             if resultats:
                 options_dict = {res['label']: res['symbol'] for res in resultats}
                 choix_label = st.selectbox("Sélectionnez l'action :", list(options_dict.keys()))
                 selected_ticker = options_dict[choix_label]
             else:
-                selected_ticker = search_query.strip().upper()
-        else:
-            st.info("💡 Tapez le nom d'une entreprise ou un symbole boursier ci-dessus pour afficher le graphique et passer une transaction.")
+                selected_ticker = query_clean.upper()
 
-        if selected_ticker:
-            details = obtenir_details_financiers(selected_ticker)
-            if details:
-                prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
-                chart_color = "#10B981" if var >= 0 else "#EF4444"
-                fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
-                signe = "+" if var >= 0 else ""
-                fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
+        details = obtenir_details_financiers(selected_ticker)
+        
+        if details:
+            prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
+            chart_color = "#10B981" if var >= 0 else "#EF4444"
+            fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
+            signe = "+" if var >= 0 else ""
+            fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
 
-                col_chart, col_order = st.columns([2.2, 1])
-                
-                with col_chart:
-                    st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
+            col_chart, col_order = st.columns([2.2, 1])
+            
+            with col_chart:
+                st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
 
-                    @st.fragment
-                    def afficher_graphique_interactif(ticker):
-                        period_map = {
-                            "1d": "1 Jour",
-                            "5d": "5 Jours",
-                            "1mo": "1 Mois",
-                            "3mo": "3 Mois",
-                            "6mo": "6 Mois",
-                            "1y": "1 An"
-                        }
-                        
-                        selected_period = st.radio(
-                            "Horizon d'analyse",
-                            options=list(period_map.keys()),
-                            format_func=lambda x: period_map[x],
-                            horizontal=True,
-                            key=f"horizon_{ticker}"
-                        )
-
-                        df_hist = obtenir_historique(ticker, selected_period)
-                        if df_hist is not None and not df_hist.empty:
-                            min_p = float(df_hist['Close'].min())
-                            max_p = float(df_hist['Close'].max())
-                            delta = max_p - min_p
-                            
-                            padding = delta * 0.08 if delta > 0 else min_p * 0.02
-                            y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
-                            y_max = max_p + padding
-
-                            tick_fmt = "$.4f" if max_p < 1 else "$.2f"
-
-                            fig = go.Figure()
-                            
-                            fig.add_trace(go.Scatter(
-                                x=df_hist.index,
-                                y=df_hist['Close'],
-                                mode='lines',
-                                line=dict(color=chart_color, width=2.5),
-                                fill='tozeroy',
-                                fillcolor=fill_color,
-                                hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
-                            ))
-                            
-                            fig.update_layout(
-                                paper_bgcolor='rgba(0,0,0,0)',
-                                plot_bgcolor='rgba(0,0,0,0)',
-                                height=340,
-                                margin=dict(l=10, r=10, t=10, b=10),
-                                xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
-                                yaxis=dict(
-                                    range=[y_min, y_max],
-                                    showgrid=True, 
-                                    gridcolor='#CBD5E1', 
-                                    gridwidth=0.8, 
-                                    zeroline=False, 
-                                    side="right",
-                                    tickformat=tick_fmt
-                                ),
-                                font=dict(color="#334155", family="Plus Jakarta Sans")
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-
-                    afficher_graphique_interactif(selected_ticker)
-
-                with col_order:
-                    st.markdown("### Passer un ordre")
-                    qty = st.number_input("Quantité", min_value=1, step=1, value=1)
-                    cost_total = prix * qty
-                    st.write(f"Total estimé : **${cost_total:,.2f}**")
-
-                    col_b, col_s = st.columns(2)
+                @st.fragment
+                def afficher_graphique_interactif(ticker):
+                    period_map = {
+                        "1d": "1 Jour",
+                        "5d": "5 Jours",
+                        "1mo": "1 Mois",
+                        "3mo": "3 Mois",
+                        "6mo": "6 Mois",
+                        "1y": "1 An"
+                    }
                     
-                    if col_b.button("Acheter", use_container_width=True):
-                        if not verifier_cooldown(user, delai_secondes=3):
-                            st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
-                        else:
-                            c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
-                            cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
+                    selected_period = st.radio(
+                        "Horizon d'analyse",
+                        options=list(period_map.keys()),
+                        format_func=lambda x: period_map[x],
+                        horizontal=True,
+                        key=f"horizon_{ticker}"
+                    )
+
+                    df_hist = obtenir_historique(ticker, selected_period)
+                    if df_hist is not None and not df_hist.empty:
+                        min_p = float(df_hist['Close'].min())
+                        max_p = float(df_hist['Close'].max())
+                        delta = max_p - min_p
+                        
+                        padding = delta * 0.08 if delta > 0 else min_p * 0.02
+                        y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
+                        y_max = max_p + padding
+
+                        tick_fmt = "$.4f" if max_p < 1 else "$.2f"
+
+                        fig = go.Figure()
+                        
+                        fig.add_trace(go.Scatter(
+                            x=df_hist.index,
+                            y=df_hist['Close'],
+                            mode='lines',
+                            line=dict(color=chart_color, width=2.5),
+                            fill='tozeroy',
+                            fillcolor=fill_color,
+                            hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
+                        ))
+                        
+                        fig.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            height=340,
+                            margin=dict(l=10, r=10, t=10, b=10),
+                            xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
+                            yaxis=dict(
+                                range=[y_min, y_max],
+                                showgrid=True, 
+                                gridcolor='#CBD5E1', 
+                                gridwidth=0.8, 
+                                zeroline=False, 
+                                side="right",
+                                tickformat=tick_fmt
+                            ),
+                            font=dict(color="#334155", family="Plus Jakarta Sans")
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+
+                afficher_graphique_interactif(selected_ticker)
+
+            with col_order:
+                st.markdown("### Passer un ordre")
+                qty = st.number_input("Quantité", min_value=1, step=1, value=1)
+                cost_total = prix * qty
+                st.write(f"Total estimé : **${cost_total:,.2f}**")
+
+                col_b, col_s = st.columns(2)
+                
+                if col_b.button("Acheter", use_container_width=True):
+                    if not verifier_cooldown(user, delai_secondes=3):
+                        st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
+                    else:
+                        c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
+                        cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
+                        
+                        if cash_actuel_db >= cost_total:
+                            now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                            with conn.session as session:
+                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_total, "u": user})
+                                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
+                                if not p_res.empty:
+                                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix)
+                                    n_s = anc_s + qty
+                                    n_p = ((anc_s * anc_p) + (qty * prix)) / n_s
+                                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
+                                else:
+                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix})
+                                session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'ACHAT', :s, :p, :tot, :time)"),
+                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
+                                session.commit()
                             
-                            if cash_actuel_db >= cost_total:
-                                now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                                with conn.session as session:
-                                    session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_total, "u": user})
-                                    p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
-                                    if not p_res.empty:
-                                        anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix)
-                                        n_s = anc_s + qty
-                                        n_p = ((anc_s * anc_p) + (qty * prix)) / n_s
-                                        session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
-                                    else:
-                                        session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix})
-                                    session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'ACHAT', :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
-                                    session.commit()
-                                
-                                st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} effectué !")
-                                st.rerun()
-                            else: st.error("Fonds insuffisants.")
+                            st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} effectué !")
+                            st.rerun()
+                        else: st.error("Fonds insuffisants.")
 
-                    if col_s.button("Vendre", use_container_width=True):
-                        if not verifier_cooldown(user, delai_secondes=3):
-                            st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
-                        else:
-                            p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
-                            shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
+                if col_s.button("Vendre", use_container_width=True):
+                    if not verifier_cooldown(user, delai_secondes=3):
+                        st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
+                    else:
+                        p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
+                        shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
-                            if shares_dispo >= qty:
-                                now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                                with conn.session as session:
-                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_total, "u": user})
-                                    rem = shares_dispo - qty
-                                    if rem > 0:
-                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
-                                    else:
-                                        session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
-                                    session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
-                                    session.commit()
-                                
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} effectuée !")
-                                st.rerun()
-                            else: st.error("Vous ne possédez pas cette quantité d'actions.")
+                        if shares_dispo >= qty:
+                            now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                            with conn.session as session:
+                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_total, "u": user})
+                                rem = shares_dispo - qty
+                                if rem > 0:
+                                    session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
+                                else:
+                                    session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
+                                session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
+                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
+                                session.commit()
+                            
+                            st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} effectuée !")
+                            st.rerun()
+                        else: st.error("Vous ne possédez pas cette quantité d'actions.")
+        else:
+            st.error(f"⚠️ Impossible de charger les données financières pour '{selected_ticker}'. Vérifiez le symbole boursier (ex: AAPL, TSLA, MSFT).")
 
     # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     with tab_port:
