@@ -1,0 +1,4 @@
+[server]
+maxMessageSize = 200
+enableCORS = false
+enableXsrfProtection = true
