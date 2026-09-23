@@ -56,6 +56,36 @@ def init_db():
 
 init_db()
 
+# --- FILTRE DE VALIDATION DES BOURSES NORD-AMÉRICAINES ---
+def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
+    symbol_upper = symbol.upper().strip()
+    
+    # Suffixes boursiers internationaux à bloquer absolument
+    suffixes_interdits = (
+        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX', 
+        '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
+    )
+    if symbol_upper.endswith(suffixes_interdits):
+        return False
+        
+    # Si le symbole contient un point (ex: TD.TO), valider que c'est un marché canadien
+    if '.' in symbol_upper:
+        suffix = symbol_upper.split('.')[-1]
+        if suffix not in ['TO', 'V', 'CN', 'NE']:
+            return False
+
+    # Liste des bourses nord-américaines valides
+    mots_cles_na = [
+        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO', 
+        'VENTURE', 'CBOE', 'AMERICAN', 'PNK', 'NMS', 'NYQ', 'NGM', 'NCM', 'TOR', 'VAN'
+    ]
+    
+    comb = f"{exch_code} {exch_disp}".upper()
+    if comb.strip():
+        return any(kw in comb for kw in mots_cles_na)
+        
+    return True
+
 # --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN) ---
 def verifier_cooldown(username, delai_secondes=3):
     res = conn.query("SELECT timestamp FROM transactions WHERE username=:u ORDER BY id DESC LIMIT 1", params={"u": username}, ttl=0)
@@ -266,7 +296,7 @@ st.markdown("""
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=12&newsCount=0"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     try:
         r = requests.get(url, headers=headers, timeout=4)
@@ -277,8 +307,11 @@ def rechercher_symbole_universel(query):
             shortname = quote.get('shortname') or quote.get('longname') or symbol
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
+            
+            # FILTRAGE : Uniquement actions/ETF nord-américains
             if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
-                results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
+                if est_marche_nord_americain(symbol, exch_code=quote.get('exchange', ''), exch_disp=exch):
+                    results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
         return results
     except Exception:
         return []
@@ -325,6 +358,10 @@ def obtenir_prix_groupes(tickers_list):
 
 @st.cache_data(ttl=30)
 def obtenir_details_financiers(ticker_symbol):
+    # Validation préalable de la bourse
+    if not est_marche_nord_americain(ticker_symbol):
+        return {"erreur": "non_na"}
+
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.fast_info
@@ -477,12 +514,12 @@ else:
     # --- ONGLET 1 : MARCHE & ACHAT/VENTE ---
     with tab_trade:
         search_query = st.text_input(
-            "🔎 Rechercher une action ou entreprise (ex: Apple, Tesla, NVDA, Microsoft...)",
+            "🔎 Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
             value="",
-            placeholder="Tapez le nom d'une entreprise ou un symbole (ex: AAPL)..."
+            placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
         )
         
-        selected_ticker = "AAPL" # Action par défaut pour garantir que le graphique/achats sont toujours là
+        selected_ticker = "AAPL" # Action par défaut
         
         if search_query and len(search_query.strip()) > 0:
             query_clean = search_query.strip()
@@ -496,7 +533,9 @@ else:
 
         details = obtenir_details_financiers(selected_ticker)
         
-        if details:
+        if details == {"erreur": "non_na"}:
+            st.error(f"⚠️ **Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permises.")
+        elif details:
             prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
             chart_color = "#10B981" if var >= 0 else "#EF4444"
             fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
@@ -631,7 +670,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
         else:
-            st.error(f"⚠️ Impossible de charger les données financières pour '{selected_ticker}'. Vérifiez le symbole boursier (ex: AAPL, TSLA, MSFT).")
+            st.error(f"⚠️ Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
     # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     with tab_port:
@@ -926,17 +965,29 @@ else:
                 e_pnl = e_tot - 10000.00
                 e_perf = (e_pnl / 10000.00) * 100
 
-                col_top_prof1, col_top_prof2 = st.columns([3, 1])
+                # Entête avec actions Réinitialiser et Supprimer
+                col_top_prof1, col_top_prof2, col_top_prof3 = st.columns([2.5, 1, 1])
                 with col_top_prof1:
                     st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
+                
                 with col_top_prof2:
-                    if st.button(f"⚠️ Réinitialiser {e_sel} (10 000 $)", use_container_width=True):
+                    if st.button(f"⚠️ Réinitialiser {e_sel}", use_container_width=True):
                         with conn.session as session:
                             session.execute(text("UPDATE users SET cash = 10000.00 WHERE username = :u"), {"u": e_sel})
                             session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
                             session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
                             session.commit()
                         st.session_state['flash_msg'] = ("success", f"Le compte de {e_sel} a été réinitialisé à 10 000 $ !")
+                        st.rerun()
+
+                with col_top_prof3:
+                    if st.button(f"❌ Supprimer le compte", use_container_width=True):
+                        with conn.session as session:
+                            session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
+                            session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
+                            session.execute(text("DELETE FROM users WHERE username = :u"), {"u": e_sel})
+                            session.commit()
+                        st.session_state['flash_msg'] = ("success", f"Le profil de {e_sel} a été définitivement supprimé !")
                         st.rerun()
 
                 col_t1, col_t2, col_t3, col_t4 = st.columns(4)
@@ -958,3 +1009,5 @@ else:
                     st.dataframe(tx_e, use_container_width=True, hide_index=True)
                 else:
                     st.info("Aucune transaction enregistrée.")
+            else:
+                st.info("Aucun élève trouvé dans ce groupe.")
