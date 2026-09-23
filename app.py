@@ -99,7 +99,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN HAUT CONTRASTE & SOIGNÉ ---
+# --- DESIGN HAUT CONTRASTE & ONGLET BLEU FONCÉ ARRONDIS ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -181,33 +181,36 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
+    /* --- NOUVEAU STYLE UNIFORME DES ONGLETS (BLEU FONCÉ ET ARRONDIS) --- */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px !important;
-        background-color: #CBD5E1 !important;
-        padding: 6px !important;
-        border-radius: 16px !important;
-        border: 1px solid #94A3B8 !important;
+        background-color: #0F172A !important; /* Bleu foncé identique à la bannière */
+        padding: 8px !important;
+        border-radius: 20px !important; /* Arrondis prononcés */
+        border: 1px solid #334155 !important;
         margin-bottom: 24px !important;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15) !important;
     }
     .stTabs [data-baseweb="tab"] {
         height: auto !important;
         background-color: transparent !important;
-        border-radius: 12px !important;
-        color: #334155 !important;
-        padding: 10px 22px !important;
+        border-radius: 14px !important;
+        color: #94A3B8 !important; /* Texte gris/bleu très lisible */
+        padding: 12px 24px !important;
         font-weight: 700 !important;
-        font-size: 0.9rem !important;
-        border: none !important;
+        font-size: 0.92rem !important;
+        border: 1px solid transparent !important;
         transition: all 0.2s ease-in-out !important;
     }
     .stTabs [data-baseweb="tab"]:hover {
-        color: #0F172A !important;
-        background-color: rgba(255, 255, 255, 0.6) !important;
+        color: #FFFFFF !important;
+        background-color: #1E293B !important; /* Survol bleu nuit */
     }
     .stTabs [aria-selected="true"] {
-        background-color: #FFFFFF !important;
-        color: #2563EB !important;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2) !important;
+        background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%) !important; /* Dégradé bleu foncé / royal */
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+        border: 1px solid #3B82F6 !important;
     }
     .stTabs [data-baseweb="tab-border"], .stTabs [data-baseweb="tab-highlight"] {
         display: none !important;
@@ -477,7 +480,7 @@ else:
     user = st.session_state['user']
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
     
-    # Sécurité si l'utilisateur spécifié dans l'URL a été supprimé
+    # Sécurité si l'utilisateur en URL a été supprimé
     if res_u.empty:
         st.session_state['user'] = None
         st.query_params.clear()
@@ -931,7 +934,6 @@ else:
         if pin == "1959":
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
             
-            # ttl=0 pour forcer la mise à jour immédiate de la liste après une suppression
             if grp_p == "Tous les groupes":
                 e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=0)['username'].tolist()
             else:
@@ -941,7 +943,6 @@ else:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
                 e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
                 
-                # Vérification de sécurité avant d'accéder à .iloc[0]
                 if not e_data_df.empty:
                     e_data = e_data_df.iloc[0]
                     e_cash, e_grp = float(e_data['cash']), e_data['groupe']
