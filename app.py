@@ -43,7 +43,6 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     username TEXT,
                     ticker TEXT,
-                    type TEXT,
                     shares INT,
                     price DOUBLE PRECISION,
                     total DOUBLE PRECISION,
@@ -83,7 +82,7 @@ def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
         
     return True
 
-# --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN) ---
+# --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN DE 3 SECONDES) ---
 def verifier_cooldown(username, delai_secondes=3):
     res = conn.query("SELECT timestamp FROM transactions WHERE username=:u ORDER BY id DESC LIMIT 1", params={"u": username}, ttl=0)
     if not res.empty:
@@ -96,7 +95,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN HAUT CONTRASTE & ONGLET STYLE BOUTON 3D ---
+# --- DESIGN HAUT CONTRASTE & STYLE BOUTONS 3D ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -178,7 +177,7 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* --- ONGLETS : EXACTEMENT LE MÊME STYLE QUE LES BOUTONS --- */
+    /* --- ONGLETS : STYLE BOUTON 3D --- */
     .stTabs [data-baseweb="tab-list"] {
         gap: 12px !important;
         background-color: transparent !important;
@@ -219,7 +218,7 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Bouts standards */
+    /* Boutons standards */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
@@ -299,14 +298,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CACHE DES DONNÉES FINANCIÈRES PARTAGÉES ---
+# --- CACHE DES DONNÉES FINANCIÈRES EN TEMPS RÉEL SÉCURISÉ (TTL = 10s) ---
 @st.cache_data(ttl=3600)
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=12&newsCount=0"
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     try:
-        r = requests.get(url, headers=headers, timeout=4)
+        r = requests.get(url, headers=headers, timeout=3)
         data = r.json()
         results = []
         for quote in data.get('quotes', []):
@@ -322,7 +321,8 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-@st.cache_data(ttl=30, show_spinner=False)
+# Mettre à jour toutes les 10 secondes (Quasi-Temps Réel)
+@st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
     try:
         t = yf.Ticker(ticker_symbol)
@@ -337,7 +337,8 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
-@st.cache_data(ttl=60, show_spinner=False)
+# BATCHING OPTIMISÉ (TTL = 10s)
+@st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
     if not tickers_list:
         return {}
@@ -362,7 +363,7 @@ def obtenir_prix_groupes(tickers_list):
     except Exception:
         return {}
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=10, show_spinner=False)
 def obtenir_details_financiers(ticker_symbol):
     if not est_marche_nord_americain(ticker_symbol):
         return {"erreur": "non_na"}
@@ -481,7 +482,7 @@ if st.session_state['user'] is None:
 
 else:
     user = st.session_state['user']
-    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
+    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=5)
     
     if res_u.empty:
         st.session_state['user'] = None
@@ -498,15 +499,20 @@ else:
         st.query_params.clear()
         st.rerun()
 
-    # --- METRIQUES LIVE ---
-    @st.fragment(run_every="30s")
+    # --- METRIQUES DE HAUT DE PAGE ---
+    @st.fragment
     def afficher_metrics_live():
-        pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+        pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
         valeur_actions = 0.0
-        for _, row in pos_df.iterrows():
-            px_actuel = obtenir_prix_actuel(row['ticker'])
-            px_final = px_actuel if px_actuel is not None else float(row['avg_price'] or 0.0)
-            valeur_actions += px_final * row['shares']
+        
+        if not pos_df.empty:
+            unique_tks = pos_df['ticker'].unique().tolist()
+            prix_dict = obtenir_prix_groupes(unique_tks)
+            for _, row in pos_df.iterrows():
+                tk_sym = str(row['ticker']).strip().upper()
+                px_actuel = prix_dict.get(tk_sym)
+                px_final = px_actuel if px_actuel is not None else float(row['avg_price'] or 0.0)
+                valeur_actions += px_final * row['shares']
 
         valeur_totale = cash_actuel + valeur_actions
         profit_total = valeur_totale - 10000.00
@@ -524,13 +530,19 @@ else:
 
     tab_trade, tab_port, tab_hist, tab_rank, tab_teacher = st.tabs(["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"])
 
-    # --- ONGLET 1 : MARCHE & ACHAT/VENTE ---
+    # --- ONGLET 1 : MARCHE & ACHAT/VENTE (TEMPS RÉEL SÉCURISÉ) ---
     with tab_trade:
-        search_query = st.text_input(
-            "🔎 Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
-            value="",
-            placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
-        )
+        col_s1, col_s2 = st.columns([4, 1])
+        with col_s1:
+            search_query = st.text_input(
+                "🔎 Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
+                value="",
+                placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
+            )
+        with col_s2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔄 Rafraîchir le cours", use_container_width=True):
+                st.rerun()
         
         selected_ticker = "AAPL"
         
@@ -632,54 +644,62 @@ else:
 
                 col_b, col_s = st.columns(2)
                 
+                # EXECUTION A L'ACHAT AU PRIX INSTANTANE SÉCURISÉ
                 if col_b.button("Acheter", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
                         st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
+                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
+                        cost_real = prix_instantane * qty
+
                         c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
                         cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
                         
-                        if cash_actuel_db >= cost_total:
+                        if cash_actuel_db >= cost_real:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_total, "u": user})
+                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_real, "u": user})
                                 p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                                 if not p_res.empty:
-                                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix)
+                                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_instantane)
                                     n_s = anc_s + qty
-                                    n_p = ((anc_s * anc_p) + (qty * prix)) / n_s
+                                    n_p = ((anc_s * anc_p) + (qty * prix_instantane)) / n_s
                                     session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
                                 else:
-                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix})
-                                session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'ACHAT', :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
+                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane})
+                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
                             
-                            st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} effectué !")
+                            st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
+                # EXECUTION A LA VENTE AU PRIX INSTANTANE SÉCURISÉ
                 if col_s.button("Vendre", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
                         st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
+                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
+                        cost_real = prix_instantane * qty
+
                         p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                         shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
                         if shares_dispo >= qty:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_total, "u": user})
+                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_real, "u": user})
                                 rem = shares_dispo - qty
                                 if rem > 0:
                                     session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
                                 else:
                                     session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
-                                session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix, "tot": cost_total, "time": now_str})
+                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                {"u": user, "t": selected_ticker.upper(), "s": -qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
                             
-                            st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} effectuée !")
+                            st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
         else:
@@ -753,14 +773,19 @@ else:
             </style>
         """, unsafe_allow_html=True)
 
-        @st.fragment(run_every="30s")
+        @st.fragment
         def afficher_positions_live():
-            pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
             val_actions_live = 0.0
-            for _, r in pos_df_live.iterrows():
-                px_a = obtenir_prix_actuel(r['ticker'])
-                px_f = px_a if px_a is not None else float(r['avg_price'] or 0.0)
-                val_actions_live += px_f * r['shares']
+            
+            if not pos_df_live.empty:
+                unique_tks = pos_df_live['ticker'].unique().tolist()
+                prix_dict = obtenir_prix_groupes(unique_tks)
+                for _, r in pos_df_live.iterrows():
+                    tk_sym = str(r['ticker']).strip().upper()
+                    px_a = prix_dict.get(tk_sym)
+                    px_f = px_a if px_a is not None else float(r['avg_price'] or 0.0)
+                    val_actions_live += px_f * r['shares']
 
             val_totale_live = cash_actuel + val_actions_live
             prof_total_live = val_totale_live - 10000.00
@@ -820,14 +845,17 @@ else:
                     </button>
                 """, height=45)
 
-            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
             if not p_all.empty:
                 options_vente = {}
                 html_rows = ""
+                
+                tks_all = p_all['ticker'].unique().tolist()
+                prix_dict_pos = obtenir_prix_groupes(tks_all)
 
                 for _, r in p_all.iterrows():
                     tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
-                    pa_live = obtenir_prix_actuel(tk)
+                    pa_live = prix_dict_pos.get(tk.upper())
                     pa = pa_live if pa_live is not None else pm
                     val = sh * pa
                     pnl = (pa - pm) * sh
@@ -864,19 +892,22 @@ else:
                             sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
 
                             if sh_real >= qty_v:
+                                prix_v_instantane = obtenir_prix_actuel(tk_v) or pa_v
+                                total_v_instantane = qty_v * prix_v_instantane
                                 now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                                
                                 with conn.session as session:
-                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_vente, "u": user})
+                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
                                     rem = sh_real - qty_v
                                     if rem > 0:
                                         session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": tk_v})
                                     else:
                                         session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
-                                    session.execute(text("INSERT INTO transactions (username, ticker, type, shares, price, total, timestamp) VALUES (:u, :t, 'VENTE', :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": tk_v, "s": qty_v, "p": pa_v, "tot": total_vente, "time": now_str})
+                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                    {"u": user, "t": tk_v, "s": -qty_v, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
                                     session.commit()
                                 
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_v} {tk_v} effectuée !")
+                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_v} {tk_v} à ${prix_v_instantane:,.2f} effectuée !")
                                 st.rerun()
                             else: st.error("Vous ne possédez plus ces actions.")
             else: st.info("Vous n'avez aucune position ouverte actuellement.")
@@ -885,13 +916,13 @@ else:
 
     # --- ONGLET 3 : HISTORIQUE ---
     with tab_hist:
-        tx_all = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=0)
+        tx_all = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=5)
         if not tx_all.empty:
             tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ---
+    # --- ONGLET 4 : CLASSEMENT ULTRALÉGER ---
     with tab_rank:
         grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         
@@ -937,27 +968,30 @@ else:
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
             
             if grp_p == "Tous les groupes":
-                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=0)['username'].tolist()
+                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=10)['username'].tolist()
             else:
-                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=0)['username'].tolist()
+                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=10)['username'].tolist()
                 
             if e_list:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
-                e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
+                e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=5)
                 
                 if not e_data_df.empty:
                     e_data = e_data_df.iloc[0]
                     e_cash, e_grp = float(e_data['cash']), e_data['groupe']
-                    e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
+                    e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=5)
                     
                     pos_rows = []
                     e_val_act = 0.0
                     if not e_pos.empty:
+                        e_tks = e_pos['ticker'].unique().tolist()
+                        prix_dict_prof = obtenir_prix_groupes(e_tks)
+
                         for _, row in e_pos.iterrows():
                             tk = str(row['ticker'])
                             sh = int(row['shares'])
                             pm = float(row['avg_price'] or 0.0)
-                            pa_live = obtenir_prix_actuel(tk)
+                            pa_live = prix_dict_prof.get(tk.upper())
                             pa = pa_live if pa_live is not None else pm
                             val = sh * pa
                             pnl = (pa - pm) * sh
@@ -1018,7 +1052,7 @@ else:
                         st.info("Cet élève n'a aucune position ouverte actuellement.")
 
                     st.markdown("##### Historique des Transactions")
-                    tx_e = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0)
+                    tx_e = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=5)
                     if not tx_e.empty:
                         tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
                         st.dataframe(tx_e, use_container_width=True, hide_index=True)
