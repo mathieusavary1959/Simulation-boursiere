@@ -60,7 +60,6 @@ init_db()
 def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
     symbol_upper = symbol.upper().strip()
     
-    # Suffixes boursiers internationaux à bloquer
     suffixes_interdits = (
         '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX', 
         '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
@@ -68,13 +67,11 @@ def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
     if symbol_upper.endswith(suffixes_interdits):
         return False
         
-    # Si le symbole contient un point (ex: TD.TO), valider que c'est un marché canadien
     if '.' in symbol_upper:
         suffix = symbol_upper.split('.')[-1]
         if suffix not in ['TO', 'V', 'CN', 'NE']:
             return False
 
-    # Liste des bourses nord-américaines valides
     mots_cles_na = [
         'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO', 
         'VENTURE', 'CBOE', 'AMERICAN', 'PNK', 'NMS', 'NYQ', 'NGM', 'NCM', 'TOR', 'VAN'
@@ -99,7 +96,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN HAUT CONTRASTE & ONGLET BLEU FONCÉ ARRONDIS ---
+# --- DESIGN HAUT CONTRASTE & ONGLET STYLE BOUTON 3D ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -181,41 +178,48 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* --- NOUVEAU STYLE UNIFORME DES ONGLETS (BLEU FONCÉ ET ARRONDIS) --- */
+    /* --- ONGLETS : EXACTEMENT LE MÊME STYLE QUE LES BOUTONS --- */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px !important;
-        background-color: #0F172A !important; /* Bleu foncé identique à la bannière */
-        padding: 8px !important;
-        border-radius: 20px !important; /* Arrondis prononcés */
-        border: 1px solid #334155 !important;
-        margin-bottom: 24px !important;
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15) !important;
+        gap: 12px !important;
+        background-color: transparent !important;
+        padding: 4px 0px 16px 0px !important;
+        border: none !important;
+        margin-bottom: 20px !important;
     }
     .stTabs [data-baseweb="tab"] {
         height: auto !important;
-        background-color: transparent !important;
-        border-radius: 14px !important;
-        color: #94A3B8 !important; /* Texte gris/bleu très lisible */
+        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
+        border-radius: 12px !important;
+        color: #CBD5E1 !important;
         padding: 12px 24px !important;
         font-weight: 700 !important;
         font-size: 0.92rem !important;
-        border: 1px solid transparent !important;
-        transition: all 0.2s ease-in-out !important;
+        border: none !important;
+        box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
+        transition: all 0.12s ease !important;
     }
     .stTabs [data-baseweb="tab"]:hover {
         color: #FFFFFF !important;
-        background-color: #1E293B !important; /* Survol bleu nuit */
+        background: linear-gradient(180deg, #334155 0%, #1E293B 100%) !important;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 0 #020617, 0 8px 18px rgba(15, 23, 42, 0.25) !important;
     }
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%) !important; /* Dégradé bleu foncé / royal */
+        background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: #FFFFFF !important;
-        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
-        border: 1px solid #3B82F6 !important;
+        box-shadow: 0 4px 0 #1E40AF, 0 8px 20px rgba(37, 99, 235, 0.35) !important;
+        border: none !important;
+        transform: translateY(0px) !important;
+    }
+    .stTabs [aria-selected="true"]:hover {
+        background: linear-gradient(180deg, #3B82F6 0%, #2563EB 100%) !important;
+        box-shadow: 0 6px 0 #1E40AF, 0 10px 22px rgba(37, 99, 235, 0.4) !important;
     }
     .stTabs [data-baseweb="tab-border"], .stTabs [data-baseweb="tab-highlight"] {
         display: none !important;
     }
 
+    /* Bouts standards */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
@@ -311,7 +315,6 @@ def rechercher_symbole_universel(query):
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
             
-            # FILTRAGE : Uniquement actions/ETF nord-américains
             if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
                 if est_marche_nord_americain(symbol, exch_code=quote.get('exchange', ''), exch_disp=exch):
                     results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
@@ -480,7 +483,6 @@ else:
     user = st.session_state['user']
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
     
-    # Sécurité si l'utilisateur en URL a été supprimé
     if res_u.empty:
         st.session_state['user'] = None
         st.query_params.clear()
