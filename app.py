@@ -60,7 +60,7 @@ init_db()
 def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
     symbol_upper = symbol.upper().strip()
     
-    # Suffixes boursiers internationaux à bloquer absolument
+    # Suffixes boursiers internationaux à bloquer
     suffixes_interdits = (
         '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX', 
         '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
@@ -358,7 +358,6 @@ def obtenir_prix_groupes(tickers_list):
 
 @st.cache_data(ttl=30)
 def obtenir_details_financiers(ticker_symbol):
-    # Validation préalable de la bourse
     if not est_marche_nord_americain(ticker_symbol):
         return {"erreur": "non_na"}
 
@@ -417,9 +416,9 @@ def obtenir_historique(ticker_symbol, periode):
         return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
 
-# --- GESTION DE SESSION SÉCURISÉE ---
+# --- GESTION DE SESSION AVEC PERSISTENCE EN URL ---
 if 'user' not in st.session_state:
-    st.session_state['user'] = None
+    st.session_state['user'] = st.query_params.get("user", None)
 
 # AFFICHAGE DES MESSAGES FLASH (TOAST)
 if 'flash_msg' in st.session_state:
@@ -453,6 +452,7 @@ if st.session_state['user'] is None:
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
                         st.session_state['user'] = u_login.strip()
+                        st.query_params["user"] = u_login.strip()
                         st.session_state['flash_msg'] = ("success", f"Bienvenue {u_login.strip()} !")
                         st.rerun()
                     else: st.error("Identifiants incorrects.")
@@ -476,13 +476,21 @@ if st.session_state['user'] is None:
 else:
     user = st.session_state['user']
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
-    cash_actuel = float(res_u.iloc[0]['cash']) if not res_u.empty else 10000.00
-    groupe_actuel = res_u.iloc[0]['groupe'] if not res_u.empty else "Non assigné"
+    
+    # Sécurité si l'utilisateur spécifié dans l'URL a été supprimé
+    if res_u.empty:
+        st.session_state['user'] = None
+        st.query_params.clear()
+        st.rerun()
+
+    cash_actuel = float(res_u.iloc[0]['cash'])
+    groupe_actuel = res_u.iloc[0]['groupe']
 
     col_h1, col_h2 = st.columns([4, 1])
     col_h1.markdown(f"<p style='color: #475569; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#CBD5E1; color:#0F172A; padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
     if col_h2.button("Déconnexion", use_container_width=True):
         st.session_state['user'] = None
+        st.query_params.clear()
         st.rerun()
 
     # --- METRIQUES LIVE ---
@@ -519,7 +527,7 @@ else:
             placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
         )
         
-        selected_ticker = "AAPL" # Action par défaut
+        selected_ticker = "AAPL"
         
         if search_query and len(search_query.strip()) > 0:
             query_clean = search_query.strip()
@@ -923,91 +931,95 @@ else:
         if pin == "1959":
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
             
+            # ttl=0 pour forcer la mise à jour immédiate de la liste après une suppression
             if grp_p == "Tous les groupes":
-                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=5)['username'].tolist()
+                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=0)['username'].tolist()
             else:
-                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=5)['username'].tolist()
+                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=0)['username'].tolist()
                 
             if e_list:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
-                e_data = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0).iloc[0]
-                e_cash, e_grp = float(e_data['cash']), e_data['groupe']
-                e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
+                e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
                 
-                pos_rows = []
-                e_val_act = 0.0
-                if not e_pos.empty:
-                    for _, row in e_pos.iterrows():
-                        tk = str(row['ticker'])
-                        sh = int(row['shares'])
-                        pm = float(row['avg_price'] or 0.0)
-                        pa_live = obtenir_prix_actuel(tk)
-                        pa = pa_live if pa_live is not None else pm
-                        val = sh * pa
-                        pnl = (pa - pm) * sh
-                        pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
-                        e_val_act += val
+                # Vérification de sécurité avant d'accéder à .iloc[0]
+                if not e_data_df.empty:
+                    e_data = e_data_df.iloc[0]
+                    e_cash, e_grp = float(e_data['cash']), e_data['groupe']
+                    e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
+                    
+                    pos_rows = []
+                    e_val_act = 0.0
+                    if not e_pos.empty:
+                        for _, row in e_pos.iterrows():
+                            tk = str(row['ticker'])
+                            sh = int(row['shares'])
+                            pm = float(row['avg_price'] or 0.0)
+                            pa_live = obtenir_prix_actuel(tk)
+                            pa = pa_live if pa_live is not None else pm
+                            val = sh * pa
+                            pnl = (pa - pm) * sh
+                            pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
+                            e_val_act += val
 
-                        fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
-                        fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
+                            fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
+                            fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
 
-                        pos_rows.append({
-                            "Action": tk,
-                            "Quantité": sh,
-                            "Prix Moyen": fmt_pm,
-                            "Prix Actuel": fmt_pa,
-                            "Valeur Totale": f"${val:,.2f}",
-                            "Gain / Perte": f"${pnl:+,.2f}",
-                            "Rendement": f"{pnl_pct:+.2f}%"
-                        })
+                            pos_rows.append({
+                                "Action": tk,
+                                "Quantité": sh,
+                                "Prix Moyen": fmt_pm,
+                                "Prix Actuel": fmt_pa,
+                                "Valeur Totale": f"${val:,.2f}",
+                                "Gain / Perte": f"${pnl:+,.2f}",
+                                "Rendement": f"{pnl_pct:+.2f}%"
+                            })
 
-                e_tot = e_cash + e_val_act
-                e_pnl = e_tot - 10000.00
-                e_perf = (e_pnl / 10000.00) * 100
+                    e_tot = e_cash + e_val_act
+                    e_pnl = e_tot - 10000.00
+                    e_perf = (e_pnl / 10000.00) * 100
 
-                # Entête avec actions Réinitialiser et Supprimer
-                col_top_prof1, col_top_prof2, col_top_prof3 = st.columns([2.5, 1, 1])
-                with col_top_prof1:
-                    st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
-                
-                with col_top_prof2:
-                    if st.button(f"⚠️ Réinitialiser {e_sel}", use_container_width=True):
-                        with conn.session as session:
-                            session.execute(text("UPDATE users SET cash = 10000.00 WHERE username = :u"), {"u": e_sel})
-                            session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
-                            session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
-                            session.commit()
-                        st.session_state['flash_msg'] = ("success", f"Le compte de {e_sel} a été réinitialisé à 10 000 $ !")
-                        st.rerun()
+                    col_top_prof1, col_top_prof2, col_top_prof3 = st.columns([2.5, 1, 1])
+                    with col_top_prof1:
+                        st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
+                    
+                    with col_top_prof2:
+                        if st.button(f"⚠️ Réinitialiser {e_sel}", use_container_width=True):
+                            with conn.session as session:
+                                session.execute(text("UPDATE users SET cash = 10000.00 WHERE username = :u"), {"u": e_sel})
+                                session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
+                                session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
+                                session.commit()
+                            st.session_state['flash_msg'] = ("success", f"Le compte de {e_sel} a été réinitialisé à 10 000 $ !")
+                            st.rerun()
 
-                with col_top_prof3:
-                    if st.button(f"❌ Supprimer le compte", use_container_width=True):
-                        with conn.session as session:
-                            session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
-                            session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
-                            session.execute(text("DELETE FROM users WHERE username = :u"), {"u": e_sel})
-                            session.commit()
-                        st.session_state['flash_msg'] = ("success", f"Le profil de {e_sel} a été définitivement supprimé !")
-                        st.rerun()
+                    with col_top_prof3:
+                        if st.button(f"❌ Supprimer le compte", use_container_width=True):
+                            with conn.session as session:
+                                session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
+                                session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
+                                session.execute(text("DELETE FROM users WHERE username = :u"), {"u": e_sel})
+                                session.commit()
+                            st.session_state['flash_msg'] = ("success", f"Le profil de {e_sel} a été définitivement supprimé !")
+                            st.rerun()
 
-                col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-                col_t1.metric("Disponible (Cash)", f"${e_cash:,.2f}")
-                col_t2.metric("Actions Possédées", f"${e_val_act:,.2f}")
-                col_t3.metric("Valeur Totale", f"${e_tot:,.2f}")
-                col_t4.metric("Gains / Pertes", f"${e_pnl:+,.2f}", f"{e_perf:+.2f}%")
+                    col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+                    col_t1.metric("Disponible (Cash)", f"${e_cash:,.2f}")
+                    col_t2.metric("Actions Possédées", f"${e_val_act:,.2f}")
+                    col_t3.metric("Valeur Totale", f"${e_tot:,.2f}")
+                    col_t4.metric("Gains / Pertes", f"${e_pnl:+,.2f}", f"{e_perf:+.2f}%")
 
-                st.markdown("##### Portefeuille Détaillé")
-                if pos_rows:
-                    st.dataframe(pd.DataFrame(pos_rows), use_container_width=True, hide_index=True)
-                else:
-                    st.info("Cet élève n'a aucune position ouverte actuellement.")
+                    st.markdown("##### Portefeuille Détaillé")
+                    if pos_rows:
+                        st.dataframe(pd.DataFrame(pos_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Cet élève n'a aucune position ouverte actuellement.")
 
-                st.markdown("##### Historique des Transactions")
-                tx_e = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0)
-                if not tx_e.empty:
-                    tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
-                    st.dataframe(tx_e, use_container_width=True, hide_index=True)
-                else:
-                    st.info("Aucune transaction enregistrée.")
+                    st.markdown("##### Historique des Transactions")
+                    tx_e = conn.query("SELECT timestamp, type, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0)
+                    if not tx_e.empty:
+                        tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
+                        st.dataframe(tx_e, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Aucune transaction enregistrée.")
             else:
                 st.info("Aucun élève trouvé dans ce groupe.")
