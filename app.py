@@ -321,7 +321,6 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-# Mettre à jour toutes les 10 secondes (Quasi-Temps Réel)
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
     try:
@@ -337,7 +336,6 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
-# BATCHING OPTIMISÉ (TTL = 10s)
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
     if not tickers_list:
@@ -422,6 +420,47 @@ def obtenir_historique(ticker_symbol, periode):
         interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
         return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
+
+# --- FONCTION SPECIALE : CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
+@st.cache_data(ttl=30, show_spinner=False)
+def obtenir_donnees_classement(grp_filter):
+    if grp_filter == "Tous les groupes":
+        users_df = conn.query("SELECT username, cash, groupe FROM users", ttl=0)
+    else:
+        users_df = conn.query("SELECT username, cash, groupe FROM users WHERE groupe=:g", params={"g": grp_filter}, ttl=0)
+    
+    if users_df.empty:
+        return pd.DataFrame()
+
+    all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=0)
+    unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
+    prix_dict = obtenir_prix_groupes(unique_tickers)
+        
+    lb = []
+    for _, r in users_df.iterrows():
+        u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
+        u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
+        
+        u_val_act = 0.0
+        if not u_p.empty:
+            for _, row in u_p.iterrows():
+                tk_sym = str(row['ticker']).upper()
+                px = prix_dict.get(tk_sym)
+                px_f = px if px is not None else float(row['avg_price'] or 0.0)
+                u_val_act += px_f * row['shares']
+        
+        tot = u_cash + u_val_act
+        perf = ((tot - 10000.00) / 10000.00) * 100
+        lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf})
+        
+    if lb:
+        df_lb = pd.DataFrame(lb).sort_values(by="Portefeuille", ascending=False).reset_index(drop=True)
+        df_lb.index += 1
+        df_lb['Rang'] = df_lb.index
+        df_lb["Portefeuille"] = df_lb["Portefeuille"].map("${:,.2f}".format)
+        df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
+        return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']]
+    return pd.DataFrame()
 
 # --- GESTION DE SESSION AVEC PERSISTENCE EN URL ---
 if 'user' not in st.session_state:
@@ -922,44 +961,22 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT ULTRALÉGER ---
+    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ET ULTRA-RAPIDE ---
     with tab_rank:
-        grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
-        
-        if grp_filter == "Tous les groupes":
-            users_df = conn.query("SELECT username, cash, groupe FROM users", ttl=10)
+        col_r1, col_r2 = st.columns([4, 1])
+        with col_r1:
+            grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
+        with col_r2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔄 Actualiser le classement", use_container_width=True):
+                obtenir_donnees_classement.clear()
+                st.rerun()
+
+        df_classement = obtenir_donnees_classement(grp_filter)
+        if not df_classement.empty:
+            st.dataframe(df_classement, use_container_width=True, hide_index=True)
         else:
-            users_df = conn.query("SELECT username, cash, groupe FROM users WHERE groupe=:g", params={"g": grp_filter}, ttl=10)
-        
-        all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=10)
-        
-        unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
-        prix_dict = obtenir_prix_groupes(unique_tickers)
-            
-        lb = []
-        for _, r in users_df.iterrows():
-            u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
-            u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
-            
-            u_val_act = 0.0
-            if not u_p.empty:
-                for _, row in u_p.iterrows():
-                    tk_sym = str(row['ticker']).upper()
-                    px = prix_dict.get(tk_sym)
-                    px_f = px if px is not None else float(row['avg_price'] or 0.0)
-                    u_val_act += px_f * row['shares']
-            
-            tot = u_cash + u_val_act
-            perf = ((tot - 10000.00) / 10000.00) * 100
-            lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf})
-            
-        if lb:
-            df_lb = pd.DataFrame(lb).sort_values(by="Portefeuille", ascending=False).reset_index(drop=True)
-            df_lb.index += 1
-            df_lb['Rang'] = df_lb.index
-            df_lb["Portefeuille"] = df_lb["Portefeuille"].map("${:,.2f}".format)
-            df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
-            st.dataframe(df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']], use_container_width=True, hide_index=True)
+            st.info("Aucun élève trouvé pour ce classement.")
 
     # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
     with tab_teacher:
