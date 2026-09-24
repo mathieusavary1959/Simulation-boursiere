@@ -939,9 +939,11 @@ else:
                                     session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
                                     rem = sh_real - qty_v
                                     if rem > 0:
-                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": tk_v})
+                                        # FIX : Binding explicite de :u (user) et :t (tk_v)
+                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
                                     else:
                                         session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
+                                    
                                     session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                     {"u": user, "t": tk_v, "s": -qty_v, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
                                     session.commit()
@@ -985,18 +987,18 @@ else:
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
             
             if grp_p == "Tous les groupes":
-                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=10)['username'].tolist()
+                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=0)['username'].tolist()
             else:
-                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=10)['username'].tolist()
+                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=0)['username'].tolist()
                 
             if e_list:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
-                e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=5)
+                e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
                 
                 if not e_data_df.empty:
                     e_data = e_data_df.iloc[0]
                     e_cash, e_grp = float(e_data['cash']), e_data['groupe']
-                    e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=5)
+                    e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
                     
                     pos_rows = []
                     e_val_act = 0.0
@@ -1069,7 +1071,7 @@ else:
                         st.info("Cet élève n'a aucune position ouverte actuellement.")
 
                     st.markdown("##### Historique des Transactions")
-                    tx_e = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=5)
+                    tx_e = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0)
                     if not tx_e.empty:
                         tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
                         st.dataframe(tx_e, use_container_width=True, hide_index=True)
