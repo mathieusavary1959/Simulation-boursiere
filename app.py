@@ -585,14 +585,14 @@ st.markdown("""
         text-decoration: none !important;
         border: 1px solid rgba(255, 255, 255, 0.22) !important;
         padding: 7px 14px !important;
-        box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.8) !important;
+        box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.8), 0 0 18px -2px rgba(90, 165, 255, 0.45) !important;
         transition: all 0.15s ease !important;
     }
     div[data-testid="stLinkButton"] > a:hover {
         border-color: rgba(255, 255, 255, 0.5) !important;
         filter: brightness(1.25);
         transform: translateY(-1px);
-        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.85) !important;
+        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.85), 0 0 24px -2px rgba(90, 165, 255, 0.65) !important;
     }
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
@@ -1583,4 +1583,3 @@ else:
                         st.info("Aucune transaction enregistrée.")
             else:
                 st.info("Aucun élève trouvé dans ce groupe.")
-
