@@ -222,8 +222,8 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
     @media (prefers-reduced-motion: reduce) {
-        .brand-banner, .brand-banner::after, .kpi-card, .podium-card, .tape-track,
-        .block-container > div[data-testid="stVerticalBlock"] > div { animation: none !important; }
+        .brand-banner, .brand-banner::after, .kpi-card, .podium-card,
+        .custom-table, .mon-rang { animation: none !important; }
         .kpi-card { transition: none !important; }
     }
 
@@ -424,55 +424,10 @@ st.markdown("""
         font-variant-numeric: tabular-nums;
     }
 
-    /* --- BANDEAU DÉFILANT DES POSITIONS --- */
-    .tape {
-        overflow: hidden;
-        border: 1px solid #2E2E2E;
-        border-radius: 10px;
-        background: #161616;
-        margin: 4px 0 10px 0;
+    /* --- ENTRÉES ANIMÉES DES BLOCS SUR MESURE --- */
+    .custom-table, .mon-rang {
+        animation: fadeUp 0.5s ease both;
     }
-    .tape-track {
-        display: inline-flex;
-        white-space: nowrap;
-        max-width: none;
-        padding: 9px 0;
-        animation-name: tapeScroll;
-        animation-timing-function: linear;
-        animation-iteration-count: infinite;
-    }
-    .tape:hover .tape-track {
-        animation-play-state: paused;
-    }
-    .tape-track span {
-        padding: 0 22px;
-        font-weight: 600;
-        color: #FFFFFF;
-        font-variant-numeric: tabular-nums;
-        border-right: 1px solid rgba(255, 255, 255, 0.12);
-    }
-    .tape-track span b {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-weight: 400;
-        letter-spacing: 0.05em;
-        font-size: 1.05rem;
-    }
-    @keyframes tapeScroll {
-        from { transform: translateX(0); }
-        to { transform: translateX(-50%); }
-    }
-
-    /* --- ENTRÉE ORCHESTRÉE DES SECTIONS --- */
-    .block-container > div[data-testid="stVerticalBlock"] > div {
-        animation: fadeUp 0.45s ease both;
-    }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(2) { animation-delay: 0.05s; }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(3) { animation-delay: 0.10s; }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(4) { animation-delay: 0.15s; }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(5) { animation-delay: 0.20s; }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(6) { animation-delay: 0.25s; }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(7) { animation-delay: 0.30s; }
-    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(8) { animation-delay: 0.35s; }
 
     /* --- NAVIGATION EN BOUTONS --- */
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > label {
@@ -637,8 +592,6 @@ st.markdown("""
     @media print {
         .custom-table { background-color: #FFFFFF !important; }
         .custom-table th, .custom-table td { color: #000000 !important; }
-        .tape { display: none !important; }
-        .block-container > div[data-testid="stVerticalBlock"] > div { animation: none !important; }
     }
 
     hr { border-color: rgba(255, 255, 255, 0.14) !important; margin: 28px 0 !important; }
@@ -940,12 +893,16 @@ else:
             for _, row in pos_df.iterrows():
                 tk_tape = str(row['ticker']).strip().upper()
                 px_tape = prix_dict.get(tk_tape)
-                px_aff = px_tape if px_tape is not None else float(row['avg_price'] or 0.0)
+                pm_tape = float(row['avg_price'] or 0.0)
+                px_aff = px_tape if px_tape is not None else pm_tape
                 fmt_tape = f"${px_aff:,.4f}" if px_aff < 1 else f"${px_aff:,.2f}"
-                items_tape += f"<span><b>{tk_tape}</b>&nbsp;&nbsp;{fmt_tape}</span>"
+                couleur_tape = "#34D399" if px_aff >= pm_tape else "#F87171"
+                fleche_tape = "▲" if px_aff >= pm_tape else "▼"
+                items_tape += f"<span class='item'><b>{tk_tape}</b>&nbsp;<span style='color:{couleur_tape};'>{fleche_tape} {fmt_tape}</span></span>"
             if items_tape:
                 duree_tape = max(20, 5 * len(pos_df))
-                st.markdown(f"<div class='tape'><div class='tape-track' style='animation-duration: {duree_tape}s;'>{items_tape}{items_tape}</div></div>", unsafe_allow_html=True)
+                css_tape = "<style>body{margin:0;background:#161616;font-family:'Work Sans',sans-serif;overflow:hidden;border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}.track{display:flex;width:max-content;padding:11px 0;animation:tapeScroll " + str(duree_tape) + "s linear infinite}.track:hover{animation-play-state:paused}.item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}@keyframes tapeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>"
+                components.html(f"<!DOCTYPE html><html><head>{css_tape}</head><body><div class='track'>{items_tape}{items_tape}</div></body></html>", height=46)
 
     afficher_metrics_live()
 
