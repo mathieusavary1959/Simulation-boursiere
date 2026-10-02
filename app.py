@@ -103,7 +103,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN STYLE NETFLIX (COUCHE VISUELLE SEULEMENT) ---
+# --- DESIGN STYLE NETFLIX PREMIUM (COUCHE VISUELLE SEULEMENT) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700;800&display=swap');
@@ -114,7 +114,7 @@ st.markdown("""
 
     .stApp {
         background-color: #141414 !important;
-        color: #F5F5F1 !important;
+        color: #FFFFFF !important;
     }
 
     #MainMenu, footer, header { visibility: hidden; }
@@ -126,6 +126,9 @@ st.markdown("""
     ::-webkit-scrollbar-thumb { background: #3A3A3A; border-radius: 8px; }
     ::-webkit-scrollbar-thumb:hover { background: #E50914; }
 
+    .stApp h1 { font-size: 2.6rem !important; }
+    .stApp h2 { font-size: 2.2rem !important; }
+    .stApp h3 { font-size: 1.85rem !important; }
     .stApp h1, .stApp h2, .stApp h3 {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
         font-weight: 400 !important;
@@ -133,32 +136,51 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
+    div[data-testid="stWidgetLabel"] p {
+        color: #FFFFFF !important;
+        font-weight: 600 !important;
+    }
+
     .brand-banner {
         background: linear-gradient(120deg, #000000 0%, #161616 55%, #2B0A0C 100%);
         border-radius: 16px;
-        padding: 26px 34px;
+        padding: 28px 36px;
         color: #FFFFFF;
         margin-bottom: 24px;
-        box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.95), 0 0 36px -12px rgba(229, 9, 20, 0.55);
+        box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(229, 9, 20, 0.6);
         display: flex;
         justify-content: space-between;
         align-items: center;
         border: 1px solid rgba(229, 9, 20, 0.5);
         border-bottom: 3px solid #E50914;
         animation: fadeDown 0.55s ease both;
+        position: relative;
+        overflow: hidden;
+    }
+    .brand-banner::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -80%;
+        width: 55%;
+        height: 100%;
+        background: linear-gradient(105deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0) 100%);
+        transform: skewX(-18deg);
+        animation: sheen 4.5s ease-in-out infinite;
+        pointer-events: none;
     }
     .brand-title {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 2.7rem;
+        font-size: 3rem;
         letter-spacing: 0.06em;
         line-height: 1;
         color: #FFFFFF;
         margin: 0;
-        text-shadow: 0 0 22px rgba(229, 9, 20, 0.45);
+        text-shadow: 0 0 26px rgba(229, 9, 20, 0.55);
     }
     .brand-subtitle {
-        color: #B3B3B3;
-        font-size: 0.9rem;
+        color: #FFFFFF;
+        font-size: 0.92rem;
         font-weight: 500;
         margin-top: 6px;
     }
@@ -180,29 +202,42 @@ st.markdown("""
         from { opacity: 0; transform: translateY(-8px); }
         to { opacity: 1; transform: translateY(0); }
     }
+    @keyframes sheen {
+        0%, 55% { left: -80%; }
+        85%, 100% { left: 130%; }
+    }
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
     @media (prefers-reduced-motion: reduce) {
-        .brand-banner { animation: none !important; }
+        .brand-banner, .brand-banner::after, div[data-testid="stMetric"] { animation: none !important; }
         div[data-testid="stMetric"] { transition: none !important; }
     }
 
     div[data-testid="stMetric"] {
-        background: linear-gradient(180deg, #232323 0%, #1A1A1A 100%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        background: linear-gradient(180deg, #242424 0%, #1A1A1A 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.10) !important;
         border-top: 3px solid #E50914 !important;
         border-radius: 14px !important;
-        padding: 18px 20px !important;
+        padding: 20px 22px !important;
         box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.9) !important;
-        transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease !important;
+        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease !important;
+        animation: fadeUp 0.5s ease both;
     }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(1) div[data-testid="stMetric"] { animation-delay: 0.00s; }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) div[data-testid="stMetric"] { animation-delay: 0.08s; }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) div[data-testid="stMetric"] { animation-delay: 0.16s; }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(4) div[data-testid="stMetric"] { animation-delay: 0.24s; }
     div[data-testid="stMetric"]:hover {
-        transform: translateY(-3px) scale(1.015);
-        border-color: rgba(229, 9, 20, 0.55) !important;
+        transform: translateY(-4px) scale(1.03);
+        border-color: rgba(229, 9, 20, 0.6) !important;
         border-top-color: #E50914 !important;
-        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 26px -8px rgba(229, 9, 20, 0.6) !important;
+        box-shadow: 0 24px 42px -14px rgba(0, 0, 0, 0.95), 0 0 30px -6px rgba(229, 9, 20, 0.65) !important;
     }
     div[data-testid="stMetricValue"] {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
-        font-size: 2.15rem !important;
+        font-size: 2.3rem !important;
         font-weight: 400 !important;
         color: #FFFFFF !important;
         letter-spacing: 0.03em;
@@ -211,7 +246,7 @@ st.markdown("""
         font-variant-numeric: tabular-nums;
     }
     div[data-testid="stMetricLabel"] {
-        color: #B3B3B3 !important;
+        color: #FFFFFF !important;
         font-size: 0.78rem;
         text-transform: uppercase;
         font-weight: 800;
@@ -238,7 +273,7 @@ st.markdown("""
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label {
         background: #1F1F1F !important;
         border-radius: 999px !important;
-        color: #C9C9C9 !important;
+        color: #FFFFFF !important;
         padding: 11px 22px !important;
         font-weight: 700 !important;
         font-size: 0.92rem !important;
@@ -250,13 +285,13 @@ st.markdown("""
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:hover {
         color: #FFFFFF !important;
-        border-color: rgba(229, 9, 20, 0.7) !important;
-        transform: translateY(-2px);
+        border-color: rgba(229, 9, 20, 0.75) !important;
+        transform: translateY(-2px) scale(1.03);
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:has(input:checked) {
         background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
         color: #FFFFFF !important;
-        box-shadow: 0 10px 24px -8px rgba(229, 9, 20, 0.85) !important;
+        box-shadow: 0 10px 24px -8px rgba(229, 9, 20, 0.9) !important;
         border: 1px solid rgba(255, 130, 130, 0.45) !important;
         transform: translateY(0px) !important;
     }
@@ -279,7 +314,7 @@ st.markdown("""
     }
     .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
         filter: brightness(1.15);
-        transform: translateY(-2px);
+        transform: translateY(-2px) scale(1.02);
         box-shadow: 0 14px 26px -10px rgba(229, 9, 20, 0.95) !important;
     }
     .stButton>button:active, div[data-testid="stFormSubmitButton"]>button:active {
@@ -288,7 +323,7 @@ st.markdown("""
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #1F1F1F !important;
-        color: #F5F5F1 !important;
+        color: #FFFFFF !important;
         border-radius: 10px !important;
         border: 1.5px solid #3A3A3A !important;
         padding: 11px 16px !important;
@@ -299,7 +334,7 @@ st.markdown("""
         box-shadow: 0 0 0 1px #E50914 !important;
     }
     .stTextInput input::placeholder, .stNumberInput input::placeholder {
-        color: #8C8C8C !important;
+        color: #D9D9D9 !important;
     }
 
     div[data-baseweb="popover"] {
@@ -308,7 +343,7 @@ st.markdown("""
         border-radius: 12px !important;
     }
     div[data-baseweb="popover"] li {
-        color: #F5F5F1 !important;
+        color: #FFFFFF !important;
     }
 
     div[data-testid="stDataFrame"] {
@@ -318,11 +353,26 @@ st.markdown("""
         box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.9) !important;
     }
 
-    /* Onglets Connexion / Créer un compte */
-    div[data-baseweb="tab-list"] { gap: 8px !important; }
+    div[data-testid="stAlert"] {
+        border-radius: 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    }
+
+    /* Carte de connexion (page d'accueil) */
+    div[data-testid="stTabs"] {
+        background: linear-gradient(180deg, #1E1E1E 0%, #161616 100%);
+        border: 1px solid #2E2E2E;
+        border-top: 3px solid #E50914;
+        border-radius: 16px;
+        padding: 12px 24px 24px 24px;
+        box-shadow: 0 24px 48px -18px rgba(0, 0, 0, 0.95), 0 0 34px -12px rgba(229, 9, 20, 0.45);
+        animation: fadeUp 0.55s ease both;
+    }
+    div[data-baseweb="tab-list"] { gap: 10px !important; }
     button[data-baseweb="tab"] {
-        color: #B3B3B3 !important;
+        color: #FFFFFF !important;
         font-weight: 700 !important;
+        font-size: 1rem !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] { color: #FFFFFF !important; }
     div[data-baseweb="tab-highlight"] { background-color: #E50914 !important; }
@@ -340,7 +390,7 @@ st.markdown("""
     }
     .custom-table th {
         background-color: #262626;
-        color: #E5E5E5;
+        color: #FFFFFF;
         font-weight: 800;
         padding: 14px 18px;
         text-align: left;
@@ -352,13 +402,13 @@ st.markdown("""
     .custom-table td {
         padding: 14px 18px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        color: #F5F5F1;
+        color: #FFFFFF;
         font-weight: 600;
         font-size: 0.93rem;
         font-variant-numeric: tabular-nums;
     }
     .custom-table tbody tr { transition: background-color 0.15s ease; }
-    .custom-table tbody tr:hover { background-color: rgba(229, 9, 20, 0.08); }
+    .custom-table tbody tr:hover { background-color: rgba(229, 9, 20, 0.10); }
 
     @media print {
         .custom-table { background-color: #FFFFFF !important; }
@@ -620,7 +670,7 @@ else:
     groupe_actuel = res_u.iloc[0]['groupe']
 
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #B3B3B3; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #FFFFFF;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(229, 9, 20, 0.16); color:#FF858B; border:1px solid rgba(229, 9, 20, 0.55); padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
+    col_h1.markdown(f"<p style='color: #FFFFFF; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #FFFFFF;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(229, 9, 20, 0.22); color:#FFFFFF; border:1px solid #E50914; padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
 
     if col_h2.button("Déconnexion", use_container_width=True):
         current_token = st.query_params.get("session")
@@ -777,7 +827,7 @@ else:
                                 side="right",
                                 tickformat=tick_fmt
                             ),
-                            font=dict(color="#D9D9D9", family="Work Sans")
+                            font=dict(color="#FFFFFF", family="Work Sans")
                         )
                         st.plotly_chart(fig, use_container_width=True)
 
@@ -1090,7 +1140,7 @@ else:
 
                 def highlight_row(row):
                     if search_term in str(row['Élève']).lower():
-                        return ['background-color: rgba(229, 9, 20, 0.92); color: #FFFFFF; font-weight: 700;'] * len(row)
+                        return ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
                     return [''] * len(row)
 
                 styled_df = df_classement.style.apply(highlight_row, axis=1)
