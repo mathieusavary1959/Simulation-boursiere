@@ -222,7 +222,8 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
     @media (prefers-reduced-motion: reduce) {
-        .brand-banner, .brand-banner::after, .kpi-card, .podium-card { animation: none !important; }
+        .brand-banner, .brand-banner::after, .kpi-card, .podium-card, .tape-track,
+        .block-container > div[data-testid="stVerticalBlock"] > div { animation: none !important; }
         .kpi-card { transition: none !important; }
     }
 
@@ -330,6 +331,12 @@ st.markdown("""
         color: #F87171;
         border: 1px solid rgba(239, 68, 68, 0.55);
     }
+    .quote-card.up {
+        box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(16, 185, 129, 0.55);
+    }
+    .quote-card.down {
+        box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(239, 68, 68, 0.55);
+    }
 
     /* --- PODIUM DU CLASSEMENT --- */
     .podium-card {
@@ -416,6 +423,56 @@ st.markdown("""
         color: #FFFFFF;
         font-variant-numeric: tabular-nums;
     }
+
+    /* --- BANDEAU DÉFILANT DES POSITIONS --- */
+    .tape {
+        overflow: hidden;
+        border: 1px solid #2E2E2E;
+        border-radius: 10px;
+        background: #161616;
+        margin: 4px 0 10px 0;
+    }
+    .tape-track {
+        display: inline-flex;
+        white-space: nowrap;
+        max-width: none;
+        padding: 9px 0;
+        animation-name: tapeScroll;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+    }
+    .tape:hover .tape-track {
+        animation-play-state: paused;
+    }
+    .tape-track span {
+        padding: 0 22px;
+        font-weight: 600;
+        color: #FFFFFF;
+        font-variant-numeric: tabular-nums;
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .tape-track span b {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-weight: 400;
+        letter-spacing: 0.05em;
+        font-size: 1.05rem;
+    }
+    @keyframes tapeScroll {
+        from { transform: translateX(0); }
+        to { transform: translateX(-50%); }
+    }
+
+    /* --- ENTRÉE ORCHESTRÉE DES SECTIONS --- */
+    .block-container > div[data-testid="stVerticalBlock"] > div {
+        animation: fadeUp 0.45s ease both;
+    }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(2) { animation-delay: 0.05s; }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(3) { animation-delay: 0.10s; }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(4) { animation-delay: 0.15s; }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(5) { animation-delay: 0.20s; }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(6) { animation-delay: 0.25s; }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(7) { animation-delay: 0.30s; }
+    .block-container > div[data-testid="stVerticalBlock"] > div:nth-child(8) { animation-delay: 0.35s; }
 
     /* --- NAVIGATION EN BOUTONS --- */
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > label {
@@ -580,6 +637,8 @@ st.markdown("""
     @media print {
         .custom-table { background-color: #FFFFFF !important; }
         .custom-table th, .custom-table td { color: #000000 !important; }
+        .tape { display: none !important; }
+        .block-container > div[data-testid="stVerticalBlock"] > div { animation: none !important; }
     }
 
     hr { border-color: rgba(255, 255, 255, 0.14) !important; margin: 28px 0 !important; }
@@ -876,6 +935,18 @@ else:
         fleche_delta = "▲" if profit_total >= 0 else "▼"
         col_m4.markdown(f"<div class='kpi-card'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div></div>", unsafe_allow_html=True)
 
+        if not pos_df.empty:
+            items_tape = ""
+            for _, row in pos_df.iterrows():
+                tk_tape = str(row['ticker']).strip().upper()
+                px_tape = prix_dict.get(tk_tape)
+                px_aff = px_tape if px_tape is not None else float(row['avg_price'] or 0.0)
+                fmt_tape = f"${px_aff:,.4f}" if px_aff < 1 else f"${px_aff:,.2f}"
+                items_tape += f"<span><b>{tk_tape}</b>&nbsp;&nbsp;{fmt_tape}</span>"
+            if items_tape:
+                duree_tape = max(20, 5 * len(pos_df))
+                st.markdown(f"<div class='tape'><div class='tape-track' style='animation-duration: {duree_tape}s;'>{items_tape}{items_tape}</div></div>", unsafe_allow_html=True)
+
     afficher_metrics_live()
 
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -929,14 +1000,14 @@ else:
         elif details:
             prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
             chart_color = "#10B981" if var >= 0 else "#EF4444"
-            fill_color = "rgba(16, 185, 129, 0.12)" if var >= 0 else "rgba(239, 68, 68, 0.12)"
+            fill_color = "rgba(16, 185, 129, 0.20)" if var >= 0 else "rgba(239, 68, 68, 0.20)"
             signe = "+" if var >= 0 else ""
             fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
 
             col_chart, col_order = st.columns([2.2, 1])
 
             with col_chart:
-                st.markdown(f"<div class='quote-card'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -975,10 +1046,27 @@ else:
                             x=df_hist.index,
                             y=df_hist['Close'],
                             mode='lines',
-                            line=dict(color=chart_color, width=2.5),
+                            line=dict(color=chart_color, width=3),
                             fill='tozeroy',
                             fillcolor=fill_color,
                             hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
+                        ))
+
+                        fig.add_trace(go.Scatter(
+                            x=[df_hist.index[-1]],
+                            y=[df_hist['Close'].iloc[-1]],
+                            mode='markers',
+                            marker=dict(size=18, color=chart_color, opacity=0.30),
+                            hoverinfo='skip',
+                            showlegend=False
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=[df_hist.index[-1]],
+                            y=[df_hist['Close'].iloc[-1]],
+                            mode='markers',
+                            marker=dict(size=8, color=chart_color, line=dict(color='#FFFFFF', width=1.5)),
+                            hoverinfo='skip',
+                            showlegend=False
                         ))
 
                         fig.update_layout(
