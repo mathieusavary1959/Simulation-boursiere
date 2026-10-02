@@ -571,6 +571,28 @@ st.markdown("""
         transform: translateY(0px);
     }
 
+    /* Boutons-liens vers les sites de finance */
+    div[data-testid="stLinkButton"] > a {
+        display: inline-flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+        border-radius: 10px !important;
+        background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        text-decoration: none !important;
+        border: 1px solid rgba(255, 130, 130, 0.4) !important;
+        padding: 12px 24px !important;
+        box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85) !important;
+        transition: all 0.15s ease !important;
+    }
+    div[data-testid="stLinkButton"] > a:hover {
+        filter: brightness(1.15);
+        transform: translateY(-2px);
+        box-shadow: 0 14px 26px -10px rgba(229, 9, 20, 0.95) !important;
+    }
+
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
         background-color: #1F1F1F !important;
         color: #FFFFFF !important;
@@ -1005,6 +1027,11 @@ else:
 
     # --- ONGLET 1 : MARCHÉ & ANALYSE ---
     if tab_choisi == "Marché & Analyse":
+        col_l1, col_l2, col_l3 = st.columns(3)
+        col_l1.link_button("Les Affaires", "https://www.lesaffaires.com/?view=register&product_id=1898&plan_id=62962&utm_campaign=ABNT_PROMO30_ADSGOOGLE&utm_medium=ADS&utm_source=ADSGOOGLE&utm_term=landing&gad_source=1&gad_campaignid=24159803993&gbraid=0AAAAADel4hnhaUpWgv3yFaDiNmCZAJv32&gclid=CjwKCAjwrP3VBhBbEiwAnaqpQyOPax6Hc_HEcl3kWXH3NxC0aQVSEw-GAa87RTweJxM5yyasiT0W4RoCAVQQAvD_BwE", use_container_width=True)
+        col_l2.link_button("Barchart", "https://www.barchart.com/", use_container_width=True)
+        col_l3.link_button("Yahoo Finance", "https://ca.finance.yahoo.com/", use_container_width=True)
+
         col_s1, col_s2 = st.columns([4, 1])
         with col_s1:
             search_query = st.text_input(
