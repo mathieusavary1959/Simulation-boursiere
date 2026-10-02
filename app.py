@@ -285,6 +285,46 @@ st.markdown("""
         color: #F87171;
         border: 1px solid rgba(239, 68, 68, 0.55);
     }
+    .kpi-up {
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(16, 185, 129, 0.55);
+    }
+    .kpi-down {
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(239, 68, 68, 0.55);
+    }
+    .kpi-up .kpi-value { color: #34D399; }
+    .kpi-down .kpi-value { color: #F87171; }
+    .kpi-up:hover {
+        border-color: rgba(16, 185, 129, 0.65);
+        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 38px -6px rgba(16, 185, 129, 0.7);
+    }
+    .kpi-down:hover {
+        border-color: rgba(239, 68, 68, 0.65);
+        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 38px -6px rgba(239, 68, 68, 0.7);
+    }
+    .kpi-gauge {
+        position: relative;
+        height: 6px;
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        margin-top: 10px;
+    }
+    .gauge-center {
+        position: absolute;
+        left: 50%;
+        top: -3px;
+        width: 2px;
+        height: 12px;
+        background: #FFFFFF;
+        opacity: 0.7;
+    }
+    .gauge-fill {
+        position: absolute;
+        top: 0;
+        height: 6px;
+        border-radius: 999px;
+    }
+    .gauge-fill.up { background: #34D399; }
+    .gauge-fill.down { background: #F87171; }
 
     /* --- CARTE-CITATION (MARCHÉ) --- */
     .quote-card {
@@ -300,7 +340,22 @@ st.markdown("""
         margin-bottom: 10px;
         box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9);
         animation: fadeUp 0.5s ease both;
+        position: relative;
+        overflow: hidden;
     }
+    .quote-card::after {
+        content: attr(data-tk);
+        position: absolute;
+        right: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 5.4rem;
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.05);
+        pointer-events: none;
+    }
+    .quote-card > div { position: relative; z-index: 1; }
     .quote-ticker {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
         font-size: 2.9rem;
@@ -392,6 +447,9 @@ st.markdown("""
         color: #FFFFFF;
         font-variant-numeric: tabular-nums;
     }
+    .podium-1 { animation-delay: 0.00s; }
+    .podium-2 { animation-delay: 0.15s; }
+    .podium-3 { animation-delay: 0.30s; }
 
     .mon-rang {
         display: flex;
@@ -886,7 +944,13 @@ else:
         col_m3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${valeur_totale:,.2f}</div></div>", unsafe_allow_html=True)
         classe_delta = "kpi-delta up" if profit_total >= 0 else "kpi-delta down"
         fleche_delta = "▲" if profit_total >= 0 else "▼"
-        col_m4.markdown(f"<div class='kpi-card'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div></div>", unsafe_allow_html=True)
+        classe_carte = "kpi-card kpi-up" if profit_total >= 0 else "kpi-card kpi-down"
+        jauge_pct = max(-10.0, min(10.0, rendement_pct))
+        if jauge_pct >= 0:
+            jauge_gauche, jauge_largeur = 50.0, jauge_pct * 5.0
+        else:
+            jauge_gauche, jauge_largeur = 50.0 + jauge_pct * 5.0, -jauge_pct * 5.0
+        col_m4.markdown(f"<div class='{classe_carte}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div><div class='kpi-gauge'><div class='gauge-center'></div><div class='gauge-fill {'up' if profit_total >= 0 else 'down'}' style='left:{jauge_gauche:.1f}%;width:{jauge_largeur:.1f}%'></div></div></div>", unsafe_allow_html=True)
 
         if not pos_df.empty:
             items_tape = ""
@@ -964,7 +1028,7 @@ else:
             col_chart, col_order = st.columns([2.2, 1])
 
             with col_chart:
-                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -1353,25 +1417,23 @@ else:
             classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
             cols_podium = st.columns(len(top3))
             for i, (_, r_pod) in enumerate(top3.iterrows()):
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
+                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
 
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
                 r_moi = moi.iloc[0]
                 st.markdown(f"<div class='mon-rang'><span class='mon-rang-label'>Ton rang</span><span class='mon-rang-val'>#{int(r_moi['Rang'])}</span><span class='mon-rang-detail'>{r_moi['Portefeuille']} · {r_moi['Performance']}</span></div>", unsafe_allow_html=True)
 
-            if search_user_rank and search_user_rank.strip():
-                search_term = search_user_rank.strip().lower()
+            def highlight_row(row):
+                styles = [''] * len(row)
+                if str(row['Élève']) == user:
+                    styles = ['background-color: rgba(229, 9, 20, 0.30); color: #FFFFFF; font-weight: 700;'] * len(row)
+                if search_user_rank and search_user_rank.strip() and search_user_rank.strip().lower() in str(row['Élève']).lower():
+                    styles = ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
+                return styles
 
-                def highlight_row(row):
-                    if search_term in str(row['Élève']).lower():
-                        return ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
-                    return [''] * len(row)
-
-                styled_df = df_classement.style.apply(highlight_row, axis=1)
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-            else:
-                st.dataframe(df_classement, use_container_width=True, hide_index=True)
+            styled_df = df_classement.style.apply(highlight_row, axis=1)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
         else:
             st.info("Aucun élève trouvé pour ce classement.")
 
@@ -1459,7 +1521,13 @@ else:
                     col_t3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${e_tot:,.2f}</div></div>", unsafe_allow_html=True)
                     classe_delta_p = "kpi-delta up" if e_pnl >= 0 else "kpi-delta down"
                     fleche_delta_p = "▲" if e_pnl >= 0 else "▼"
-                    col_t4.markdown(f"<div class='kpi-card'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${e_pnl:+,.2f}</div><div class='{classe_delta_p}'>{fleche_delta_p} {e_perf:+.2f}%</div></div>", unsafe_allow_html=True)
+                    classe_carte_p = "kpi-card kpi-up" if e_pnl >= 0 else "kpi-card kpi-down"
+                    jauge_pct_p = max(-10.0, min(10.0, e_perf))
+                    if jauge_pct_p >= 0:
+                        jauge_gauche_p, jauge_largeur_p = 50.0, jauge_pct_p * 5.0
+                    else:
+                        jauge_gauche_p, jauge_largeur_p = 50.0 + jauge_pct_p * 5.0, -jauge_pct_p * 5.0
+                    col_t4.markdown(f"<div class='{classe_carte_p}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${e_pnl:+,.2f}</div><div class='{classe_delta_p}'>{fleche_delta_p} {e_perf:+.2f}%</div><div class='kpi-gauge'><div class='gauge-center'></div><div class='gauge-fill {'up' if e_pnl >= 0 else 'down'}' style='left:{jauge_gauche_p:.1f}%;width:{jauge_largeur_p:.1f}%'></div></div></div>", unsafe_allow_html=True)
 
                     st.markdown("##### Portefeuille Détaillé")
                     if pos_rows:
