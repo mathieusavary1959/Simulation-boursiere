@@ -578,22 +578,22 @@ st.markdown("""
         align-items: center !important;
         width: 100% !important;
         border-radius: 9px !important;
-        background: linear-gradient(180deg, #2F6FBD 0%, #1D4E89 100%) !important;
-        color: #FFFFFF !important;
+        background: linear-gradient(180deg, #12161C 0%, #0B0E13 100%) !important;
+        color: #EAF6FF !important;
         font-weight: 700 !important;
         font-size: 0.9rem !important;
-        letter-spacing: 0.02em !important;
+        letter-spacing: 0.03em !important;
         text-decoration: none !important;
-        border: 1px solid rgba(140, 190, 255, 0.55) !important;
+        border: 1px solid rgba(0, 191, 255, 0.75) !important;
         padding: 9px 16px !important;
-        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.8), 0 0 22px -4px rgba(90, 165, 255, 0.65) !important;
+        box-shadow: 0 0 20px -2px rgba(0, 191, 255, 0.55), inset 0 0 14px rgba(0, 191, 255, 0.12) !important;
         transition: all 0.15s ease !important;
     }
     div[data-testid="stLinkButton"] > a:hover {
-        border-color: rgba(180, 215, 255, 0.85) !important;
-        filter: brightness(1.2);
+        border-color: rgba(150, 228, 255, 1) !important;
+        color: #FFFFFF !important;
         transform: translateY(-2px);
-        box-shadow: 0 12px 22px -8px rgba(0, 0, 0, 0.85), 0 0 30px -4px rgba(90, 165, 255, 0.85) !important;
+        box-shadow: 0 0 30px 0px rgba(0, 191, 255, 0.85), inset 0 0 18px rgba(0, 191, 255, 0.22) !important;
     }
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
