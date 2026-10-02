@@ -990,20 +990,33 @@ else:
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT ---
+    # --- ONGLET 4 : CLASSEMENT (AVEC RECHERCHE & SURGLIGNAGE JAUNE) ---
     elif tab_choisi == "Classement":
-        col_r1, col_r2 = st.columns([4, 1])
+        col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
         with col_r1:
             grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         with col_r2:
+            search_user_rank = st.text_input("🔍 Rechercher un élève :", value="", placeholder="Tapez un nom d'élève...")
+        with col_r3:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔄 Actualiser le classement", use_container_width=True):
+            if st.button("🔄 Actualiser", use_container_width=True):
                 obtenir_donnees_classement.clear()
                 st.rerun()
 
         df_classement = obtenir_donnees_classement(grp_filter)
         if not df_classement.empty:
-            st.dataframe(df_classement, use_container_width=True, hide_index=True)
+            if search_user_rank and search_user_rank.strip():
+                search_term = search_user_rank.strip().lower()
+                
+                def highlight_row(row):
+                    if search_term in str(row['Élève']).lower():
+                        return ['background-color: #FDE047; color: #0F172A; font-weight: 700;'] * len(row)
+                    return [''] * len(row)
+
+                styled_df = df_classement.style.apply(highlight_row, axis=1)
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(df_classement, use_container_width=True, hide_index=True)
         else:
             st.info("Aucun élève trouvé pour ce classement.")
 
