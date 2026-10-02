@@ -223,7 +223,7 @@ st.markdown("""
     }
     @media (prefers-reduced-motion: reduce) {
         .brand-banner, .brand-banner::after, .kpi-card, .podium-card,
-        .custom-table, .mon-rang { animation: none !important; }
+        .custom-table, .mon-rang, .kpi-up, .kpi-down { animation: none !important; }
         .kpi-card { transition: none !important; }
     }
 
@@ -286,45 +286,37 @@ st.markdown("""
         border: 1px solid rgba(239, 68, 68, 0.55);
     }
     .kpi-up {
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(16, 185, 129, 0.55);
+        border-color: rgba(16, 185, 129, 0.55);
+        border-top-color: #34D399;
+        background: linear-gradient(180deg, rgba(16, 185, 129, 0.18) 0%, #1A1A1A 62%);
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 46px -4px rgba(16, 185, 129, 0.8);
+        animation: fadeUp 0.5s ease both, pulseUp 2.8s ease-in-out 0.6s infinite;
     }
     .kpi-down {
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(239, 68, 68, 0.55);
+        border-color: rgba(239, 68, 68, 0.55);
+        border-top-color: #F87171;
+        background: linear-gradient(180deg, rgba(239, 68, 68, 0.18) 0%, #1A1A1A 62%);
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 46px -4px rgba(239, 68, 68, 0.8);
+        animation: fadeUp 0.5s ease both, pulseDown 2.8s ease-in-out 0.6s infinite;
+    }
+    @keyframes pulseUp {
+        0%, 100% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 34px -6px rgba(16, 185, 129, 0.55); }
+        50% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 56px -2px rgba(16, 185, 129, 0.95); }
+    }
+    @keyframes pulseDown {
+        0%, 100% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 34px -6px rgba(239, 68, 68, 0.55); }
+        50% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 56px -2px rgba(239, 68, 68, 0.95); }
     }
     .kpi-up .kpi-value { color: #34D399; }
     .kpi-down .kpi-value { color: #F87171; }
     .kpi-up:hover {
-        border-color: rgba(16, 185, 129, 0.65);
-        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 38px -6px rgba(16, 185, 129, 0.7);
+        border-color: rgba(16, 185, 129, 0.8);
+        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 54px -4px rgba(16, 185, 129, 0.9);
     }
     .kpi-down:hover {
-        border-color: rgba(239, 68, 68, 0.65);
-        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 38px -6px rgba(239, 68, 68, 0.7);
+        border-color: rgba(239, 68, 68, 0.8);
+        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 54px -4px rgba(239, 68, 68, 0.9);
     }
-    .kpi-gauge {
-        position: relative;
-        height: 6px;
-        background: rgba(255, 255, 255, 0.12);
-        border-radius: 999px;
-        margin-top: 10px;
-    }
-    .gauge-center {
-        position: absolute;
-        left: 50%;
-        top: -3px;
-        width: 2px;
-        height: 12px;
-        background: #FFFFFF;
-        opacity: 0.7;
-    }
-    .gauge-fill {
-        position: absolute;
-        top: 0;
-        height: 6px;
-        border-radius: 999px;
-    }
-    .gauge-fill.up { background: #34D399; }
-    .gauge-fill.down { background: #F87171; }
 
     /* --- CARTE-CITATION (MARCHÉ) --- */
     .quote-card {
@@ -450,6 +442,39 @@ st.markdown("""
     .podium-1 { animation-delay: 0.00s; }
     .podium-2 { animation-delay: 0.15s; }
     .podium-3 { animation-delay: 0.30s; }
+    .podium-card {
+        position: relative;
+        overflow: hidden;
+        transition: box-shadow 0.3s ease, transform 0.3s ease;
+    }
+    .podium-card > div { position: relative; z-index: 1; }
+    .podium-bg {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 5.2rem;
+        line-height: 1;
+        color: rgba(255, 255, 255, 0.05);
+        pointer-events: none;
+        z-index: 0 !important;
+    }
+    .podium-or .podium-bg { color: rgba(255, 215, 0, 0.08); }
+    .podium-argent .podium-bg { color: rgba(192, 192, 192, 0.08); }
+    .podium-bronze .podium-bg { color: rgba(205, 127, 50, 0.08); }
+    .podium-or:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(255, 215, 0, 0.8);
+    }
+    .podium-argent:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(192, 192, 192, 0.75);
+    }
+    .podium-bronze:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(205, 127, 50, 0.8);
+    }
 
     .mon-rang {
         display: flex;
@@ -529,6 +554,16 @@ st.markdown("""
         color: inherit !important;
         font-weight: 700 !important;
         font-size: 0.92rem !important;
+    }
+
+    /* Navigation qui reste en haut lors du défilement */
+    .block-container div[data-testid="stVerticalBlock"] > div:has(input[name="main_nav_radio"]) {
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        background: rgba(20, 20, 20, 0.96);
+        padding-top: 6px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     /* Boutons standards */
@@ -945,12 +980,7 @@ else:
         classe_delta = "kpi-delta up" if profit_total >= 0 else "kpi-delta down"
         fleche_delta = "▲" if profit_total >= 0 else "▼"
         classe_carte = "kpi-card kpi-up" if profit_total >= 0 else "kpi-card kpi-down"
-        jauge_pct = max(-10.0, min(10.0, rendement_pct))
-        if jauge_pct >= 0:
-            jauge_gauche, jauge_largeur = 50.0, jauge_pct * 5.0
-        else:
-            jauge_gauche, jauge_largeur = 50.0 + jauge_pct * 5.0, -jauge_pct * 5.0
-        col_m4.markdown(f"<div class='{classe_carte}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div><div class='kpi-gauge'><div class='gauge-center'></div><div class='gauge-fill {'up' if profit_total >= 0 else 'down'}' style='left:{jauge_gauche:.1f}%;width:{jauge_largeur:.1f}%'></div></div></div>", unsafe_allow_html=True)
+        col_m4.markdown(f"<div class='{classe_carte}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div></div>", unsafe_allow_html=True)
 
         if not pos_df.empty:
             items_tape = ""
@@ -1417,7 +1447,7 @@ else:
             classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
             cols_podium = st.columns(len(top3))
             for i, (_, r_pod) in enumerate(top3.iterrows()):
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
+                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-bg'>{int(r_pod['Rang'])}</div><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
 
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
@@ -1522,12 +1552,7 @@ else:
                     classe_delta_p = "kpi-delta up" if e_pnl >= 0 else "kpi-delta down"
                     fleche_delta_p = "▲" if e_pnl >= 0 else "▼"
                     classe_carte_p = "kpi-card kpi-up" if e_pnl >= 0 else "kpi-card kpi-down"
-                    jauge_pct_p = max(-10.0, min(10.0, e_perf))
-                    if jauge_pct_p >= 0:
-                        jauge_gauche_p, jauge_largeur_p = 50.0, jauge_pct_p * 5.0
-                    else:
-                        jauge_gauche_p, jauge_largeur_p = 50.0 + jauge_pct_p * 5.0, -jauge_pct_p * 5.0
-                    col_t4.markdown(f"<div class='{classe_carte_p}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${e_pnl:+,.2f}</div><div class='{classe_delta_p}'>{fleche_delta_p} {e_perf:+.2f}%</div><div class='kpi-gauge'><div class='gauge-center'></div><div class='gauge-fill {'up' if e_pnl >= 0 else 'down'}' style='left:{jauge_gauche_p:.1f}%;width:{jauge_largeur_p:.1f}%'></div></div></div>", unsafe_allow_html=True)
+                    col_t4.markdown(f"<div class='{classe_carte_p}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${e_pnl:+,.2f}</div><div class='{classe_delta_p}'>{fleche_delta_p} {e_perf:+.2f}%</div></div>", unsafe_allow_html=True)
 
                     st.markdown("##### Portefeuille Détaillé")
                     if pos_rows:
