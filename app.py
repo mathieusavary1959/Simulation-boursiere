@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 import requests
+import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
@@ -47,6 +48,13 @@ def init_db():
                     price DOUBLE PRECISION,
                     total DOUBLE PRECISION,
                     timestamp TEXT
+                );
+            '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token TEXT PRIMARY KEY,
+                    username TEXT,
+                    created_at TEXT
                 );
             '''))
             session.commit()
@@ -177,7 +185,7 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* --- STYLE DE NAVIGATION PAR RADIO EN BOUTONS 3D (PERSISTENCE D'ONGLET) --- */
+    /* --- NAVIGATION EN BOUTONS 3D --- */
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > label {
         display: none !important;
     }
@@ -445,11 +453,17 @@ def obtenir_donnees_classement(grp_filter):
         return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']]
     return pd.DataFrame()
 
-# --- SÉCURISATION DE LA SESSION (SANS EXPOSER L'UTILISATEUR DANS L'URL) ---
+# --- SÉCURITÉ ET PERSISTENCE PAR JETON DE SESSION ---
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
-# SÉCURITÉ : Nettoyage d'une ancienne brèche 'user' dans l'URL si elle existe
+if st.session_state['user'] is None:
+    session_token = st.query_params.get("session", None)
+    if session_token:
+        res_token = conn.query("SELECT username FROM sessions WHERE token=:t", params={"t": session_token}, ttl=0)
+        if not res_token.empty:
+            st.session_state['user'] = res_token.iloc[0]['username']
+
 if "user" in st.query_params:
     del st.query_params["user"]
 
@@ -484,7 +498,15 @@ if st.session_state['user'] is None:
                 if st.form_submit_button("Se connecter", use_container_width=True):
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
+                        new_token = str(uuid.uuid4())
+                        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                        with conn.session as session:
+                            session.execute(text("INSERT INTO sessions (token, username, created_at) VALUES (:t, :u, :time)"),
+                                            {"t": new_token, "u": u_login.strip(), "time": now_str})
+                            session.commit()
+
                         st.session_state['user'] = u_login.strip()
+                        st.query_params["session"] = new_token
                         st.session_state['flash_msg'] = ("success", f"Bienvenue {u_login.strip()} !")
                         st.rerun()
                     else: st.error("Identifiants incorrects.")
@@ -507,11 +529,11 @@ if st.session_state['user'] is None:
 
 else:
     user = st.session_state['user']
-    # ttl=0 pour mise à jour instantanée du solde cash
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
     
     if res_u.empty:
         st.session_state['user'] = None
+        st.query_params.clear()
         st.rerun()
 
     cash_actuel = float(res_u.iloc[0]['cash'])
@@ -519,15 +541,20 @@ else:
 
     col_h1, col_h2 = st.columns([4, 1])
     col_h1.markdown(f"<p style='color: #475569; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#CBD5E1; color:#0F172A; padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
+    
     if col_h2.button("Déconnexion", use_container_width=True):
+        current_token = st.query_params.get("session")
+        if current_token:
+            with conn.session as session:
+                session.execute(text("DELETE FROM sessions WHERE token=:t"), {"t": current_token})
+                session.commit()
         st.session_state['user'] = None
         st.query_params.clear()
         st.rerun()
 
-    # --- MÉTRIQUES DE HAUT DE PAGE (INSTANTANÉES) ---
+    # --- MÉTRIQUES DE HAUT DE PAGE ---
     @st.fragment
     def afficher_metrics_live():
-        # ttl=0 pour actualisation immédiate au clic
         pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         valeur_actions = 0.0
         
@@ -554,7 +581,7 @@ else:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # --- NAVIGATION ET PERSISTENCE D'ONGLET VIA QUERY PARAMS ---
+    # --- NAVIGATION ET PERSISTENCE D'ONGLET (POUR F5) ---
     TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"]
     default_tab = st.query_params.get("tab", "Marché & Analyse")
     if default_tab not in TABS_LIST:
@@ -568,7 +595,6 @@ else:
         key="main_nav_radio"
     )
     
-    # Met à jour l'URL pour garder le même onglet lors du Refresh (F5)
     st.query_params["tab"] = tab_choisi
 
     # --- ONGLET 1 : MARCHÉ & ANALYSE ---
@@ -685,7 +711,7 @@ else:
 
                 col_b, col_s = st.columns(2)
                 
-                # EXECUTION DE L'ACHAT INSTANTANÉ
+                # ACHAT
                 if col_b.button("Acheter", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
                         st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
@@ -716,7 +742,7 @@ else:
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
-                # EXECUTION DE LA VENTE INSTANTANÉE
+                # VENTE
                 if col_s.button("Vendre", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
                         st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
@@ -816,7 +842,6 @@ else:
 
         @st.fragment
         def afficher_positions_live():
-            # ttl=0 pour mise à jour immédiate
             pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
             val_actions_live = 0.0
             
