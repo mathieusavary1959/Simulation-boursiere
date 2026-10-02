@@ -10,7 +10,7 @@ from sqlalchemy import text
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Monde & Finance — Simulation Boursière", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layout="wide")
 
 # Liste des 10 groupes + Groupe Enseignants
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
@@ -136,6 +136,10 @@ st.markdown("""
         letter-spacing: 0.05em !important;
         color: #FFFFFF !important;
     }
+    .stApp h3, .stApp h4, .stApp h5 {
+        border-left: 4px solid #E50914;
+        padding-left: 14px;
+    }
 
     .stApp .stMarkdown p, .stApp .stMarkdown li {
         color: #FFFFFF;
@@ -218,7 +222,7 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
     @media (prefers-reduced-motion: reduce) {
-        .brand-banner, .brand-banner::after, .kpi-card { animation: none !important; }
+        .brand-banner, .brand-banner::after, .kpi-card, .podium-card { animation: none !important; }
         .kpi-card { transition: none !important; }
     }
 
@@ -279,6 +283,126 @@ st.markdown("""
         background: rgba(239, 68, 68, 0.16);
         color: #F87171;
         border: 1px solid rgba(239, 68, 68, 0.55);
+    }
+
+    /* --- CARTE-CITATION (MARCHÉ) --- */
+    .quote-card {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        flex-wrap: wrap;
+        background: linear-gradient(120deg, #1E1E1E 0%, #161616 100%);
+        border: 1px solid #2E2E2E;
+        border-left: 4px solid #E50914;
+        border-radius: 14px;
+        padding: 16px 24px;
+        margin-bottom: 10px;
+        box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9);
+        animation: fadeUp 0.5s ease both;
+    }
+    .quote-ticker {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 2.9rem;
+        line-height: 1;
+        color: #FFFFFF;
+        letter-spacing: 0.04em;
+    }
+    .quote-price {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 2.5rem;
+        line-height: 1;
+        color: #FFFFFF;
+        font-variant-numeric: tabular-nums;
+    }
+    .quote-var {
+        padding: 5px 14px;
+        border-radius: 999px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+    }
+    .quote-var.up {
+        background: rgba(16, 185, 129, 0.18);
+        color: #34D399;
+        border: 1px solid rgba(16, 185, 129, 0.55);
+    }
+    .quote-var.down {
+        background: rgba(239, 68, 68, 0.16);
+        color: #F87171;
+        border: 1px solid rgba(239, 68, 68, 0.55);
+    }
+
+    /* --- PODIUM DU CLASSEMENT --- */
+    .podium-card {
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-top: 4px solid #FFFFFF;
+        border-radius: 14px;
+        padding: 16px 20px;
+        margin-bottom: 10px;
+        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+        animation: fadeUp 0.5s ease both;
+    }
+    .podium-or { border-top-color: #FFD700; }
+    .podium-or .podium-rang { color: #FFD700; }
+    .podium-argent { border-top-color: #C0C0C0; }
+    .podium-argent .podium-rang { color: #E8E8E8; }
+    .podium-bronze { border-top-color: #CD7F32; }
+    .podium-bronze .podium-rang { color: #E09A5A; }
+    .podium-rang {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 2.1rem;
+        line-height: 1;
+        color: #FFFFFF;
+    }
+    .podium-nom {
+        font-weight: 800;
+        font-size: 1.05rem;
+        color: #FFFFFF;
+        margin-top: 4px;
+    }
+    .podium-val {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 1.55rem;
+        line-height: 1.1;
+        color: #FFFFFF;
+        font-variant-numeric: tabular-nums;
+    }
+    .podium-perf {
+        font-weight: 700;
+        font-size: 0.9rem;
+        color: #FFFFFF;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .mon-rang {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        flex-wrap: wrap;
+        background: #1E1E1E;
+        border: 1px solid #2E2E2E;
+        border-left: 4px solid #E50914;
+        border-radius: 12px;
+        padding: 12px 20px;
+        margin: 4px 0 14px 0;
+    }
+    .mon-rang-label {
+        text-transform: uppercase;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        font-size: 0.78rem;
+        color: #FFFFFF;
+    }
+    .mon-rang-val {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 1.9rem;
+        line-height: 1;
+        color: #FFFFFF;
+    }
+    .mon-rang-detail {
+        font-weight: 700;
+        color: #FFFFFF;
+        font-variant-numeric: tabular-nums;
     }
 
     /* --- NAVIGATION EN BOUTONS --- */
@@ -632,9 +756,9 @@ if "user" in st.query_params:
 if 'flash_msg' in st.session_state:
     type_msg, txt = st.session_state.pop('flash_msg')
     if type_msg == "success":
-        st.toast(txt, icon="✅")
+        st.toast(txt)
     elif type_msg == "error":
-        st.toast(txt, icon="⚠️")
+        st.toast(txt)
 
 # BANNIÈRE D'EN-TÊTE
 st.markdown("""
@@ -765,13 +889,13 @@ else:
         col_s1, col_s2 = st.columns([4, 1])
         with col_s1:
             search_query = st.text_input(
-                "🔎 Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
+                "Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
                 value="",
                 placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
             )
         with col_s2:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔄 Rafraîchir le cours", use_container_width=True):
+            if st.button("Rafraîchir le cours", use_container_width=True):
                 st.rerun()
 
         selected_ticker = "AAPL"
@@ -789,7 +913,7 @@ else:
         details = obtenir_details_financiers(selected_ticker)
 
         if details == {"erreur": "non_na"}:
-            st.error(f"⚠️ **Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permises.")
+            st.error(f"**Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permises.")
         elif details:
             prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
             chart_color = "#10B981" if var >= 0 else "#EF4444"
@@ -800,7 +924,7 @@ else:
             col_chart, col_order = st.columns([2.2, 1])
 
             with col_chart:
-                st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
+                st.markdown(f"<div class='quote-card'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -877,7 +1001,7 @@ else:
                 # ACHAT
                 if col_b.button("Acheter", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
-                        st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
+                        st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
                         cost_real = prix_instantane * qty
@@ -908,7 +1032,7 @@ else:
                 # VENTE
                 if col_s.button("Vendre", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
-                        st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
+                        st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
                         cost_real = prix_instantane * qty
@@ -933,7 +1057,7 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
         else:
-            st.error(f"⚠️ Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
+            st.error(f"Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
     # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     elif tab_choisi == "Mes Positions":
@@ -953,7 +1077,7 @@ else:
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
                 div[data-testid="stRadio"], .stButton, button,
                 iframe, hr, .stSelectbox, .stNumberInput, .brand-banner,
-                div[data-testid="stMetric"], .kpi-card {
+                div[data-testid="stMetric"], .kpi-card, .podium-card, .mon-rang {
                     display: none !important;
                 }
                 .print-header {
@@ -1071,7 +1195,7 @@ else:
                         box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85);
                         transition: all 0.12s ease;
                     " onmousedown="this.style.transform='translateY(2px)'" onmouseup="this.style.transform='translateY(0px)'">
-                        🖨️ Imprimer / PDF
+                        Imprimer / PDF
                     </button>
                 """, height=45)
 
@@ -1103,7 +1227,7 @@ else:
                 st.markdown(table_html, unsafe_allow_html=True)
 
                 st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown("### 💸 Vendre rapidement mes positions")
+                st.markdown("### Vendre rapidement mes positions")
 
                 col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
                 with col_v1:
@@ -1116,7 +1240,7 @@ else:
                     total_vente = qty_v * pa_v
                     if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
                         if not verifier_cooldown(user, delai_secondes=3):
-                            st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
+                            st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                         else:
                             check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk_v}, ttl=0)
                             sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
@@ -1159,15 +1283,26 @@ else:
         with col_r1:
             grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         with col_r2:
-            search_user_rank = st.text_input("🔍 Rechercher un élève :", value="", placeholder="Tapez un nom d'élève...")
+            search_user_rank = st.text_input("Rechercher un élève :", value="", placeholder="Tapez un nom d'élève...")
         with col_r3:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔄 Actualiser", use_container_width=True):
+            if st.button("Actualiser", use_container_width=True):
                 obtenir_donnees_classement.clear()
                 st.rerun()
 
         df_classement = obtenir_donnees_classement(grp_filter)
         if not df_classement.empty:
+            top3 = df_classement.head(3)
+            classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
+            cols_podium = st.columns(len(top3))
+            for i, (_, r_pod) in enumerate(top3.iterrows()):
+                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
+
+            moi = df_classement[df_classement['Élève'] == user]
+            if not moi.empty:
+                r_moi = moi.iloc[0]
+                st.markdown(f"<div class='mon-rang'><span class='mon-rang-label'>Ton rang</span><span class='mon-rang-val'>#{int(r_moi['Rang'])}</span><span class='mon-rang-detail'>{r_moi['Portefeuille']} · {r_moi['Performance']}</span></div>", unsafe_allow_html=True)
+
             if search_user_rank and search_user_rank.strip():
                 search_term = search_user_rank.strip().lower()
 
@@ -1242,7 +1377,7 @@ else:
                         st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
 
                     with col_top_prof2:
-                        if st.button(f"⚠️ Réinitialiser {e_sel}", use_container_width=True):
+                        if st.button(f"Réinitialiser {e_sel}", use_container_width=True):
                             with conn.session as session:
                                 session.execute(text("UPDATE users SET cash = 10000.00 WHERE username = :u"), {"u": e_sel})
                                 session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
@@ -1252,7 +1387,7 @@ else:
                             st.rerun()
 
                     with col_top_prof3:
-                        if st.button(f"❌ Supprimer le compte", use_container_width=True):
+                        if st.button("Supprimer le compte", use_container_width=True):
                             with conn.session as session:
                                 session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
                                 session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
