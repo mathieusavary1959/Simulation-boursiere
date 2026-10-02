@@ -103,7 +103,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN TERMINAL FINANCIER SOMBRE (COUCHE VISUELLE SEULEMENT) ---
+# --- DESIGN STYLE NETFLIX (COUCHE VISUELLE SEULEMENT) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700;800&display=swap');
@@ -113,18 +113,18 @@ st.markdown("""
     }
 
     .stApp {
-        background-color: #0D0D0D !important;
-        color: #EDF1F6 !important;
+        background-color: #141414 !important;
+        color: #F5F5F1 !important;
     }
 
     #MainMenu, footer, header { visibility: hidden; }
 
-    ::selection { background: #2F80ED; color: #FFFFFF; }
+    ::selection { background: #E50914; color: #FFFFFF; }
 
     ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-track { background: #0D0D0D; }
-    ::-webkit-scrollbar-thumb { background: #262B33; border-radius: 8px; }
-    ::-webkit-scrollbar-thumb:hover { background: #2F80ED; }
+    ::-webkit-scrollbar-track { background: #141414; }
+    ::-webkit-scrollbar-thumb { background: #3A3A3A; border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: #E50914; }
 
     .stApp h1, .stApp h2, .stApp h3 {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
@@ -134,43 +134,46 @@ st.markdown("""
     }
 
     .brand-banner {
-        background: linear-gradient(135deg, #101318 0%, #171D26 100%);
-        border-radius: 20px;
-        padding: 24px 32px;
+        background: linear-gradient(120deg, #000000 0%, #161616 55%, #2B0A0C 100%);
+        border-radius: 16px;
+        padding: 26px 34px;
         color: #FFFFFF;
         margin-bottom: 24px;
-        box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.9), 0 0 32px -14px rgba(47, 128, 237, 0.55);
+        box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.95), 0 0 36px -12px rgba(229, 9, 20, 0.55);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid rgba(47, 128, 237, 0.45);
+        border: 1px solid rgba(229, 9, 20, 0.5);
+        border-bottom: 3px solid #E50914;
         animation: fadeDown 0.55s ease both;
     }
     .brand-title {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 2.3rem;
+        font-size: 2.7rem;
         letter-spacing: 0.06em;
         line-height: 1;
         color: #FFFFFF;
         margin: 0;
+        text-shadow: 0 0 22px rgba(229, 9, 20, 0.45);
     }
     .brand-subtitle {
-        color: #9AA7B4;
-        font-size: 0.88rem;
+        color: #B3B3B3;
+        font-size: 0.9rem;
         font-weight: 500;
         margin-top: 6px;
     }
     .brand-badge {
-        background: rgba(47, 128, 237, 0.14);
-        border: 1px solid #2F80ED;
-        padding: 6px 16px;
-        border-radius: 30px;
+        background: #E50914;
+        border: none;
+        padding: 7px 18px;
+        border-radius: 6px;
         font-size: 0.8rem;
-        font-weight: 700;
-        color: #7DB4FF;
-        letter-spacing: 0.05em;
+        font-weight: 800;
+        color: #FFFFFF;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
         white-space: nowrap;
+        box-shadow: 0 8px 20px -8px rgba(229, 9, 20, 0.9);
     }
 
     @keyframes fadeDown {
@@ -183,21 +186,23 @@ st.markdown("""
     }
 
     div[data-testid="stMetric"] {
-        background: linear-gradient(180deg, #151A21 0%, #10131A 100%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.09) !important;
-        border-radius: 18px !important;
+        background: linear-gradient(180deg, #232323 0%, #1A1A1A 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-top: 3px solid #E50914 !important;
+        border-radius: 14px !important;
         padding: 18px 20px !important;
-        box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.85), 0 0 22px -12px rgba(47, 128, 237, 0.35) !important;
+        box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.9) !important;
         transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease !important;
     }
     div[data-testid="stMetric"]:hover {
-        transform: translateY(-2px);
-        border-color: rgba(47, 128, 237, 0.6) !important;
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 28px -10px rgba(47, 128, 237, 0.55) !important;
+        transform: translateY(-3px) scale(1.015);
+        border-color: rgba(229, 9, 20, 0.55) !important;
+        border-top-color: #E50914 !important;
+        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 26px -8px rgba(229, 9, 20, 0.6) !important;
     }
     div[data-testid="stMetricValue"] {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
-        font-size: 2rem !important;
+        font-size: 2.15rem !important;
         font-weight: 400 !important;
         color: #FFFFFF !important;
         letter-spacing: 0.03em;
@@ -206,11 +211,11 @@ st.markdown("""
         font-variant-numeric: tabular-nums;
     }
     div[data-testid="stMetricLabel"] {
-        color: #9AA7B4 !important;
+        color: #B3B3B3 !important;
         font-size: 0.78rem;
         text-transform: uppercase;
         font-weight: 800;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.07em;
     }
     div[data-testid="stMetricDelta"] {
         font-weight: 700 !important;
@@ -231,29 +236,28 @@ st.markdown("""
         flex-wrap: wrap !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label {
-        background: #151A21 !important;
+        background: #1F1F1F !important;
         border-radius: 999px !important;
-        color: #AEB9C6 !important;
+        color: #C9C9C9 !important;
         padding: 11px 22px !important;
         font-weight: 700 !important;
         font-size: 0.92rem !important;
-        border: 1px solid rgba(255, 255, 255, 0.10) !important;
-        box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.8) !important;
+        border: 1px solid #3A3A3A !important;
+        box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.85) !important;
         transition: all 0.15s ease !important;
         cursor: pointer !important;
         margin: 0 !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:hover {
         color: #FFFFFF !important;
-        border-color: rgba(47, 128, 237, 0.6) !important;
+        border-color: rgba(229, 9, 20, 0.7) !important;
         transform: translateY(-2px);
-        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.85) !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:has(input:checked) {
-        background: linear-gradient(180deg, #2F80ED 0%, #1C5FC4 100%) !important;
+        background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
         color: #FFFFFF !important;
-        box-shadow: 0 10px 24px -10px rgba(47, 128, 237, 0.85) !important;
-        border: 1px solid rgba(125, 180, 255, 0.5) !important;
+        box-shadow: 0 10px 24px -8px rgba(229, 9, 20, 0.85) !important;
+        border: 1px solid rgba(255, 130, 130, 0.45) !important;
         transform: translateY(0px) !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) div[data-testid="stMarkdownContainer"] p {
@@ -264,83 +268,83 @@ st.markdown("""
 
     /* Boutons standards */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
-        border-radius: 12px !important;
-        background: linear-gradient(180deg, #2F80ED 0%, #1C5FC4 100%) !important;
+        border-radius: 10px !important;
+        background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
         color: #FFFFFF !important;
         font-weight: 700 !important;
-        border: 1px solid rgba(125, 180, 255, 0.5) !important;
+        border: 1px solid rgba(255, 130, 130, 0.4) !important;
         padding: 12px 24px !important;
-        box-shadow: 0 10px 22px -10px rgba(47, 128, 237, 0.8) !important;
+        box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85) !important;
         transition: all 0.15s ease !important;
     }
     .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
-        filter: brightness(1.12);
+        filter: brightness(1.15);
         transform: translateY(-2px);
-        box-shadow: 0 14px 26px -10px rgba(47, 128, 237, 0.9) !important;
+        box-shadow: 0 14px 26px -10px rgba(229, 9, 20, 0.95) !important;
     }
     .stButton>button:active, div[data-testid="stFormSubmitButton"]>button:active {
         transform: translateY(0px);
     }
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
-        background-color: #151A21 !important;
-        color: #EDF1F6 !important;
-        border-radius: 12px !important;
-        border: 1.5px solid rgba(255, 255, 255, 0.16) !important;
+        background-color: #1F1F1F !important;
+        color: #F5F5F1 !important;
+        border-radius: 10px !important;
+        border: 1.5px solid #3A3A3A !important;
         padding: 11px 16px !important;
         font-weight: 600 !important;
     }
     .stTextInput>div>div>input:focus, .stNumberInput>div>div>input:focus {
-        border-color: #2F80ED !important;
-        box-shadow: 0 0 0 1px #2F80ED !important;
+        border-color: #E50914 !important;
+        box-shadow: 0 0 0 1px #E50914 !important;
     }
     .stTextInput input::placeholder, .stNumberInput input::placeholder {
-        color: #7C8A99 !important;
+        color: #8C8C8C !important;
     }
 
     div[data-baseweb="popover"] {
-        background-color: #151A21 !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        background-color: #1F1F1F !important;
+        border: 1px solid #3A3A3A !important;
         border-radius: 12px !important;
     }
     div[data-baseweb="popover"] li {
-        color: #EDF1F6 !important;
+        color: #F5F5F1 !important;
     }
 
     div[data-testid="stDataFrame"] {
-        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        border: 1px solid #2E2E2E !important;
         border-radius: 14px !important;
         overflow: hidden !important;
-        box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.85) !important;
+        box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.9) !important;
     }
 
     /* Onglets Connexion / Créer un compte */
     div[data-baseweb="tab-list"] { gap: 8px !important; }
     button[data-baseweb="tab"] {
-        color: #9AA7B4 !important;
+        color: #B3B3B3 !important;
         font-weight: 700 !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] { color: #FFFFFF !important; }
-    div[data-baseweb="tab-highlight"] { background-color: #2F80ED !important; }
-    div[data-baseweb="tab-border"] { background-color: rgba(255, 255, 255, 0.12) !important; }
+    div[data-baseweb="tab-highlight"] { background-color: #E50914 !important; }
+    div[data-baseweb="tab-border"] { background-color: rgba(255, 255, 255, 0.14) !important; }
 
     .custom-table {
         width: 100%;
         border-collapse: collapse;
-        background-color: #12161D;
+        background-color: #1A1A1A;
         border-radius: 14px;
         overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.09);
+        border: 1px solid #2E2E2E;
         margin-bottom: 24px;
-        box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.85);
+        box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.9);
     }
     .custom-table th {
-        background-color: #171E28;
-        color: #C9D4E2;
+        background-color: #262626;
+        color: #E5E5E5;
         font-weight: 800;
         padding: 14px 18px;
         text-align: left;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+        border-bottom: 2px solid #E50914;
         text-transform: uppercase;
         font-size: 0.78rem;
         letter-spacing: 0.05em;
@@ -348,20 +352,20 @@ st.markdown("""
     .custom-table td {
         padding: 14px 18px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        color: #EDF1F6;
+        color: #F5F5F1;
         font-weight: 600;
         font-size: 0.93rem;
         font-variant-numeric: tabular-nums;
     }
     .custom-table tbody tr { transition: background-color 0.15s ease; }
-    .custom-table tbody tr:hover { background-color: rgba(47, 128, 237, 0.08); }
+    .custom-table tbody tr:hover { background-color: rgba(229, 9, 20, 0.08); }
 
     @media print {
         .custom-table { background-color: #FFFFFF !important; }
         .custom-table th, .custom-table td { color: #000000 !important; }
     }
 
-    hr { border-color: rgba(255, 255, 255, 0.10) !important; margin: 28px 0 !important; }
+    hr { border-color: rgba(255, 255, 255, 0.12) !important; margin: 28px 0 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -616,7 +620,7 @@ else:
     groupe_actuel = res_u.iloc[0]['groupe']
 
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #9AA7B4; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #FFFFFF;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(47, 128, 237, 0.15); color:#7DB4FF; border:1px solid rgba(47, 128, 237, 0.45); padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
+    col_h1.markdown(f"<p style='color: #B3B3B3; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #FFFFFF;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(229, 9, 20, 0.16); color:#FF858B; border:1px solid rgba(229, 9, 20, 0.55); padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
 
     if col_h2.button("Déconnexion", use_container_width=True):
         current_token = st.query_params.get("session")
@@ -763,17 +767,17 @@ else:
                             plot_bgcolor='rgba(0,0,0,0)',
                             height=340,
                             margin=dict(l=10, r=10, t=10, b=10),
-                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.08)', gridwidth=0.8, zeroline=False),
+                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.07)', gridwidth=0.8, zeroline=False),
                             yaxis=dict(
                                 range=[y_min, y_max],
                                 showgrid=True,
-                                gridcolor='rgba(255,255,255,0.08)',
+                                gridcolor='rgba(255,255,255,0.07)',
                                 gridwidth=0.8,
                                 zeroline=False,
                                 side="right",
                                 tickformat=tick_fmt
                             ),
-                            font=dict(color="#C7D0DB", family="Work Sans")
+                            font=dict(color="#D9D9D9", family="Work Sans")
                         )
                         st.plotly_chart(fig, use_container_width=True)
 
@@ -972,16 +976,16 @@ else:
             with col_p2:
                 components.html("""
                     <button onclick="window.parent.print()" style="
-                        background: linear-gradient(180deg, #2F80ED 0%, #1C5FC4 100%);
+                        background: linear-gradient(180deg, #E50914 0%, #B00610 100%);
                         color: #FFFFFF;
-                        border: 1px solid rgba(125, 180, 255, 0.5);
+                        border: 1px solid rgba(255, 130, 130, 0.4);
                         padding: 10px 18px;
-                        border-radius: 12px;
+                        border-radius: 10px;
                         font-weight: 700;
                         cursor: pointer;
                         width: 100%;
                         font-family: 'Work Sans', sans-serif;
-                        box-shadow: 0 10px 22px -10px rgba(47, 128, 237, 0.8);
+                        box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85);
                         transition: all 0.12s ease;
                     " onmousedown="this.style.transform='translateY(2px)'" onmouseup="this.style.transform='translateY(0px)'">
                         🖨️ Imprimer / PDF
@@ -1086,7 +1090,7 @@ else:
 
                 def highlight_row(row):
                     if search_term in str(row['Élève']).lower():
-                        return ['background-color: rgba(47, 128, 237, 0.85); color: #FFFFFF; font-weight: 700;'] * len(row)
+                        return ['background-color: rgba(229, 9, 20, 0.92); color: #FFFFFF; font-weight: 700;'] * len(row)
                     return [''] * len(row)
 
                 styled_df = df_classement.style.apply(highlight_row, axis=1)
