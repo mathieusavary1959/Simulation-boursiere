@@ -177,16 +177,20 @@ st.markdown("""
         letter-spacing: 0.06em;
     }
 
-    /* --- ONGLETS : STYLE BOUTON 3D --- */
-    .stTabs [data-baseweb="tab-list"] {
+    /* --- STYLE DE NAVIGATION PAR RADIO EN BOUTONS 3D (PERSISTENCE D'ONGLET) --- */
+    div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > label {
+        display: none !important;
+    }
+    div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > div {
+        flex-direction: row !important;
         gap: 12px !important;
         background-color: transparent !important;
-        padding: 4px 0px 16px 0px !important;
         border: none !important;
-        margin-bottom: 20px !important;
+        padding: 4px 0px 16px 0px !important;
+        margin-bottom: 10px !important;
+        flex-wrap: wrap !important;
     }
-    .stTabs [data-baseweb="tab"] {
-        height: auto !important;
+    div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label {
         background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
         border-radius: 12px !important;
         color: #CBD5E1 !important;
@@ -196,26 +200,26 @@ st.markdown("""
         border: none !important;
         box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
         transition: all 0.12s ease !important;
+        cursor: pointer !important;
+        margin: 0 !important;
     }
-    .stTabs [data-baseweb="tab"]:hover {
+    div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:hover {
         color: #FFFFFF !important;
         background: linear-gradient(180deg, #334155 0%, #1E293B 100%) !important;
         transform: translateY(-2px);
         box-shadow: 0 6px 0 #020617, 0 8px 18px rgba(15, 23, 42, 0.25) !important;
     }
-    .stTabs [aria-selected="true"] {
+    div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:has(input:checked) {
         background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: #FFFFFF !important;
         box-shadow: 0 4px 0 #1E40AF, 0 8px 20px rgba(37, 99, 235, 0.35) !important;
         border: none !important;
         transform: translateY(0px) !important;
     }
-    .stTabs [aria-selected="true"]:hover {
-        background: linear-gradient(180deg, #3B82F6 0%, #2563EB 100%) !important;
-        box-shadow: 0 6px 0 #1E40AF, 0 10px 22px rgba(37, 99, 235, 0.4) !important;
-    }
-    .stTabs [data-baseweb="tab-border"], .stTabs [data-baseweb="tab-highlight"] {
-        display: none !important;
+    div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) div[data-testid="stMarkdownContainer"] p {
+        color: inherit !important;
+        font-weight: 700 !important;
+        font-size: 0.92rem !important;
     }
 
     /* Boutons standards */
@@ -242,27 +246,6 @@ st.markdown("""
         border: 1.5px solid #94A3B8 !important;
         padding: 11px 16px !important;
         font-weight: 600 !important;
-    }
-
-    div[data-testid="stRadio"] > label {
-        font-weight: 800 !important;
-        color: #334155 !important;
-        font-size: 0.85rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        margin-bottom: 6px;
-    }
-    div[data-testid="stRadio"] > div {
-        flex-direction: row !important;
-        gap: 8px !important;
-        background-color: #FFFFFF;
-        padding: 6px;
-        border-radius: 14px;
-        border: 1.5px solid #CBD5E1;
-    }
-    div[data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {
-        font-weight: 700 !important;
-        font-size: 0.88rem !important;
     }
 
     .custom-table {
@@ -421,7 +404,7 @@ def obtenir_historique(ticker_symbol, periode):
         return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
 
-# --- FONCTION SPECIALE : CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
+# --- CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
 @st.cache_data(ttl=30, show_spinner=False)
 def obtenir_donnees_classement(grp_filter):
     if grp_filter == "Tous les groupes":
@@ -462,9 +445,13 @@ def obtenir_donnees_classement(grp_filter):
         return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']]
     return pd.DataFrame()
 
-# --- GESTION DE SESSION AVEC PERSISTENCE EN URL ---
+# --- SÉCURISATION DE LA SESSION (SANS EXPOSER L'UTILISATEUR DANS L'URL) ---
 if 'user' not in st.session_state:
-    st.session_state['user'] = st.query_params.get("user", None)
+    st.session_state['user'] = None
+
+# SÉCURITÉ : Nettoyage d'une ancienne brèche 'user' dans l'URL si elle existe
+if "user" in st.query_params:
+    del st.query_params["user"]
 
 # AFFICHAGE DES MESSAGES FLASH (TOAST)
 if 'flash_msg' in st.session_state:
@@ -498,7 +485,6 @@ if st.session_state['user'] is None:
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
                         st.session_state['user'] = u_login.strip()
-                        st.query_params["user"] = u_login.strip()
                         st.session_state['flash_msg'] = ("success", f"Bienvenue {u_login.strip()} !")
                         st.rerun()
                     else: st.error("Identifiants incorrects.")
@@ -521,11 +507,11 @@ if st.session_state['user'] is None:
 
 else:
     user = st.session_state['user']
-    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=5)
+    # ttl=0 pour mise à jour instantanée du solde cash
+    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
     
     if res_u.empty:
         st.session_state['user'] = None
-        st.query_params.clear()
         st.rerun()
 
     cash_actuel = float(res_u.iloc[0]['cash'])
@@ -538,10 +524,11 @@ else:
         st.query_params.clear()
         st.rerun()
 
-    # --- METRIQUES DE HAUT DE PAGE ---
+    # --- MÉTRIQUES DE HAUT DE PAGE (INSTANTANÉES) ---
     @st.fragment
     def afficher_metrics_live():
-        pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
+        # ttl=0 pour actualisation immédiate au clic
+        pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         valeur_actions = 0.0
         
         if not pos_df.empty:
@@ -567,10 +554,25 @@ else:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    tab_trade, tab_port, tab_hist, tab_rank, tab_teacher = st.tabs(["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"])
+    # --- NAVIGATION ET PERSISTENCE D'ONGLET VIA QUERY PARAMS ---
+    TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"]
+    default_tab = st.query_params.get("tab", "Marché & Analyse")
+    if default_tab not in TABS_LIST:
+        default_tab = "Marché & Analyse"
 
-    # --- ONGLET 1 : MARCHE & ACHAT/VENTE (TEMPS RÉEL SÉCURISÉ) ---
-    with tab_trade:
+    tab_choisi = st.radio(
+        "Navigation",
+        options=TABS_LIST,
+        index=TABS_LIST.index(default_tab),
+        horizontal=True,
+        key="main_nav_radio"
+    )
+    
+    # Met à jour l'URL pour garder le même onglet lors du Refresh (F5)
+    st.query_params["tab"] = tab_choisi
+
+    # --- ONGLET 1 : MARCHÉ & ANALYSE ---
+    if tab_choisi == "Marché & Analyse":
         col_s1, col_s2 = st.columns([4, 1])
         with col_s1:
             search_query = st.text_input(
@@ -683,7 +685,7 @@ else:
 
                 col_b, col_s = st.columns(2)
                 
-                # EXECUTION A L'ACHAT AU PRIX INSTANTANE SÉCURISÉ
+                # EXECUTION DE L'ACHAT INSTANTANÉ
                 if col_b.button("Acheter", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
                         st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
@@ -714,7 +716,7 @@ else:
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
-                # EXECUTION A LA VENTE AU PRIX INSTANTANE SÉCURISÉ
+                # EXECUTION DE LA VENTE INSTANTANÉE
                 if col_s.button("Vendre", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
                         st.warning("⏳ Veuillez attendre 3 secondes entre chaque transaction.")
@@ -745,7 +747,7 @@ else:
             st.error(f"⚠️ Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
     # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
-    with tab_port:
+    elif tab_choisi == "Mes Positions":
         st.markdown("""
             <style>
             @media print {
@@ -760,7 +762,7 @@ else:
                     margin: 0 !important;
                 }
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
-                .stTabs [data-baseweb="tab-list"], .stButton, button, 
+                div[data-testid="stRadio"], .stButton, button, 
                 iframe, hr, .stSelectbox, .stNumberInput, .brand-banner,
                 div[data-testid="stMetric"] {
                     display: none !important;
@@ -814,7 +816,8 @@ else:
 
         @st.fragment
         def afficher_positions_live():
-            pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
+            # ttl=0 pour mise à jour immédiate
+            pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
             val_actions_live = 0.0
             
             if not pos_df_live.empty:
@@ -884,7 +887,7 @@ else:
                     </button>
                 """, height=45)
 
-            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=5)
+            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
             if not p_all.empty:
                 options_vente = {}
                 html_rows = ""
@@ -939,7 +942,6 @@ else:
                                     session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
                                     rem = sh_real - qty_v
                                     if rem > 0:
-                                        # FIX : Binding explicite de :u (user) et :t (tk_v)
                                         session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
                                     else:
                                         session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
@@ -956,15 +958,15 @@ else:
         afficher_positions_live()
 
     # --- ONGLET 3 : HISTORIQUE ---
-    with tab_hist:
-        tx_all = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=5)
+    elif tab_choisi == "Mon Historique":
+        tx_all = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=0)
         if not tx_all.empty:
             tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
-    # --- ONGLET 4 : CLASSEMENT OPTIMISÉ ET ULTRA-RAPIDE ---
-    with tab_rank:
+    # --- ONGLET 4 : CLASSEMENT ---
+    elif tab_choisi == "Classement":
         col_r1, col_r2 = st.columns([4, 1])
         with col_r1:
             grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
@@ -981,7 +983,7 @@ else:
             st.info("Aucun élève trouvé pour ce classement.")
 
     # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
-    with tab_teacher:
+    elif tab_choisi == "Supervision Prof":
         pin = st.text_input("PIN Enseignant :", type="password") if user.lower() not in ['prof', 'admin'] else "1959"
         if pin == "1959":
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
