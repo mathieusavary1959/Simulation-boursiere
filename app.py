@@ -577,20 +577,22 @@ st.markdown("""
         justify-content: center !important;
         align-items: center !important;
         width: 100% !important;
-        border-radius: 10px !important;
-        background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
+        border-radius: 8px !important;
+        background: linear-gradient(180deg, #2B2B2B 0%, #1B1B1B 100%) !important;
         color: #FFFFFF !important;
-        font-weight: 700 !important;
+        font-weight: 600 !important;
+        font-size: 0.85rem !important;
         text-decoration: none !important;
-        border: 1px solid rgba(255, 130, 130, 0.4) !important;
-        padding: 12px 24px !important;
-        box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.22) !important;
+        padding: 7px 14px !important;
+        box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.8) !important;
         transition: all 0.15s ease !important;
     }
     div[data-testid="stLinkButton"] > a:hover {
-        filter: brightness(1.15);
-        transform: translateY(-2px);
-        box-shadow: 0 14px 26px -10px rgba(229, 9, 20, 0.95) !important;
+        border-color: rgba(255, 255, 255, 0.5) !important;
+        filter: brightness(1.25);
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.85) !important;
     }
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
@@ -1581,3 +1583,4 @@ else:
                         st.info("Aucune transaction enregistrée.")
             else:
                 st.info("Aucun élève trouvé dans ce groupe.")
+
