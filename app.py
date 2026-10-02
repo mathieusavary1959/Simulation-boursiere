@@ -448,21 +448,6 @@ st.markdown("""
         transition: box-shadow 0.3s ease, transform 0.3s ease;
     }
     .podium-card > div { position: relative; z-index: 1; }
-    .podium-bg {
-        position: absolute;
-        right: 10px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 5.2rem;
-        line-height: 1;
-        color: rgba(255, 255, 255, 0.05);
-        pointer-events: none;
-        z-index: 0 !important;
-    }
-    .podium-or .podium-bg { color: rgba(255, 215, 0, 0.08); }
-    .podium-argent .podium-bg { color: rgba(192, 192, 192, 0.08); }
-    .podium-bronze .podium-bg { color: rgba(205, 127, 50, 0.08); }
     .podium-or:hover {
         transform: translateY(-3px);
         box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(255, 215, 0, 0.8);
@@ -1447,7 +1432,7 @@ else:
             classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
             cols_podium = st.columns(len(top3))
             for i, (_, r_pod) in enumerate(top3.iterrows()):
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-bg'>{int(r_pod['Rang'])}</div><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
+                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
 
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
