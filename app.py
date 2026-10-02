@@ -103,7 +103,7 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN STYLE NETFLIX PREMIUM (COUCHE VISUELLE SEULEMENT) ---
+# --- DESIGN STYLE NETFLIX PREMIUM PLUS (COUCHE VISUELLE SEULEMENT) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700;800&display=swap');
@@ -113,6 +113,7 @@ st.markdown("""
     }
 
     .stApp {
+        background: radial-gradient(1200px 520px at 50% -8%, rgba(229, 9, 20, 0.16), rgba(20, 20, 20, 0) 62%), #141414 !important;
         background-color: #141414 !important;
         color: #FFFFFF !important;
     }
@@ -126,19 +127,25 @@ st.markdown("""
     ::-webkit-scrollbar-thumb { background: #3A3A3A; border-radius: 8px; }
     ::-webkit-scrollbar-thumb:hover { background: #E50914; }
 
-    .stApp h1 { font-size: 2.6rem !important; }
-    .stApp h2 { font-size: 2.2rem !important; }
-    .stApp h3 { font-size: 1.85rem !important; }
-    .stApp h1, .stApp h2, .stApp h3 {
+    .stApp h1 { font-size: 2.7rem !important; }
+    .stApp h2 { font-size: 2.3rem !important; }
+    .stApp h3 { font-size: 2rem !important; }
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
         font-weight: 400 !important;
         letter-spacing: 0.05em !important;
         color: #FFFFFF !important;
     }
 
-    div[data-testid="stWidgetLabel"] p {
+    .stApp .stMarkdown p, .stApp .stMarkdown li {
+        color: #FFFFFF;
+    }
+    div[data-testid="stWidgetLabel"] p, .stApp label {
         color: #FFFFFF !important;
         font-weight: 600 !important;
+    }
+    div[data-testid="stRadio"] label, div[data-testid="stRadio"] label p {
+        color: #FFFFFF !important;
     }
 
     .brand-banner {
@@ -147,7 +154,7 @@ st.markdown("""
         padding: 28px 36px;
         color: #FFFFFF;
         margin-bottom: 24px;
-        box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.95), 0 0 40px -10px rgba(229, 9, 20, 0.6);
+        box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.95), 0 0 44px -8px rgba(229, 9, 20, 0.65);
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -171,12 +178,12 @@ st.markdown("""
     }
     .brand-title {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 3rem;
+        font-size: 3.1rem;
         letter-spacing: 0.06em;
         line-height: 1;
         color: #FFFFFF;
         margin: 0;
-        text-shadow: 0 0 26px rgba(229, 9, 20, 0.55);
+        text-shadow: 0 0 28px rgba(229, 9, 20, 0.6);
     }
     .brand-subtitle {
         color: #FFFFFF;
@@ -211,50 +218,67 @@ st.markdown("""
         to { opacity: 1; transform: translateY(0); }
     }
     @media (prefers-reduced-motion: reduce) {
-        .brand-banner, .brand-banner::after, div[data-testid="stMetric"] { animation: none !important; }
-        div[data-testid="stMetric"] { transition: none !important; }
+        .brand-banner, .brand-banner::after, .kpi-card { animation: none !important; }
+        .kpi-card { transition: none !important; }
     }
 
-    div[data-testid="stMetric"] {
-        background: linear-gradient(180deg, #242424 0%, #1A1A1A 100%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.10) !important;
-        border-top: 3px solid #E50914 !important;
-        border-radius: 14px !important;
-        padding: 20px 22px !important;
-        box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.9) !important;
-        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease !important;
+    /* --- CARTES KPI SUR MESURE --- */
+    .kpi-card {
+        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-top: 3px solid #E50914;
+        border-radius: 14px;
+        padding: 18px 22px 16px 22px;
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
         animation: fadeUp 0.5s ease both;
+        margin-bottom: 8px;
     }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) div[data-testid="stMetric"] { animation-delay: 0.00s; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) div[data-testid="stMetric"] { animation-delay: 0.08s; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) div[data-testid="stMetric"] { animation-delay: 0.16s; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(4) div[data-testid="stMetric"] { animation-delay: 0.24s; }
-    div[data-testid="stMetric"]:hover {
+    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .kpi-card { animation-delay: 0.00s; }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .kpi-card { animation-delay: 0.08s; }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .kpi-card { animation-delay: 0.16s; }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(4) .kpi-card { animation-delay: 0.24s; }
+    .kpi-card:hover {
         transform: translateY(-4px) scale(1.03);
-        border-color: rgba(229, 9, 20, 0.6) !important;
-        border-top-color: #E50914 !important;
-        box-shadow: 0 24px 42px -14px rgba(0, 0, 0, 0.95), 0 0 30px -6px rgba(229, 9, 20, 0.65) !important;
+        border-color: rgba(229, 9, 20, 0.65);
+        border-top-color: #E50914;
+        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 32px -6px rgba(229, 9, 20, 0.7);
     }
-    div[data-testid="stMetricValue"] {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
-        font-size: 2.3rem !important;
-        font-weight: 400 !important;
-        color: #FFFFFF !important;
-        letter-spacing: 0.03em;
-        white-space: nowrap !important;
-        overflow: visible !important;
-        font-variant-numeric: tabular-nums;
-    }
-    div[data-testid="stMetricLabel"] {
-        color: #FFFFFF !important;
+    .kpi-label {
+        color: #FFFFFF;
         font-size: 0.78rem;
         text-transform: uppercase;
         font-weight: 800;
-        letter-spacing: 0.07em;
+        letter-spacing: 0.08em;
+        margin-bottom: 6px;
     }
-    div[data-testid="stMetricDelta"] {
-        font-weight: 700 !important;
+    .kpi-value {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 2.45rem;
+        line-height: 1;
+        color: #FFFFFF;
+        letter-spacing: 0.03em;
         font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+    .kpi-delta {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 12px;
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+    }
+    .kpi-delta.up {
+        background: rgba(16, 185, 129, 0.18);
+        color: #34D399;
+        border: 1px solid rgba(16, 185, 129, 0.55);
+    }
+    .kpi-delta.down {
+        background: rgba(239, 68, 68, 0.16);
+        color: #F87171;
+        border: 1px solid rgba(239, 68, 68, 0.55);
     }
 
     /* --- NAVIGATION EN BOUTONS --- */
@@ -334,7 +358,11 @@ st.markdown("""
         box-shadow: 0 0 0 1px #E50914 !important;
     }
     .stTextInput input::placeholder, .stNumberInput input::placeholder {
-        color: #D9D9D9 !important;
+        color: #FFFFFF !important;
+        opacity: 0.65;
+    }
+    .stSelectbox div[data-baseweb="select"] div {
+        color: #FFFFFF !important;
     }
 
     div[data-baseweb="popover"] {
@@ -342,7 +370,7 @@ st.markdown("""
         border: 1px solid #3A3A3A !important;
         border-radius: 12px !important;
     }
-    div[data-baseweb="popover"] li {
+    div[data-baseweb="popover"] li, div[data-baseweb="popover"] div {
         color: #FFFFFF !important;
     }
 
@@ -356,6 +384,9 @@ st.markdown("""
     div[data-testid="stAlert"] {
         border-radius: 12px !important;
         border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    }
+    div[data-testid="stAlert"] p {
+        color: #FFFFFF !important;
     }
 
     /* Carte de connexion (page d'accueil) */
@@ -415,7 +446,7 @@ st.markdown("""
         .custom-table th, .custom-table td { color: #000000 !important; }
     }
 
-    hr { border-color: rgba(255, 255, 255, 0.12) !important; margin: 28px 0 !important; }
+    hr { border-color: rgba(255, 255, 255, 0.14) !important; margin: 28px 0 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -702,10 +733,12 @@ else:
         rendement_pct = (profit_total / 10000.00) * 100
 
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("Disponible", f"${cash_actuel:,.2f}")
-        col_m2.metric("Actions", f"${valeur_actions:,.2f}")
-        col_m3.metric("Valeur Totale", f"${valeur_totale:,.2f}")
-        col_m4.metric("Gains / Pertes", f"${profit_total:,.2f}", f"{rendement_pct:+.2f}%")
+        col_m1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Disponible</div><div class='kpi-value'>${cash_actuel:,.2f}</div></div>", unsafe_allow_html=True)
+        col_m2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Actions</div><div class='kpi-value'>${valeur_actions:,.2f}</div></div>", unsafe_allow_html=True)
+        col_m3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${valeur_totale:,.2f}</div></div>", unsafe_allow_html=True)
+        classe_delta = "kpi-delta up" if profit_total >= 0 else "kpi-delta down"
+        fleche_delta = "▲" if profit_total >= 0 else "▼"
+        col_m4.markdown(f"<div class='kpi-card'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div></div>", unsafe_allow_html=True)
 
     afficher_metrics_live()
 
@@ -920,7 +953,7 @@ else:
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
                 div[data-testid="stRadio"], .stButton, button,
                 iframe, hr, .stSelectbox, .stNumberInput, .brand-banner,
-                div[data-testid="stMetric"] {
+                div[data-testid="stMetric"], .kpi-card {
                     display: none !important;
                 }
                 .print-header {
@@ -1229,10 +1262,12 @@ else:
                             st.rerun()
 
                     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-                    col_t1.metric("Disponible (Cash)", f"${e_cash:,.2f}")
-                    col_t2.metric("Actions Possédées", f"${e_val_act:,.2f}")
-                    col_t3.metric("Valeur Totale", f"${e_tot:,.2f}")
-                    col_t4.metric("Gains / Pertes", f"${e_pnl:+,.2f}", f"{e_perf:+.2f}%")
+                    col_t1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Disponible (Cash)</div><div class='kpi-value'>${e_cash:,.2f}</div></div>", unsafe_allow_html=True)
+                    col_t2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Actions Possédées</div><div class='kpi-value'>${e_val_act:,.2f}</div></div>", unsafe_allow_html=True)
+                    col_t3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${e_tot:,.2f}</div></div>", unsafe_allow_html=True)
+                    classe_delta_p = "kpi-delta up" if e_pnl >= 0 else "kpi-delta down"
+                    fleche_delta_p = "▲" if e_pnl >= 0 else "▼"
+                    col_t4.markdown(f"<div class='kpi-card'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${e_pnl:+,.2f}</div><div class='{classe_delta_p}'>{fleche_delta_p} {e_perf:+.2f}%</div></div>", unsafe_allow_html=True)
 
                     st.markdown("##### Portefeuille Détaillé")
                     if pos_rows:
