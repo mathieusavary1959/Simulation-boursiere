@@ -66,28 +66,28 @@ init_db()
 # --- FILTRE DE VALIDATION DES BOURSES NORD-AMÉRICAINES ---
 def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
     symbol_upper = symbol.upper().strip()
-    
+
     suffixes_interdits = (
-        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX', 
+        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX',
         '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
     )
     if symbol_upper.endswith(suffixes_interdits):
         return False
-        
+
     if '.' in symbol_upper:
         suffix = symbol_upper.split('.')[-1]
         if suffix not in ['TO', 'V', 'CN', 'NE']:
             return False
 
     mots_cles_na = [
-        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO', 
+        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO',
         'VENTURE', 'CBOE', 'AMERICAN', 'PNK', 'NMS', 'NYQ', 'NGM', 'NCM', 'TOR', 'VAN'
     ]
-    
+
     comb = f"{exch_code} {exch_disp}".upper()
     if comb.strip():
         return any(kw in comb for kw in mots_cles_na)
-        
+
     return True
 
 # --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN DE 3 SECONDES) ---
@@ -103,89 +103,121 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN HAUT CONTRASTE & STYLE BOUTONS 3D ---
+# --- DESIGN TERMINAL FINANCIER SOMBRE (COUCHE VISUELLE SEULEMENT) ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700;800&display=swap');
 
     html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .stApp {
-        background-color: #E2E8F0 !important;
-        color: #0F172A !important;
+        background-color: #0D0D0D !important;
+        color: #EDF1F6 !important;
     }
 
     #MainMenu, footer, header { visibility: hidden; }
 
+    ::selection { background: #2F80ED; color: #FFFFFF; }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: #0D0D0D; }
+    ::-webkit-scrollbar-thumb { background: #262B33; border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: #2F80ED; }
+
+    .stApp h1, .stApp h2, .stApp h3 {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
+        font-weight: 400 !important;
+        letter-spacing: 0.05em !important;
+        color: #FFFFFF !important;
+    }
+
     .brand-banner {
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        background: linear-gradient(135deg, #101318 0%, #171D26 100%);
         border-radius: 20px;
         padding: 24px 32px;
         color: #FFFFFF;
         margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
+        box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.9), 0 0 32px -14px rgba(47, 128, 237, 0.55);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid #334155;
+        border: 1px solid rgba(47, 128, 237, 0.45);
+        animation: fadeDown 0.55s ease both;
     }
     .brand-title {
-        font-size: 1.9rem;
-        font-weight: 800;
-        letter-spacing: -0.02em;
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 2.3rem;
+        letter-spacing: 0.06em;
+        line-height: 1;
         color: #FFFFFF;
         margin: 0;
     }
     .brand-subtitle {
-        color: #94A3B8;
+        color: #9AA7B4;
         font-size: 0.88rem;
         font-weight: 500;
-        margin-top: 4px;
+        margin-top: 6px;
     }
     .brand-badge {
-        background: rgba(56, 189, 248, 0.15);
-        border: 1px solid #38BDF8;
+        background: rgba(47, 128, 237, 0.14);
+        border: 1px solid #2F80ED;
         padding: 6px 16px;
         border-radius: 30px;
         font-size: 0.8rem;
         font-weight: 700;
-        color: #38BDF8;
+        color: #7DB4FF;
         letter-spacing: 0.05em;
         text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    @keyframes fadeDown {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .brand-banner { animation: none !important; }
+        div[data-testid="stMetric"] { transition: none !important; }
     }
 
     div[data-testid="stMetric"] {
-        background-color: #FFFFFF !important;
-        border: 1.5px solid #CBD5E1 !important;
+        background: linear-gradient(180deg, #151A21 0%, #10131A 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
         border-radius: 18px !important;
         padding: 18px 20px !important;
-        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08) !important;
-        transition: all 0.25s ease !important;
+        box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.85), 0 0 22px -12px rgba(47, 128, 237, 0.35) !important;
+        transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease !important;
     }
     div[data-testid="stMetric"]:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12) !important;
-        border-color: #94A3B8 !important;
+        border-color: rgba(47, 128, 237, 0.6) !important;
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 28px -10px rgba(47, 128, 237, 0.55) !important;
     }
     div[data-testid="stMetricValue"] {
-        font-size: 1.6rem !important;
-        font-weight: 800 !important;
-        color: #0F172A !important;
-        letter-spacing: -0.02em;
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
+        font-size: 2rem !important;
+        font-weight: 400 !important;
+        color: #FFFFFF !important;
+        letter-spacing: 0.03em;
         white-space: nowrap !important;
         overflow: visible !important;
+        font-variant-numeric: tabular-nums;
     }
     div[data-testid="stMetricLabel"] {
-        color: #475569 !important;
+        color: #9AA7B4 !important;
         font-size: 0.78rem;
         text-transform: uppercase;
         font-weight: 800;
         letter-spacing: 0.06em;
     }
+    div[data-testid="stMetricDelta"] {
+        font-weight: 700 !important;
+        font-variant-numeric: tabular-nums;
+    }
 
-    /* --- NAVIGATION EN BOUTONS 3D --- */
+    /* --- NAVIGATION EN BOUTONS --- */
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > label {
         display: none !important;
     }
@@ -199,29 +231,29 @@ st.markdown("""
         flex-wrap: wrap !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label {
-        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
-        border-radius: 12px !important;
-        color: #CBD5E1 !important;
-        padding: 12px 24px !important;
+        background: #151A21 !important;
+        border-radius: 999px !important;
+        color: #AEB9C6 !important;
+        padding: 11px 22px !important;
         font-weight: 700 !important;
         font-size: 0.92rem !important;
-        border: none !important;
-        box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
-        transition: all 0.12s ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.10) !important;
+        box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.8) !important;
+        transition: all 0.15s ease !important;
         cursor: pointer !important;
         margin: 0 !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:hover {
         color: #FFFFFF !important;
-        background: linear-gradient(180deg, #334155 0%, #1E293B 100%) !important;
+        border-color: rgba(47, 128, 237, 0.6) !important;
         transform: translateY(-2px);
-        box-shadow: 0 6px 0 #020617, 0 8px 18px rgba(15, 23, 42, 0.25) !important;
+        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.85) !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:has(input:checked) {
-        background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
+        background: linear-gradient(180deg, #2F80ED 0%, #1C5FC4 100%) !important;
         color: #FFFFFF !important;
-        box-shadow: 0 4px 0 #1E40AF, 0 8px 20px rgba(37, 99, 235, 0.35) !important;
-        border: none !important;
+        box-shadow: 0 10px 24px -10px rgba(47, 128, 237, 0.85) !important;
+        border: 1px solid rgba(125, 180, 255, 0.5) !important;
         transform: translateY(0px) !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) div[data-testid="stMarkdownContainer"] p {
@@ -233,59 +265,103 @@ st.markdown("""
     /* Boutons standards */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
         border-radius: 12px !important;
-        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
+        background: linear-gradient(180deg, #2F80ED 0%, #1C5FC4 100%) !important;
         color: #FFFFFF !important;
         font-weight: 700 !important;
-        border: none !important;
+        border: 1px solid rgba(125, 180, 255, 0.5) !important;
         padding: 12px 24px !important;
-        box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
-        transition: all 0.12s ease !important;
+        box-shadow: 0 10px 22px -10px rgba(47, 128, 237, 0.8) !important;
+        transition: all 0.15s ease !important;
     }
     .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
-        background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
-        box-shadow: 0 6px 0 #1E40AF, 0 10px 20px rgba(37, 99, 235, 0.3) !important;
+        filter: brightness(1.12);
         transform: translateY(-2px);
+        box-shadow: 0 14px 26px -10px rgba(47, 128, 237, 0.9) !important;
+    }
+    .stButton>button:active, div[data-testid="stFormSubmitButton"]>button:active {
+        transform: translateY(0px);
     }
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
-        background-color: #FFFFFF !important;
-        color: #0F172A !important;
+        background-color: #151A21 !important;
+        color: #EDF1F6 !important;
         border-radius: 12px !important;
-        border: 1.5px solid #94A3B8 !important;
+        border: 1.5px solid rgba(255, 255, 255, 0.16) !important;
         padding: 11px 16px !important;
         font-weight: 600 !important;
     }
+    .stTextInput>div>div>input:focus, .stNumberInput>div>div>input:focus {
+        border-color: #2F80ED !important;
+        box-shadow: 0 0 0 1px #2F80ED !important;
+    }
+    .stTextInput input::placeholder, .stNumberInput input::placeholder {
+        color: #7C8A99 !important;
+    }
+
+    div[data-baseweb="popover"] {
+        background-color: #151A21 !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 12px !important;
+    }
+    div[data-baseweb="popover"] li {
+        color: #EDF1F6 !important;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        border-radius: 14px !important;
+        overflow: hidden !important;
+        box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.85) !important;
+    }
+
+    /* Onglets Connexion / Créer un compte */
+    div[data-baseweb="tab-list"] { gap: 8px !important; }
+    button[data-baseweb="tab"] {
+        color: #9AA7B4 !important;
+        font-weight: 700 !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] { color: #FFFFFF !important; }
+    div[data-baseweb="tab-highlight"] { background-color: #2F80ED !important; }
+    div[data-baseweb="tab-border"] { background-color: rgba(255, 255, 255, 0.12) !important; }
 
     .custom-table {
         width: 100%;
         border-collapse: collapse;
-        background-color: #FFFFFF;
+        background-color: #12161D;
         border-radius: 14px;
         overflow: hidden;
-        border: 1.5px solid #CBD5E1;
+        border: 1px solid rgba(255, 255, 255, 0.09);
         margin-bottom: 24px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+        box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.85);
     }
     .custom-table th {
-        background-color: #F1F5F9;
-        color: #1E293B;
+        background-color: #171E28;
+        color: #C9D4E2;
         font-weight: 800;
         padding: 14px 18px;
         text-align: left;
-        border-bottom: 1.5px solid #CBD5E1;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.10);
         text-transform: uppercase;
         font-size: 0.78rem;
         letter-spacing: 0.05em;
     }
     .custom-table td {
         padding: 14px 18px;
-        border-bottom: 1px solid #E2E8F0;
-        color: #0F172A;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        color: #EDF1F6;
         font-weight: 600;
         font-size: 0.93rem;
+        font-variant-numeric: tabular-nums;
+    }
+    .custom-table tbody tr { transition: background-color 0.15s ease; }
+    .custom-table tbody tr:hover { background-color: rgba(47, 128, 237, 0.08); }
+
+    @media print {
+        .custom-table { background-color: #FFFFFF !important; }
+        .custom-table th, .custom-table td { color: #000000 !important; }
     }
 
-    hr { border-color: #CBD5E1 !important; margin: 28px 0 !important; }
+    hr { border-color: rgba(255, 255, 255, 0.10) !important; margin: 28px 0 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -304,7 +380,7 @@ def rechercher_symbole_universel(query):
             shortname = quote.get('shortname') or quote.get('longname') or symbol
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
-            
+
             if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
                 if est_marche_nord_americain(symbol, exch_code=quote.get('exchange', ''), exch_disp=exch):
                     results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
@@ -335,7 +411,7 @@ def obtenir_prix_groupes(tickers_list):
         clean_tickers = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
         if not clean_tickers:
             return {}
-        
+
         data = yf.Tickers(" ".join(clean_tickers))
         prix_dict = {}
         for tk in clean_tickers:
@@ -360,7 +436,7 @@ def obtenir_details_financiers(ticker_symbol):
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.fast_info
-        
+
         last = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
         if last is None or pd.isna(last) or float(last) <= 0:
             hist = t.history(period="2d")
@@ -393,8 +469,8 @@ def obtenir_details_financiers(ticker_symbol):
         y_low = info.get('yearLow', last)
 
         return {
-            "Prix": last, 
-            "Variation": change, 
+            "Prix": last,
+            "Variation": change,
             "VariationPct": change_pct,
             "Ouverture": f"${open_p:{fmt}}",
             "Plus Haut": f"${high_p:{fmt}}",
@@ -419,19 +495,19 @@ def obtenir_donnees_classement(grp_filter):
         users_df = conn.query("SELECT username, cash, groupe FROM users", ttl=0)
     else:
         users_df = conn.query("SELECT username, cash, groupe FROM users WHERE groupe=:g", params={"g": grp_filter}, ttl=0)
-    
+
     if users_df.empty:
         return pd.DataFrame()
 
     all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=0)
     unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
     prix_dict = obtenir_prix_groupes(unique_tickers)
-        
+
     lb = []
     for _, r in users_df.iterrows():
         u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
         u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
-        
+
         u_val_act = 0.0
         if not u_p.empty:
             for _, row in u_p.iterrows():
@@ -439,11 +515,11 @@ def obtenir_donnees_classement(grp_filter):
                 px = prix_dict.get(tk_sym)
                 px_f = px if px is not None else float(row['avg_price'] or 0.0)
                 u_val_act += px_f * row['shares']
-        
+
         tot = u_cash + u_val_act
         perf = ((tot - 10000.00) / 10000.00) * 100
         lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf})
-        
+
     if lb:
         df_lb = pd.DataFrame(lb).sort_values(by="Portefeuille", ascending=False).reset_index(drop=True)
         df_lb.index += 1
@@ -530,7 +606,7 @@ if st.session_state['user'] is None:
 else:
     user = st.session_state['user']
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
-    
+
     if res_u.empty:
         st.session_state['user'] = None
         st.query_params.clear()
@@ -540,8 +616,8 @@ else:
     groupe_actuel = res_u.iloc[0]['groupe']
 
     col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #475569; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #0F172A;'>{user}</b> &nbsp;•&nbsp; <span style='background:#CBD5E1; color:#0F172A; padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
-    
+    col_h1.markdown(f"<p style='color: #9AA7B4; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #FFFFFF;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(47, 128, 237, 0.15); color:#7DB4FF; border:1px solid rgba(47, 128, 237, 0.45); padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
+
     if col_h2.button("Déconnexion", use_container_width=True):
         current_token = st.query_params.get("session")
         if current_token:
@@ -557,7 +633,7 @@ else:
     def afficher_metrics_live():
         pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         valeur_actions = 0.0
-        
+
         if not pos_df.empty:
             unique_tks = pos_df['ticker'].unique().tolist()
             prix_dict = obtenir_prix_groupes(unique_tks)
@@ -594,7 +670,7 @@ else:
         horizontal=True,
         key="main_nav_radio"
     )
-    
+
     st.query_params["tab"] = tab_choisi
 
     # --- ONGLET 1 : MARCHÉ & ANALYSE ---
@@ -610,9 +686,9 @@ else:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🔄 Rafraîchir le cours", use_container_width=True):
                 st.rerun()
-        
+
         selected_ticker = "AAPL"
-        
+
         if search_query and len(search_query.strip()) > 0:
             query_clean = search_query.strip()
             resultats = rechercher_symbole_universel(query_clean)
@@ -624,7 +700,7 @@ else:
                 selected_ticker = query_clean.upper()
 
         details = obtenir_details_financiers(selected_ticker)
-        
+
         if details == {"erreur": "non_na"}:
             st.error(f"⚠️ **Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permises.")
         elif details:
@@ -635,7 +711,7 @@ else:
             fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
 
             col_chart, col_order = st.columns([2.2, 1])
-            
+
             with col_chart:
                 st.markdown(f"### {selected_ticker} — {fmt_prix} ({signe}{var_pct:.2f}%)")
 
@@ -649,7 +725,7 @@ else:
                         "6mo": "6 Mois",
                         "1y": "1 An"
                     }
-                    
+
                     selected_period = st.radio(
                         "Horizon d'analyse",
                         options=list(period_map.keys()),
@@ -663,7 +739,7 @@ else:
                         min_p = float(df_hist['Close'].min())
                         max_p = float(df_hist['Close'].max())
                         delta = max_p - min_p
-                        
+
                         padding = delta * 0.08 if delta > 0 else min_p * 0.02
                         y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
                         y_max = max_p + padding
@@ -671,7 +747,7 @@ else:
                         tick_fmt = "$.4f" if max_p < 1 else "$.2f"
 
                         fig = go.Figure()
-                        
+
                         fig.add_trace(go.Scatter(
                             x=df_hist.index,
                             y=df_hist['Close'],
@@ -681,23 +757,23 @@ else:
                             fillcolor=fill_color,
                             hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
                         ))
-                        
+
                         fig.update_layout(
                             paper_bgcolor='rgba(0,0,0,0)',
                             plot_bgcolor='rgba(0,0,0,0)',
                             height=340,
                             margin=dict(l=10, r=10, t=10, b=10),
-                            xaxis=dict(showgrid=True, gridcolor='#CBD5E1', gridwidth=0.8, zeroline=False),
+                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.08)', gridwidth=0.8, zeroline=False),
                             yaxis=dict(
                                 range=[y_min, y_max],
-                                showgrid=True, 
-                                gridcolor='#CBD5E1', 
-                                gridwidth=0.8, 
-                                zeroline=False, 
+                                showgrid=True,
+                                gridcolor='rgba(255,255,255,0.08)',
+                                gridwidth=0.8,
+                                zeroline=False,
                                 side="right",
                                 tickformat=tick_fmt
                             ),
-                            font=dict(color="#334155", family="Plus Jakarta Sans")
+                            font=dict(color="#C7D0DB", family="Work Sans")
                         )
                         st.plotly_chart(fig, use_container_width=True)
 
@@ -710,7 +786,7 @@ else:
                 st.write(f"Total estimé : **${cost_total:,.2f}**")
 
                 col_b, col_s = st.columns(2)
-                
+
                 # ACHAT
                 if col_b.button("Acheter", use_container_width=True):
                     if not verifier_cooldown(user, delai_secondes=3):
@@ -721,7 +797,7 @@ else:
 
                         c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
                         cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
-                        
+
                         if cash_actuel_db >= cost_real:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
@@ -737,7 +813,7 @@ else:
                                 session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                 {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
-                            
+
                             st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
@@ -765,7 +841,7 @@ else:
                                 session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                 {"u": user, "t": selected_ticker.upper(), "s": -qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
-                            
+
                             st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
@@ -788,7 +864,7 @@ else:
                     margin: 0 !important;
                 }
                 header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
-                div[data-testid="stRadio"], .stButton, button, 
+                div[data-testid="stRadio"], .stButton, button,
                 iframe, hr, .stSelectbox, .stNumberInput, .brand-banner,
                 div[data-testid="stMetric"] {
                     display: none !important;
@@ -844,7 +920,7 @@ else:
         def afficher_positions_live():
             pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
             val_actions_live = 0.0
-            
+
             if not pos_df_live.empty:
                 unique_tks = pos_df_live['ticker'].unique().tolist()
                 prix_dict = obtenir_prix_groupes(unique_tks)
@@ -896,18 +972,18 @@ else:
             with col_p2:
                 components.html("""
                     <button onclick="window.parent.print()" style="
-                        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
+                        background: linear-gradient(180deg, #2F80ED 0%, #1C5FC4 100%);
                         color: #FFFFFF;
-                        border: none;
+                        border: 1px solid rgba(125, 180, 255, 0.5);
                         padding: 10px 18px;
                         border-radius: 12px;
                         font-weight: 700;
                         cursor: pointer;
                         width: 100%;
-                        font-family: 'Plus Jakarta Sans', sans-serif;
-                        box-shadow: 0 4px 0 #020617, 0 6px 12px rgba(15, 23, 42, 0.2);
+                        font-family: 'Work Sans', sans-serif;
+                        box-shadow: 0 10px 22px -10px rgba(47, 128, 237, 0.8);
                         transition: all 0.12s ease;
-                    " onmousedown="this.style.transform='translateY(3px)'; this.style.boxShadow='0 1px 0 #020617'" onmouseup="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 0 #020617, 0 6px 12px rgba(15, 23, 42, 0.2)'">
+                    " onmousedown="this.style.transform='translateY(2px)'" onmouseup="this.style.transform='translateY(0px)'">
                         🖨️ Imprimer / PDF
                     </button>
                 """, height=45)
@@ -916,7 +992,7 @@ else:
             if not p_all.empty:
                 options_vente = {}
                 html_rows = ""
-                
+
                 tks_all = p_all['ticker'].unique().tolist()
                 prix_dict_pos = obtenir_prix_groupes(tks_all)
 
@@ -931,7 +1007,7 @@ else:
                     pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
                     fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
                     fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
-                    
+
                     options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
 
                     html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>{fmt_pm}</td><td>{fmt_pa}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
@@ -962,7 +1038,7 @@ else:
                                 prix_v_instantane = obtenir_prix_actuel(tk_v) or pa_v
                                 total_v_instantane = qty_v * prix_v_instantane
                                 now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                                
+
                                 with conn.session as session:
                                     session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
                                     rem = sh_real - qty_v
@@ -970,11 +1046,11 @@ else:
                                         session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
                                     else:
                                         session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
-                                    
+
                                     session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                     {"u": user, "t": tk_v, "s": -qty_v, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
                                     session.commit()
-                                
+
                                 st.session_state['flash_msg'] = ("success", f"Vente de {qty_v} {tk_v} à ${prix_v_instantane:,.2f} effectuée !")
                                 st.rerun()
                             else: st.error("Vous ne possédez plus ces actions.")
@@ -1007,10 +1083,10 @@ else:
         if not df_classement.empty:
             if search_user_rank and search_user_rank.strip():
                 search_term = search_user_rank.strip().lower()
-                
+
                 def highlight_row(row):
                     if search_term in str(row['Élève']).lower():
-                        return ['background-color: #FDE047; color: #0F172A; font-weight: 700;'] * len(row)
+                        return ['background-color: rgba(47, 128, 237, 0.85); color: #FFFFFF; font-weight: 700;'] * len(row)
                     return [''] * len(row)
 
                 styled_df = df_classement.style.apply(highlight_row, axis=1)
@@ -1025,21 +1101,21 @@ else:
         pin = st.text_input("PIN Enseignant :", type="password") if user.lower() not in ['prof', 'admin'] else "1959"
         if pin == "1959":
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
-            
+
             if grp_p == "Tous les groupes":
                 e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=0)['username'].tolist()
             else:
                 e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=0)['username'].tolist()
-                
+
             if e_list:
                 e_sel = st.selectbox("Élève à inspecter :", e_list)
                 e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
-                
+
                 if not e_data_df.empty:
                     e_data = e_data_df.iloc[0]
                     e_cash, e_grp = float(e_data['cash']), e_data['groupe']
                     e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
-                    
+
                     pos_rows = []
                     e_val_act = 0.0
                     if not e_pos.empty:
@@ -1077,7 +1153,7 @@ else:
                     col_top_prof1, col_top_prof2, col_top_prof3 = st.columns([2.5, 1, 1])
                     with col_top_prof1:
                         st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
-                    
+
                     with col_top_prof2:
                         if st.button(f"⚠️ Réinitialiser {e_sel}", use_container_width=True):
                             with conn.session as session:
