@@ -1495,8 +1495,11 @@ else:
         if pin == "1959":
             with st.expander("Gestion des mots de passe (Supabase)"):
                 st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
-                if st.checkbox("Je comprends, afficher le lien d'accès", key="conf_supabase"):
+                code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase")
+                if code_supabase == "996633":
                     st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
+                elif code_supabase:
+                    st.error("Code incorrect.")
 
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
 
