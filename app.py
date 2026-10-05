@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import uuid
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
@@ -966,7 +965,14 @@ else:
         st.rerun()
 
     # --- MÉTRIQUES DE HAUT DE PAGE ---
-    @st.fragment
+    # Rafraîchissement automatique des 4 carrés toutes les 30 s (fragment seul, sans refresh de page).
+    # Si la version de Streamlit ne supporte pas run_every, les carrés restent statiques comme avant.
+    try:
+        fragment_auto = st.fragment(run_every=30)
+    except TypeError:
+        fragment_auto = st.fragment
+
+    @fragment_auto
     def afficher_metrics_live():
         pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
         valeur_actions = 0.0
@@ -1008,10 +1014,6 @@ else:
                 duree_tape = max(20, 5 * len(pos_df))
                 css_tape = "<style>body{margin:0;background:#161616;font-family:'Work Sans',sans-serif;overflow:hidden;border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}.track{display:flex;width:max-content;padding:11px 0;animation:tapeScroll " + str(duree_tape) + "s linear infinite}.track:hover{animation-play-state:paused}.item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}@keyframes tapeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>"
                 components.html(f"<!DOCTYPE html><html><head>{css_tape}</head><body><div class='track'>{items_tape}{items_tape}</div></body></html>", height=46)
-
-        # --- MISE À JOUR AUTOMATIQUE DES 4 CARRÉS (fragment seul, sans refresh de page) ---
-        time.sleep(30)
-        st.rerun()
 
     afficher_metrics_live()
 
