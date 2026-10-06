@@ -10,7 +10,7 @@ from sqlalchemy import text
 import streamlit.components.v1 as components
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layout="wide")
+st.set_page_config(page_title="Monde & Finance — Simulation Boursière", page_icon="📈", layout="wide")
 
 # Liste des 10 groupes + Groupe Enseignants
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
@@ -66,28 +66,28 @@ init_db()
 # --- FILTRE DE VALIDATION DES BOURSES NORD-AMÉRICAINES ---
 def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
     symbol_upper = symbol.upper().strip()
-
+    
     suffixes_interdits = (
-        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX',
+        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX', 
         '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
     )
     if symbol_upper.endswith(suffixes_interdits):
         return False
-
+        
     if '.' in symbol_upper:
         suffix = symbol_upper.split('.')[-1]
         if suffix not in ['TO', 'V', 'CN', 'NE']:
             return False
 
     mots_cles_na = [
-        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO',
+        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO', 
         'VENTURE', 'CBOE', 'AMERICAN', 'PNK', 'NMS', 'NYQ', 'NGM', 'NCM', 'TOR', 'VAN'
     ]
-
+    
     comb = f"{exch_code} {exch_disp}".upper()
     if comb.strip():
         return any(kw in comb for kw in mots_cles_na)
-
+        
     return True
 
 # --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN DE 3 SECONDES) ---
@@ -103,401 +103,89 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
-# --- DESIGN STYLE NETFLIX PREMIUM PLUS (COUCHE VISUELLE SEULEMENT) ---
+# --- DESIGN HAUT CONTRASTE, STYLE BOUTONS 3D & ADAPTATION MOBILE ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
     html, body, [class*="css"] {
-        font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .stApp {
-        background: radial-gradient(1200px 520px at 50% -8%, rgba(229, 9, 20, 0.16), rgba(20, 20, 20, 0) 62%), #141414 !important;
-        background-color: #141414 !important;
-        color: #FFFFFF !important;
+        background-color: #E2E8F0 !important;
+        color: #0F172A !important;
     }
 
     #MainMenu, footer, header { visibility: hidden; }
 
-    ::selection { background: #E50914; color: #FFFFFF; }
-
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-track { background: #141414; }
-    ::-webkit-scrollbar-thumb { background: #3A3A3A; border-radius: 8px; }
-    ::-webkit-scrollbar-thumb:hover { background: #E50914; }
-
-    .stApp h1 { font-size: 2.7rem !important; }
-    .stApp h2 { font-size: 2.3rem !important; }
-    .stApp h3 { font-size: 2rem !important; }
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif !important;
-        font-weight: 400 !important;
-        letter-spacing: 0.05em !important;
-        color: #FFFFFF !important;
-    }
-    .stApp h3, .stApp h4, .stApp h5 {
-        border-left: 4px solid #E50914;
-        padding-left: 14px;
-    }
-
-    .stApp .stMarkdown p, .stApp .stMarkdown li {
-        color: #FFFFFF;
-    }
-    div[data-testid="stWidgetLabel"] p, .stApp label {
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-    }
-    div[data-testid="stRadio"] label, div[data-testid="stRadio"] label p {
-        color: #FFFFFF !important;
-    }
-
     .brand-banner {
-        background: linear-gradient(120deg, #000000 0%, #161616 55%, #2B0A0C 100%);
-        border-radius: 16px;
-        padding: 28px 36px;
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        border-radius: 20px;
+        padding: 24px 32px;
         color: #FFFFFF;
         margin-bottom: 24px;
-        box-shadow: 0 22px 44px -18px rgba(0, 0, 0, 0.95), 0 0 44px -8px rgba(229, 9, 20, 0.65);
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border: 1px solid rgba(229, 9, 20, 0.5);
-        border-bottom: 3px solid #E50914;
-        animation: fadeDown 0.55s ease both;
-        position: relative;
-        overflow: hidden;
-    }
-    .brand-banner::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -80%;
-        width: 55%;
-        height: 100%;
-        background: linear-gradient(105deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0) 100%);
-        transform: skewX(-18deg);
-        animation: sheen 4.5s ease-in-out infinite;
-        pointer-events: none;
+        border: 1px solid #334155;
     }
     .brand-title {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 3.1rem;
-        letter-spacing: 0.06em;
-        line-height: 1;
+        font-size: 1.9rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
         color: #FFFFFF;
         margin: 0;
-        text-shadow: 0 0 28px rgba(229, 9, 20, 0.6);
     }
     .brand-subtitle {
-        color: #FFFFFF;
-        font-size: 0.92rem;
+        color: #94A3B8;
+        font-size: 0.88rem;
         font-weight: 500;
-        margin-top: 6px;
-    }
-    .brand-badge {
-        background: #E50914;
-        border: none;
-        padding: 7px 18px;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 800;
-        color: #FFFFFF;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        white-space: nowrap;
-        box-shadow: 0 8px 20px -8px rgba(229, 9, 20, 0.9);
-    }
-
-    @keyframes fadeDown {
-        from { opacity: 0; transform: translateY(-8px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes sheen {
-        0%, 55% { left: -80%; }
-        85%, 100% { left: 130%; }
-    }
-    @keyframes fadeUp {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @media (prefers-reduced-motion: reduce) {
-        .brand-banner, .brand-banner::after, .kpi-card, .podium-card,
-        .custom-table, .mon-rang, .kpi-up, .kpi-down { animation: none !important; }
-        .kpi-card { transition: none !important; }
-    }
-
-    /* --- CARTES KPI SUR MESURE --- */
-    .kpi-card {
-        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-top: 3px solid #E50914;
-        border-radius: 14px;
-        padding: 18px 22px 16px 22px;
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
-        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
-        animation: fadeUp 0.5s ease both;
-        margin-bottom: 8px;
-    }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(1) .kpi-card { animation-delay: 0.00s; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(2) .kpi-card { animation-delay: 0.08s; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(3) .kpi-card { animation-delay: 0.16s; }
-    div[data-testid="stHorizontalBlock"] > div:nth-child(4) .kpi-card { animation-delay: 0.24s; }
-    .kpi-card:hover {
-        transform: translateY(-4px) scale(1.03);
-        border-color: rgba(229, 9, 20, 0.65);
-        border-top-color: #E50914;
-        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 32px -6px rgba(229, 9, 20, 0.7);
-    }
-    .kpi-label {
-        color: #FFFFFF;
-        font-size: 0.78rem;
-        text-transform: uppercase;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        margin-bottom: 6px;
-    }
-    .kpi-value {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 2.45rem;
-        line-height: 1;
-        color: #FFFFFF;
-        letter-spacing: 0.03em;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-    }
-    .kpi-delta {
-        display: inline-block;
-        margin-top: 8px;
-        padding: 3px 12px;
-        border-radius: 999px;
-        font-size: 0.85rem;
-        font-weight: 800;
-        font-variant-numeric: tabular-nums;
-    }
-    .kpi-delta.up {
-        background: rgba(16, 185, 129, 0.18);
-        color: #34D399;
-        border: 1px solid rgba(16, 185, 129, 0.55);
-    }
-    .kpi-delta.down {
-        background: rgba(239, 68, 68, 0.16);
-        color: #F87171;
-        border: 1px solid rgba(239, 68, 68, 0.55);
-    }
-    .kpi-up {
-        border-color: rgba(16, 185, 129, 0.55);
-        border-top-color: #34D399;
-        background: linear-gradient(180deg, rgba(16, 185, 129, 0.18) 0%, #1A1A1A 62%);
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 46px -4px rgba(16, 185, 129, 0.8);
-        animation: fadeUp 0.5s ease both, pulseUp 2.8s ease-in-out 0.6s infinite;
-    }
-    .kpi-down {
-        border-color: rgba(239, 68, 68, 0.55);
-        border-top-color: #F87171;
-        background: linear-gradient(180deg, rgba(239, 68, 68, 0.18) 0%, #1A1A1A 62%);
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 46px -4px rgba(239, 68, 68, 0.8);
-        animation: fadeUp 0.5s ease both, pulseDown 2.8s ease-in-out 0.6s infinite;
-    }
-    @keyframes pulseUp {
-        0%, 100% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 34px -6px rgba(16, 185, 129, 0.55); }
-        50% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 56px -2px rgba(16, 185, 129, 0.95); }
-    }
-    @keyframes pulseDown {
-        0%, 100% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 34px -6px rgba(239, 68, 68, 0.55); }
-        50% { box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 56px -2px rgba(239, 68, 68, 0.95); }
-    }
-    .kpi-up .kpi-value { color: #34D399; }
-    .kpi-down .kpi-value { color: #F87171; }
-    .kpi-up:hover {
-        border-color: rgba(16, 185, 129, 0.8);
-        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 54px -4px rgba(16, 185, 129, 0.9);
-    }
-    .kpi-down:hover {
-        border-color: rgba(239, 68, 68, 0.8);
-        box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 54px -4px rgba(239, 68, 68, 0.9);
-    }
-
-    /* --- CARTE-CITATION (MARCHÉ) --- */
-    .quote-card {
-        display: flex;
-        align-items: center;
-        gap: 22px;
-        flex-wrap: wrap;
-        background: linear-gradient(120deg, #1E1E1E 0%, #161616 100%);
-        border: 1px solid #2E2E2E;
-        border-left: 4px solid #E50914;
-        border-radius: 14px;
-        padding: 16px 24px;
-        margin-bottom: 10px;
-        box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9);
-        animation: fadeUp 0.5s ease both;
-        position: relative;
-        overflow: hidden;
-    }
-    .quote-card::after {
-        content: attr(data-tk);
-        position: absolute;
-        right: 14px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 5.4rem;
-        letter-spacing: 0.04em;
-        color: rgba(255, 255, 255, 0.05);
-        pointer-events: none;
-    }
-    .quote-card > div { position: relative; z-index: 1; }
-    .quote-ticker {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 2.9rem;
-        line-height: 1;
-        color: #FFFFFF;
-        letter-spacing: 0.04em;
-    }
-    .quote-price {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 2.5rem;
-        line-height: 1;
-        color: #FFFFFF;
-        font-variant-numeric: tabular-nums;
-    }
-    .quote-var {
-        padding: 5px 14px;
-        border-radius: 999px;
-        font-weight: 800;
-        font-variant-numeric: tabular-nums;
-    }
-    .quote-var.up {
-        background: rgba(16, 185, 129, 0.18);
-        color: #34D399;
-        border: 1px solid rgba(16, 185, 129, 0.55);
-    }
-    .quote-var.down {
-        background: rgba(239, 68, 68, 0.16);
-        color: #F87171;
-        border: 1px solid rgba(239, 68, 68, 0.55);
-    }
-    .quote-card.up {
-        box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(16, 185, 129, 0.55);
-    }
-    .quote-card.down {
-        box-shadow: 0 16px 32px -16px rgba(0, 0, 0, 0.9), 0 0 36px -8px rgba(239, 68, 68, 0.55);
-    }
-
-    /* --- PODIUM DU CLASSEMENT --- */
-    .podium-card {
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-top: 4px solid #FFFFFF;
-        border-radius: 14px;
-        padding: 16px 20px;
-        margin-bottom: 10px;
-        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
-        animation: fadeUp 0.5s ease both;
-    }
-    .podium-or {
-        border-top-color: #FFD700;
-        background: linear-gradient(180deg, rgba(255, 215, 0, 0.38) 0%, rgba(255, 215, 0, 0.14) 45%, rgba(26, 26, 26, 1) 100%);
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(255, 215, 0, 0.55);
-    }
-    .podium-or .podium-rang { color: #FFD700; }
-    .podium-argent {
-        border-top-color: #C0C0C0;
-        background: linear-gradient(180deg, rgba(192, 192, 192, 0.34) 0%, rgba(192, 192, 192, 0.12) 45%, rgba(26, 26, 26, 1) 100%);
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(192, 192, 192, 0.5);
-    }
-    .podium-argent .podium-rang { color: #E8E8E8; }
-    .podium-bronze {
-        border-top-color: #CD7F32;
-        background: linear-gradient(180deg, rgba(205, 127, 50, 0.38) 0%, rgba(205, 127, 50, 0.14) 45%, rgba(26, 26, 26, 1) 100%);
-        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 30px -6px rgba(205, 127, 50, 0.55);
-    }
-    .podium-bronze .podium-rang { color: #E09A5A; }
-    .podium-rang {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 2.1rem;
-        line-height: 1;
-        color: #FFFFFF;
-    }
-    .podium-nom {
-        font-weight: 800;
-        font-size: 1.05rem;
-        color: #FFFFFF;
         margin-top: 4px;
     }
-    .podium-val {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 1.55rem;
-        line-height: 1.1;
-        color: #FFFFFF;
-        font-variant-numeric: tabular-nums;
-    }
-    .podium-perf {
+    .brand-badge {
+        background: rgba(56, 189, 248, 0.15);
+        border: 1px solid #38BDF8;
+        padding: 6px 16px;
+        border-radius: 30px;
+        font-size: 0.8rem;
         font-weight: 700;
-        font-size: 0.9rem;
-        color: #FFFFFF;
-        font-variant-numeric: tabular-nums;
-    }
-    .podium-1 { animation-delay: 0.00s; }
-    .podium-2 { animation-delay: 0.15s; }
-    .podium-3 { animation-delay: 0.30s; }
-    .podium-card {
-        position: relative;
-        overflow: hidden;
-        transition: box-shadow 0.3s ease, transform 0.3s ease;
-    }
-    .podium-card > div { position: relative; z-index: 1; }
-    .podium-or:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(255, 215, 0, 0.8);
-    }
-    .podium-argent:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(192, 192, 192, 0.75);
-    }
-    .podium-bronze:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 20px 38px -14px rgba(0, 0, 0, 0.95), 0 0 46px -4px rgba(205, 127, 50, 0.8);
+        color: #38BDF8;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
     }
 
-    .mon-rang {
-        display: flex;
-        align-items: center;
-        gap: 18px;
-        flex-wrap: wrap;
-        background: #1E1E1E;
-        border: 1px solid #2E2E2E;
-        border-left: 4px solid #E50914;
-        border-radius: 12px;
-        padding: 12px 20px;
-        margin: 4px 0 14px 0;
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF !important;
+        border: 1.5px solid #CBD5E1 !important;
+        border-radius: 18px !important;
+        padding: 18px 20px !important;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08) !important;
+        transition: all 0.25s ease !important;
     }
-    .mon-rang-label {
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12) !important;
+        border-color: #94A3B8 !important;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.6rem !important;
+        font-weight: 800 !important;
+        color: #0F172A !important;
+        letter-spacing: -0.02em;
+        white-space: nowrap !important;
+        overflow: visible !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #475569 !important;
+        font-size: 0.78rem;
         text-transform: uppercase;
         font-weight: 800;
-        letter-spacing: 0.08em;
-        font-size: 0.78rem;
-        color: #FFFFFF;
-    }
-    .mon-rang-val {
-        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
-        font-size: 1.9rem;
-        line-height: 1;
-        color: #FFFFFF;
-    }
-    .mon-rang-detail {
-        font-weight: 700;
-        color: #FFFFFF;
-        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.06em;
     }
 
-    /* --- ENTRÉES ANIMÉES DES BLOCS SUR MESURE --- */
-    .custom-table, .mon-rang {
-        animation: fadeUp 0.5s ease both;
-    }
-
-    /* --- NAVIGATION EN BOUTONS --- */
+    /* --- NAVIGATION EN BOUTONS 3D --- */
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > label {
         display: none !important;
     }
@@ -511,28 +199,29 @@ st.markdown("""
         flex-wrap: wrap !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label {
-        background: #1F1F1F !important;
-        border-radius: 999px !important;
-        color: #FFFFFF !important;
-        padding: 11px 22px !important;
+        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
+        border-radius: 12px !important;
+        color: #CBD5E1 !important;
+        padding: 12px 24px !important;
         font-weight: 700 !important;
         font-size: 0.92rem !important;
-        border: 1px solid #3A3A3A !important;
-        box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.85) !important;
-        transition: all 0.15s ease !important;
+        border: none !important;
+        box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
+        transition: all 0.12s ease !important;
         cursor: pointer !important;
         margin: 0 !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:hover {
         color: #FFFFFF !important;
-        border-color: rgba(229, 9, 20, 0.75) !important;
-        transform: translateY(-2px) scale(1.03);
+        background: linear-gradient(180deg, #334155 0%, #1E293B 100%) !important;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 0 #020617, 0 8px 18px rgba(15, 23, 42, 0.25) !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label:has(input:checked) {
-        background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
+        background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: #FFFFFF !important;
-        box-shadow: 0 10px 24px -8px rgba(229, 9, 20, 0.9) !important;
-        border: 1px solid rgba(255, 130, 130, 0.45) !important;
+        box-shadow: 0 4px 0 #1E40AF, 0 8px 20px rgba(37, 99, 235, 0.35) !important;
+        border: none !important;
         transform: translateY(0px) !important;
     }
     div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) div[data-testid="stMarkdownContainer"] p {
@@ -541,163 +230,110 @@ st.markdown("""
         font-size: 0.92rem !important;
     }
 
-    /* Navigation qui reste en haut lors du défilement */
-    .block-container div[data-testid="stVerticalBlock"] > div:has(input[name="main_nav_radio"]) {
-        position: sticky;
-        top: 0;
-        z-index: 1000;
-        background: rgba(20, 20, 20, 0.96);
-        padding-top: 6px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
     /* Boutons standards */
     .stButton>button, div[data-testid="stFormSubmitButton"]>button {
-        border-radius: 10px !important;
-        background: linear-gradient(180deg, #E50914 0%, #B00610 100%) !important;
+        border-radius: 12px !important;
+        background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%) !important;
         color: #FFFFFF !important;
         font-weight: 700 !important;
-        border: 1px solid rgba(255, 130, 130, 0.4) !important;
+        border: none !important;
         padding: 12px 24px !important;
-        box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85) !important;
-        transition: all 0.15s ease !important;
+        box-shadow: 0 4px 0 #020617, 0 6px 14px rgba(15, 23, 42, 0.2) !important;
+        transition: all 0.12s ease !important;
     }
     .stButton>button:hover, div[data-testid="stFormSubmitButton"]>button:hover {
-        filter: brightness(1.15);
-        transform: translateY(-2px) scale(1.02);
-        box-shadow: 0 14px 26px -10px rgba(229, 9, 20, 0.95) !important;
-    }
-    .stButton>button:active, div[data-testid="stFormSubmitButton"]>button:active {
-        transform: translateY(0px);
-    }
-
-    /* Boutons-liens vers les sites de finance */
-    div[data-testid="stLinkButton"] > a {
-        display: inline-flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-        border-radius: 9px !important;
-        background: linear-gradient(180deg, #12161C 0%, #0B0E13 100%) !important;
-        color: #EAF6FF !important;
-        font-weight: 700 !important;
-        font-size: 0.9rem !important;
-        letter-spacing: 0.03em !important;
-        text-decoration: none !important;
-        border: 1px solid rgba(0, 191, 255, 0.75) !important;
-        padding: 9px 16px !important;
-        box-shadow: 0 0 20px -2px rgba(0, 191, 255, 0.55), inset 0 0 14px rgba(0, 191, 255, 0.12) !important;
-        transition: all 0.15s ease !important;
-    }
-    div[data-testid="stLinkButton"] > a:hover {
-        border-color: rgba(150, 228, 255, 1) !important;
-        color: #FFFFFF !important;
+        background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%) !important;
+        box-shadow: 0 6px 0 #1E40AF, 0 10px 20px rgba(37, 99, 235, 0.3) !important;
         transform: translateY(-2px);
-        box-shadow: 0 0 30px 0px rgba(0, 191, 255, 0.85), inset 0 0 18px rgba(0, 191, 255, 0.22) !important;
     }
 
     .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
-        background-color: #1F1F1F !important;
-        color: #FFFFFF !important;
-        border-radius: 10px !important;
-        border: 1.5px solid #3A3A3A !important;
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        border-radius: 12px !important;
+        border: 1.5px solid #94A3B8 !important;
         padding: 11px 16px !important;
         font-weight: 600 !important;
     }
-    .stTextInput>div>div>input:focus, .stNumberInput>div>div>input:focus {
-        border-color: #E50914 !important;
-        box-shadow: 0 0 0 1px #E50914 !important;
-    }
-    .stTextInput input::placeholder, .stNumberInput input::placeholder {
-        color: #FFFFFF !important;
-        opacity: 0.65;
-    }
-    .stSelectbox div[data-baseweb="select"] div {
-        color: #FFFFFF !important;
-    }
-
-    div[data-baseweb="popover"] {
-        background-color: #1F1F1F !important;
-        border: 1px solid #3A3A3A !important;
-        border-radius: 12px !important;
-    }
-    div[data-baseweb="popover"] li, div[data-baseweb="popover"] div {
-        color: #FFFFFF !important;
-    }
-
-    div[data-testid="stDataFrame"] {
-        border: 1px solid #2E2E2E !important;
-        border-radius: 14px !important;
-        overflow: hidden !important;
-        box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.9) !important;
-    }
-
-    div[data-testid="stAlert"] {
-        border-radius: 12px !important;
-        border: 1px solid rgba(255, 255, 255, 0.14) !important;
-    }
-    div[data-testid="stAlert"] p {
-        color: #FFFFFF !important;
-    }
-
-    /* Carte de connexion (page d'accueil) */
-    div[data-testid="stTabs"] {
-        background: linear-gradient(180deg, #1E1E1E 0%, #161616 100%);
-        border: 1px solid #2E2E2E;
-        border-top: 3px solid #E50914;
-        border-radius: 16px;
-        padding: 12px 24px 24px 24px;
-        box-shadow: 0 24px 48px -18px rgba(0, 0, 0, 0.95), 0 0 34px -12px rgba(229, 9, 20, 0.45);
-        animation: fadeUp 0.55s ease both;
-    }
-    div[data-baseweb="tab-list"] { gap: 10px !important; }
-    button[data-baseweb="tab"] {
-        color: #FFFFFF !important;
-        font-weight: 700 !important;
-        font-size: 1rem !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] { color: #FFFFFF !important; }
-    div[data-baseweb="tab-highlight"] { background-color: #E50914 !important; }
-    div[data-baseweb="tab-border"] { background-color: rgba(255, 255, 255, 0.14) !important; }
 
     .custom-table {
         width: 100%;
         border-collapse: collapse;
-        background-color: #1A1A1A;
+        background-color: #FFFFFF;
         border-radius: 14px;
         overflow: hidden;
-        border: 1px solid #2E2E2E;
+        border: 1.5px solid #CBD5E1;
         margin-bottom: 24px;
-        box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.9);
+        box-shadow: 0 4px 14px rgba(0,0,0,0.05);
     }
     .custom-table th {
-        background-color: #262626;
-        color: #FFFFFF;
+        background-color: #F1F5F9;
+        color: #1E293B;
         font-weight: 800;
         padding: 14px 18px;
         text-align: left;
-        border-bottom: 2px solid #E50914;
+        border-bottom: 1.5px solid #CBD5E1;
         text-transform: uppercase;
         font-size: 0.78rem;
         letter-spacing: 0.05em;
     }
     .custom-table td {
         padding: 14px 18px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-        color: #FFFFFF;
+        border-bottom: 1px solid #E2E8F0;
+        color: #0F172A;
         font-weight: 600;
         font-size: 0.93rem;
-        font-variant-numeric: tabular-nums;
-    }
-    .custom-table tbody tr { transition: background-color 0.15s ease; }
-    .custom-table tbody tr:hover { background-color: rgba(229, 9, 20, 0.10); }
-
-    @media print {
-        .custom-table { background-color: #FFFFFF !important; }
-        .custom-table th, .custom-table td { color: #000000 !important; }
     }
 
-    hr { border-color: rgba(255, 255, 255, 0.14) !important; margin: 28px 0 !important; }
+    hr { border-color: #CBD5E1 !important; margin: 28px 0 !important; }
+
+    /* --- OPTIMISATION ET RESPONSIVITÉ MOBILE --- */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+        }
+        .brand-banner {
+            padding: 16px 20px !important;
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+            border-radius: 16px !important;
+        }
+        .brand-title {
+            font-size: 1.45rem !important;
+        }
+        .brand-subtitle {
+            font-size: 0.8rem !important;
+        }
+        div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) > div {
+            gap: 8px !important;
+        }
+        div[data-testid="stRadio"]:has(input[name="main_nav_radio"]) label {
+            padding: 10px 14px !important;
+            font-size: 0.82rem !important;
+            flex: 1 1 calc(50% - 8px) !important;
+            text-align: center !important;
+            justify-content: center !important;
+        }
+        div[data-testid="stMetric"] {
+            padding: 12px 14px !important;
+            margin-bottom: 8px !important;
+        }
+        div[data-testid="stMetricValue"] {
+            font-size: 1.25rem !important;
+        }
+        div[data-testid="stMetricLabel"] {
+            font-size: 0.7rem !important;
+        }
+        .custom-table {
+            display: block !important;
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -716,7 +352,7 @@ def rechercher_symbole_universel(query):
             shortname = quote.get('shortname') or quote.get('longname') or symbol
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
-
+            
             if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
                 if est_marche_nord_americain(symbol, exch_code=quote.get('exchange', ''), exch_disp=exch):
                     results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
@@ -747,7 +383,7 @@ def obtenir_prix_groupes(tickers_list):
         clean_tickers = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
         if not clean_tickers:
             return {}
-
+        
         data = yf.Tickers(" ".join(clean_tickers))
         prix_dict = {}
         for tk in clean_tickers:
@@ -772,7 +408,7 @@ def obtenir_details_financiers(ticker_symbol):
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.fast_info
-
+        
         last = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
         if last is None or pd.isna(last) or float(last) <= 0:
             hist = t.history(period="2d")
@@ -805,797 +441,7 @@ def obtenir_details_financiers(ticker_symbol):
         y_low = info.get('yearLow', last)
 
         return {
-            "Prix": last,
-            "Variation": change,
+            "Prix": last, 
+            "Variation": change, 
             "VariationPct": change_pct,
-            "Ouverture": f"${open_p:{fmt}}",
-            "Plus Haut": f"${high_p:{fmt}}",
-            "Plus Bas": f"${low_p:{fmt}}",
-            "52 sem. Haut": f"${y_high:{fmt}}",
-            "52 sem. Bas": f"${y_low:{fmt}}"
-        }
-    except Exception:
-        return None
-
-@st.cache_data(ttl=300, show_spinner=False)
-def obtenir_historique(ticker_symbol, periode):
-    try:
-        interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
-        return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
-    except Exception: return None
-
-# --- CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
-@st.cache_data(ttl=30, show_spinner=False)
-def obtenir_donnees_classement(grp_filter):
-    if grp_filter == "Tous les groupes":
-        users_df = conn.query("SELECT username, cash, groupe FROM users", ttl=0)
-    else:
-        users_df = conn.query("SELECT username, cash, groupe FROM users WHERE groupe=:g", params={"g": grp_filter}, ttl=0)
-
-    if users_df.empty:
-        return pd.DataFrame()
-
-    all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=0)
-    unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
-    prix_dict = obtenir_prix_groupes(unique_tickers)
-
-    lb = []
-    for _, r in users_df.iterrows():
-        u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
-        u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
-
-        u_val_act = 0.0
-        if not u_p.empty:
-            for _, row in u_p.iterrows():
-                tk_sym = str(row['ticker']).upper()
-                px = prix_dict.get(tk_sym)
-                px_f = px if px is not None else float(row['avg_price'] or 0.0)
-                u_val_act += px_f * row['shares']
-
-        tot = u_cash + u_val_act
-        perf = ((tot - 10000.00) / 10000.00) * 100
-        lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf})
-
-    if lb:
-        df_lb = pd.DataFrame(lb).sort_values(by="Portefeuille", ascending=False).reset_index(drop=True)
-        df_lb.index += 1
-        df_lb['Rang'] = df_lb.index
-        df_lb["Portefeuille"] = df_lb["Portefeuille"].map("${:,.2f}".format)
-        df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
-        return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']]
-    return pd.DataFrame()
-
-# --- SÉCURITÉ ET PERSISTENCE PAR JETON DE SESSION ---
-if 'user' not in st.session_state:
-    st.session_state['user'] = None
-
-if st.session_state['user'] is None:
-    session_token = st.query_params.get("session", None)
-    if session_token:
-        res_token = conn.query("SELECT username FROM sessions WHERE token=:t", params={"t": session_token}, ttl=0)
-        if not res_token.empty:
-            st.session_state['user'] = res_token.iloc[0]['username']
-
-if "user" in st.query_params:
-    del st.query_params["user"]
-
-# AFFICHAGE DES MESSAGES FLASH (TOAST)
-if 'flash_msg' in st.session_state:
-    type_msg, txt = st.session_state.pop('flash_msg')
-    if type_msg == "success":
-        st.toast(txt)
-    elif type_msg == "error":
-        st.toast(txt)
-
-# BANNIÈRE D'EN-TÊTE
-st.markdown("""
-    <div class="brand-banner">
-        <div>
-            <div class="brand-title">MONDE & FINANCE</div>
-            <div class="brand-subtitle">Plateforme d'apprentissage & simulation boursière</div>
-        </div>
-        <div class="brand-badge">Édition 2026-2027</div>
-    </div>
-""", unsafe_allow_html=True)
-
-# --- PORTAIL CONNEXION / INSCRIPTION ---
-if st.session_state['user'] is None:
-    col_centered = st.columns([1, 1.2, 1])[1]
-    with col_centered:
-        tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
-        with tab1:
-            with st.form("form_connexion"):
-                u_login = st.text_input("Identifiant", key="login_user")
-                p_login = st.text_input("Mot de passe", type="password", key="login_pass")
-                if st.form_submit_button("Se connecter", use_container_width=True):
-                    res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
-                    if not res.empty:
-                        new_token = str(uuid.uuid4())
-                        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                        with conn.session as session:
-                            session.execute(text("INSERT INTO sessions (token, username, created_at) VALUES (:t, :u, :time)"),
-                                            {"t": new_token, "u": u_login.strip(), "time": now_str})
-                            session.commit()
-
-                        st.session_state['user'] = u_login.strip()
-                        st.query_params["session"] = new_token
-                        st.session_state['flash_msg'] = ("success", f"Bienvenue {u_login.strip()} !")
-                        st.rerun()
-                    else: st.error("Identifiants incorrects.")
-
-        with tab2:
-            with st.form("form_inscription"):
-                u_new = st.text_input("Identifiant (ex: PrenomNom)", key="new_user")
-                g_new = st.selectbox("Groupe", LISTE_GROUPES, key="new_group")
-                p_new = st.text_input("Mot de passe", type="password", key="new_pass")
-                if st.form_submit_button("S'inscrire", use_container_width=True):
-                    if u_new and p_new:
-                        res_check = conn.query("SELECT username FROM users WHERE username=:u", params={"u": u_new.strip()}, ttl=0)
-                        if res_check.empty:
-                            with conn.session as session:
-                                session.execute(text("INSERT INTO users VALUES (:u, :p, 10000.00, :g)"), {"u": u_new.strip(), "p": p_new, "g": g_new})
-                                session.commit()
-                            st.success("Compte créé ! Connectez-vous.")
-                        else: st.error("Ce nom d'utilisateur existe déjà.")
-                    else: st.error("Veuillez remplir tous les champs.")
-
-else:
-    user = st.session_state['user']
-    res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
-
-    if res_u.empty:
-        st.session_state['user'] = None
-        st.query_params.clear()
-        st.rerun()
-
-    cash_actuel = float(res_u.iloc[0]['cash'])
-    groupe_actuel = res_u.iloc[0]['groupe']
-
-    col_h1, col_h2 = st.columns([4, 1])
-    col_h1.markdown(f"<p style='color: #FFFFFF; font-size: 1rem; margin-top:5px;'>Investisseur : <b style='color: #FFFFFF;'>{user}</b> &nbsp;•&nbsp; <span style='background:rgba(229, 9, 20, 0.22); color:#FFFFFF; border:1px solid #E50914; padding:4px 14px; border-radius:12px; font-weight:700; font-size:0.85rem;'>{groupe_actuel}</span></p>", unsafe_allow_html=True)
-
-    if col_h2.button("Déconnexion", use_container_width=True):
-        current_token = st.query_params.get("session")
-        if current_token:
-            with conn.session as session:
-                session.execute(text("DELETE FROM sessions WHERE token=:t"), {"t": current_token})
-                session.commit()
-        st.session_state['user'] = None
-        st.query_params.clear()
-        st.rerun()
-
-    # --- MÉTRIQUES DE HAUT DE PAGE ---
-    # Rafraîchissement automatique des 4 carrés toutes les 30 s (fragment seul, sans refresh de page).
-    # Si la version de Streamlit ne supporte pas run_every, les carrés restent statiques comme avant.
-    try:
-        fragment_auto = st.fragment(run_every=30)
-    except TypeError:
-        fragment_auto = st.fragment
-
-    @fragment_auto
-    def afficher_metrics_live():
-        pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-        valeur_actions = 0.0
-
-        if not pos_df.empty:
-            unique_tks = pos_df['ticker'].unique().tolist()
-            prix_dict = obtenir_prix_groupes(unique_tks)
-            for _, row in pos_df.iterrows():
-                tk_sym = str(row['ticker']).strip().upper()
-                px_actuel = prix_dict.get(tk_sym)
-                px_final = px_actuel if px_actuel is not None else float(row['avg_price'] or 0.0)
-                valeur_actions += px_final * row['shares']
-
-        valeur_totale = cash_actuel + valeur_actions
-        profit_total = valeur_totale - 10000.00
-        rendement_pct = (profit_total / 10000.00) * 100
-
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Disponible</div><div class='kpi-value'>${cash_actuel:,.2f}</div></div>", unsafe_allow_html=True)
-        col_m2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Actions</div><div class='kpi-value'>${valeur_actions:,.2f}</div></div>", unsafe_allow_html=True)
-        col_m3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${valeur_totale:,.2f}</div></div>", unsafe_allow_html=True)
-        classe_delta = "kpi-delta up" if profit_total >= 0 else "kpi-delta down"
-        fleche_delta = "▲" if profit_total >= 0 else "▼"
-        classe_carte = "kpi-card kpi-up" if profit_total >= 0 else "kpi-card kpi-down"
-        col_m4.markdown(f"<div class='{classe_carte}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${profit_total:,.2f}</div><div class='{classe_delta}'>{fleche_delta} {rendement_pct:+.2f}%</div></div>", unsafe_allow_html=True)
-
-        if not pos_df.empty:
-            items_tape = ""
-            for _, row in pos_df.iterrows():
-                tk_tape = str(row['ticker']).strip().upper()
-                px_tape = prix_dict.get(tk_tape)
-                pm_tape = float(row['avg_price'] or 0.0)
-                px_aff = px_tape if px_tape is not None else pm_tape
-                fmt_tape = f"${px_aff:,.4f}" if px_aff < 1 else f"${px_aff:,.2f}"
-                couleur_tape = "#34D399" if px_aff >= pm_tape else "#F87171"
-                fleche_tape = "▲" if px_aff >= pm_tape else "▼"
-                items_tape += f"<span class='item'><b>{tk_tape}</b>&nbsp;<span style='color:{couleur_tape};'>{fleche_tape} {fmt_tape}</span></span>"
-            if items_tape:
-                duree_tape = max(20, 5 * len(pos_df))
-                css_tape = "<style>body{margin:0;background:#161616;font-family:'Work Sans',sans-serif;overflow:hidden;border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}.track{display:flex;width:max-content;padding:11px 0;animation:tapeScroll " + str(duree_tape) + "s linear infinite}.track:hover{animation-play-state:paused}.item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}@keyframes tapeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>"
-                components.html(f"<!DOCTYPE html><html><head>{css_tape}</head><body><div class='track'>{items_tape}{items_tape}</div></body></html>", height=46)
-
-    afficher_metrics_live()
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # --- NAVIGATION ET PERSISTENCE D'ONGLET (POUR F5) ---
-    TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"]
-    default_tab = st.query_params.get("tab", "Marché & Analyse")
-    if default_tab not in TABS_LIST:
-        default_tab = "Marché & Analyse"
-
-    tab_choisi = st.radio(
-        "Navigation",
-        options=TABS_LIST,
-        index=TABS_LIST.index(default_tab),
-        horizontal=True,
-        key="main_nav_radio"
-    )
-
-    st.query_params["tab"] = tab_choisi
-
-    # --- ONGLET 1 : MARCHÉ & ANALYSE ---
-    if tab_choisi == "Marché & Analyse":
-        col_l1, col_l2, col_l3 = st.columns(3)
-        col_l1.link_button("Les Affaires", "https://www.lesaffaires.com/?view=register&product_id=1898&plan_id=62962&utm_campaign=ABNT_PROMO30_ADSGOOGLE&utm_medium=ADS&utm_source=ADSGOOGLE&utm_term=landing&gad_source=1&gad_campaignid=24159803993&gbraid=0AAAAADel4hnhaUpWgv3yFaDiNmCZAJv32&gclid=CjwKCAjwrP3VBhBbEiwAnaqpQyOPax6Hc_HEcl3kWXH3NxC0aQVSEw-GAa87RTweJxM5yyasiT0W4RoCAVQQAvD_BwE", use_container_width=True)
-        col_l2.link_button("Barchart", "https://www.barchart.com/", use_container_width=True)
-        col_l3.link_button("Yahoo Finance", "https://ca.finance.yahoo.com/", use_container_width=True)
-
-        col_s1, col_s2 = st.columns([4, 1])
-        with col_s1:
-            search_query = st.text_input(
-                "Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
-                value="",
-                placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
-            )
-        with col_s2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Rafraîchir le cours", use_container_width=True):
-                st.rerun()
-
-        selected_ticker = "AAPL"
-
-        if search_query and len(search_query.strip()) > 0:
-            query_clean = search_query.strip()
-            resultats = rechercher_symbole_universel(query_clean)
-            if resultats:
-                options_dict = {res['label']: res['symbol'] for res in resultats}
-                choix_label = st.selectbox("Sélectionnez l'action :", list(options_dict.keys()))
-                selected_ticker = options_dict[choix_label]
-            else:
-                selected_ticker = query_clean.upper()
-
-        details = obtenir_details_financiers(selected_ticker)
-
-        if details == {"erreur": "non_na"}:
-            st.error(f"**Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permises.")
-        elif details:
-            prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
-            chart_color = "#10B981" if var >= 0 else "#EF4444"
-            fill_color = "rgba(16, 185, 129, 0.20)" if var >= 0 else "rgba(239, 68, 68, 0.20)"
-            signe = "+" if var >= 0 else ""
-            fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
-
-            col_chart, col_order = st.columns([2.2, 1])
-
-            with col_chart:
-                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
-
-                @st.fragment
-                def afficher_graphique_interactif(ticker):
-                    period_map = {
-                        "1d": "1 Jour",
-                        "5d": "5 Jours",
-                        "1mo": "1 Mois",
-                        "3mo": "3 Mois",
-                        "6mo": "6 Mois",
-                        "1y": "1 An"
-                    }
-
-                    selected_period = st.radio(
-                        "Horizon d'analyse",
-                        options=list(period_map.keys()),
-                        format_func=lambda x: period_map[x],
-                        horizontal=True,
-                        key=f"horizon_{ticker}"
-                    )
-
-                    df_hist = obtenir_historique(ticker, selected_period)
-                    if df_hist is not None and not df_hist.empty:
-                        min_p = float(df_hist['Close'].min())
-                        max_p = float(df_hist['Close'].max())
-                        delta = max_p - min_p
-
-                        padding = delta * 0.08 if delta > 0 else min_p * 0.02
-                        y_min = max(0, min_p - padding) if min_p > 0 else min_p - padding
-                        y_max = max_p + padding
-
-                        tick_fmt = "$.4f" if max_p < 1 else "$.2f"
-
-                        fig = go.Figure()
-
-                        fig.add_trace(go.Scatter(
-                            x=df_hist.index,
-                            y=df_hist['Close'],
-                            mode='lines',
-                            line=dict(color=chart_color, width=3),
-                            fill='tozeroy',
-                            fillcolor=fill_color,
-                            hovertemplate='%{x|%d %b %H:%M}<br><b>%{y:' + tick_fmt + '}</b><extra></extra>'
-                        ))
-
-                        fig.add_trace(go.Scatter(
-                            x=[df_hist.index[-1]],
-                            y=[df_hist['Close'].iloc[-1]],
-                            mode='markers',
-                            marker=dict(size=18, color=chart_color, opacity=0.30),
-                            hoverinfo='skip',
-                            showlegend=False
-                        ))
-                        fig.add_trace(go.Scatter(
-                            x=[df_hist.index[-1]],
-                            y=[df_hist['Close'].iloc[-1]],
-                            mode='markers',
-                            marker=dict(size=8, color=chart_color, line=dict(color='#FFFFFF', width=1.5)),
-                            hoverinfo='skip',
-                            showlegend=False
-                        ))
-
-                        fig.update_layout(
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            height=340,
-                            margin=dict(l=10, r=10, t=10, b=10),
-                            xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.07)', gridwidth=0.8, zeroline=False),
-                            yaxis=dict(
-                                range=[y_min, y_max],
-                                showgrid=True,
-                                gridcolor='rgba(255,255,255,0.07)',
-                                gridwidth=0.8,
-                                zeroline=False,
-                                side="right",
-                                tickformat=tick_fmt
-                            ),
-                            font=dict(color="#FFFFFF", family="Work Sans")
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-
-                afficher_graphique_interactif(selected_ticker)
-
-            with col_order:
-                st.markdown("### Passer un ordre")
-                qty = st.number_input("Quantité", min_value=1, step=1, value=1)
-                cost_total = prix * qty
-                st.write(f"Total estimé : **${cost_total:,.2f}**")
-
-                col_b, col_s = st.columns(2)
-
-                # ACHAT
-                if col_b.button("Acheter", use_container_width=True):
-                    if not verifier_cooldown(user, delai_secondes=3):
-                        st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
-                    else:
-                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
-                        cost_real = prix_instantane * qty
-
-                        c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
-                        cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
-
-                        if cash_actuel_db >= cost_real:
-                            now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                            with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_real, "u": user})
-                                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
-                                if not p_res.empty:
-                                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_instantane)
-                                    n_s = anc_s + qty
-                                    n_p = ((anc_s * anc_p) + (qty * prix_instantane)) / n_s
-                                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
-                                else:
-                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane})
-                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
-                                session.commit()
-
-                            st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
-                            st.rerun()
-                        else: st.error("Fonds insuffisants.")
-
-                # VENTE
-                if col_s.button("Vendre", use_container_width=True):
-                    if not verifier_cooldown(user, delai_secondes=3):
-                        st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
-                    else:
-                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
-                        cost_real = prix_instantane * qty
-
-                        p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
-                        shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
-
-                        if shares_dispo >= qty:
-                            now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                            with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_real, "u": user})
-                                rem = shares_dispo - qty
-                                if rem > 0:
-                                    session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
-                                else:
-                                    session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
-                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": -qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
-                                session.commit()
-
-                            st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
-                            st.rerun()
-                        else: st.error("Vous ne possédez pas cette quantité d'actions.")
-        else:
-            st.error(f"Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
-
-    # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
-    elif tab_choisi == "Mes Positions":
-        st.markdown("""
-            <style>
-            @media print {
-                html, body, .stApp, [data-testid="stAppViewContainer"], section.main, .block-container {
-                    height: auto !important;
-                    min-height: auto !important;
-                    overflow: visible !important;
-                    position: static !important;
-                    background-color: #FFFFFF !important;
-                    color: #000000 !important;
-                    padding: 0 !important;
-                    margin: 0 !important;
-                }
-                header, footer, [data-testid="stHeader"], [data-testid="stSidebar"],
-                div[data-testid="stRadio"], .stButton, button,
-                iframe, hr, .stSelectbox, .stNumberInput, .brand-banner,
-                div[data-testid="stMetric"], .kpi-card, .podium-card, .mon-rang {
-                    display: none !important;
-                }
-                .print-header {
-                    display: block !important;
-                    margin-bottom: 20px;
-                    color: #0F172A !important;
-                }
-                .print-summary-table {
-                    width: 100% !important;
-                    border-collapse: collapse !important;
-                    margin-bottom: 20px !important;
-                    text-align: center !important;
-                    border: 1px solid #CBD5E1 !important;
-                }
-                .print-summary-table th, .print-summary-table td {
-                    border: 1px solid #CBD5E1 !important;
-                    padding: 8px 12px !important;
-                    font-size: 11pt !important;
-                    color: #000000 !important;
-                }
-                .print-summary-table th {
-                    background-color: #F1F5F9 !important;
-                    font-weight: 700 !important;
-                    text-transform: uppercase !important;
-                    font-size: 9pt !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                }
-                .custom-table {
-                    width: 100% !important;
-                    border: 1px solid #CBD5E1 !important;
-                    page-break-inside: auto;
-                }
-                .custom-table th, .custom-table td {
-                    border: 1px solid #CBD5E1 !important;
-                    padding: 8px 10px !important;
-                    font-size: 10pt !important;
-                    color: #000000 !important;
-                }
-                .custom-table th {
-                    background-color: #F1F5F9 !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                }
-            }
-            .print-header { display: none; }
-            </style>
-        """, unsafe_allow_html=True)
-
-        @st.fragment
-        def afficher_positions_live():
-            pos_df_live = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-            val_actions_live = 0.0
-
-            if not pos_df_live.empty:
-                unique_tks = pos_df_live['ticker'].unique().tolist()
-                prix_dict = obtenir_prix_groupes(unique_tks)
-                for _, r in pos_df_live.iterrows():
-                    tk_sym = str(r['ticker']).strip().upper()
-                    px_a = prix_dict.get(tk_sym)
-                    px_f = px_a if px_a is not None else float(r['avg_price'] or 0.0)
-                    val_actions_live += px_f * r['shares']
-
-            val_totale_live = cash_actuel + val_actions_live
-            prof_total_live = val_totale_live - 10000.00
-            rend_pct_live = (prof_total_live / 10000.00) * 100
-
-            date_impression = datetime.now(ZoneInfo("America/Toronto")).strftime("%d/%m/%Y à %H:%M")
-            pnl_color_print = "#10B981" if prof_total_live >= 0 else "#EF4444"
-
-            st.markdown(f"""
-                <div class="print-header">
-                    <div style="border-bottom: 2px solid #0F172A; padding-bottom: 10px; margin-bottom: 14px;">
-                        <h2 style="margin:0; color:#0F172A; font-size: 1.5rem; font-weight:800;">Rapport de Portefeuille Boursier — Monde & Finance</h2>
-                        <p style="margin:6px 0 0 0; font-size:1rem; color:#334155;">
-                            <b>Élève :</b> {user} &nbsp;|&nbsp; <b>Groupe :</b> {groupe_actuel} &nbsp;|&nbsp; <b>Date d'impression :</b> {date_impression}
-                        </p>
-                    </div>
-                    <table class="print-summary-table">
-                        <thead>
-                            <tr>
-                                <th>Disponible (Cash)</th>
-                                <th>Actions Possédées</th>
-                                <th>Valeur Totale</th>
-                                <th>Gains / Pertes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><b>${cash_actuel:,.2f}</b></td>
-                                <td><b>${val_actions_live:,.2f}</b></td>
-                                <td><b>${val_totale_live:,.2f}</b></td>
-                                <td style="color:{pnl_color_print};"><b>${prof_total_live:+,.2f} ({rend_pct_live:+.2f}%)</b></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            """, unsafe_allow_html=True)
-
-            col_p1, col_p2 = st.columns([3, 1])
-            with col_p1:
-                st.markdown("### Mes Positions Actuelles")
-            with col_p2:
-                components.html("""
-                    <button onclick="window.parent.print()" style="
-                        background: linear-gradient(180deg, #E50914 0%, #B00610 100%);
-                        color: #FFFFFF;
-                        border: 1px solid rgba(255, 130, 130, 0.4);
-                        padding: 10px 18px;
-                        border-radius: 10px;
-                        font-weight: 700;
-                        cursor: pointer;
-                        width: 100%;
-                        font-family: 'Work Sans', sans-serif;
-                        box-shadow: 0 10px 22px -10px rgba(229, 9, 20, 0.85);
-                        transition: all 0.12s ease;
-                    " onmousedown="this.style.transform='translateY(2px)'" onmouseup="this.style.transform='translateY(0px)'">
-                        Imprimer / PDF
-                    </button>
-                """, height=45)
-
-            p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
-            if not p_all.empty:
-                options_vente = {}
-                html_rows = ""
-
-                tks_all = p_all['ticker'].unique().tolist()
-                prix_dict_pos = obtenir_prix_groupes(tks_all)
-
-                for _, r in p_all.iterrows():
-                    tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
-                    pa_live = prix_dict_pos.get(tk.upper())
-                    pa = pa_live if pa_live is not None else pm
-                    val = sh * pa
-                    pnl = (pa - pm) * sh
-                    pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
-
-                    pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
-                    fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
-                    fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
-
-                    options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
-
-                    html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>{fmt_pm}</td><td>{fmt_pa}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
-
-                table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
-                st.markdown(table_html, unsafe_allow_html=True)
-
-                st.markdown("<hr>", unsafe_allow_html=True)
-                st.markdown("### Vendre rapidement mes positions")
-
-                col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
-                with col_v1:
-                    choix_v = st.selectbox("Sélectionnez l'action à vendre :", list(options_vente.keys()))
-                    tk_v, max_sh, pa_v = options_vente[choix_v]
-                with col_v2:
-                    qty_v = st.number_input("Quantité à vendre :", min_value=1, max_value=max_sh, value=min(1, max_sh), step=1)
-                with col_v3:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    total_vente = qty_v * pa_v
-                    if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
-                        if not verifier_cooldown(user, delai_secondes=3):
-                            st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
-                        else:
-                            check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk_v}, ttl=0)
-                            sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
-
-                            if sh_real >= qty_v:
-                                prix_v_instantane = obtenir_prix_actuel(tk_v) or pa_v
-                                total_v_instantane = qty_v * prix_v_instantane
-                                now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-
-                                with conn.session as session:
-                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
-                                    rem = sh_real - qty_v
-                                    if rem > 0:
-                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
-                                    else:
-                                        session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
-
-                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": tk_v, "s": -qty_v, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
-                                    session.commit()
-
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_v} {tk_v} à ${prix_v_instantane:,.2f} effectuée !")
-                                st.rerun()
-                            else: st.error("Vous ne possédez plus ces actions.")
-            else: st.info("Vous n'avez aucune position ouverte actuellement.")
-
-        afficher_positions_live()
-
-    # --- ONGLET 3 : HISTORIQUE ---
-    elif tab_choisi == "Mon Historique":
-        tx_all = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=0)
-        if not tx_all.empty:
-            tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
-            st.dataframe(tx_all, use_container_width=True, hide_index=True)
-        else: st.info("Aucune transaction.")
-
-    # --- ONGLET 4 : CLASSEMENT (AVEC RECHERCHE & SURGLIGNAGE JAUNE) ---
-    elif tab_choisi == "Classement":
-        col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
-        with col_r1:
-            grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
-        with col_r2:
-            search_user_rank = st.text_input("Rechercher un élève :", value="", placeholder="Tapez un nom d'élève...")
-        with col_r3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Actualiser", use_container_width=True):
-                obtenir_donnees_classement.clear()
-                st.rerun()
-
-        df_classement = obtenir_donnees_classement(grp_filter)
-        if not df_classement.empty:
-            top3 = df_classement.head(3)
-            classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
-            cols_podium = st.columns(len(top3))
-            for i, (_, r_pod) in enumerate(top3.iterrows()):
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
-
-            moi = df_classement[df_classement['Élève'] == user]
-            if not moi.empty:
-                r_moi = moi.iloc[0]
-                st.markdown(f"<div class='mon-rang'><span class='mon-rang-label'>Ton rang</span><span class='mon-rang-val'>#{int(r_moi['Rang'])}</span><span class='mon-rang-detail'>{r_moi['Portefeuille']} · {r_moi['Performance']}</span></div>", unsafe_allow_html=True)
-
-            def highlight_row(row):
-                styles = [''] * len(row)
-                if str(row['Élève']) == user:
-                    styles = ['background-color: rgba(229, 9, 20, 0.30); color: #FFFFFF; font-weight: 700;'] * len(row)
-                if search_user_rank and search_user_rank.strip() and search_user_rank.strip().lower() in str(row['Élève']).lower():
-                    styles = ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
-                return styles
-
-            styled_df = df_classement.style.apply(highlight_row, axis=1)
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Aucun élève trouvé pour ce classement.")
-
-    # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
-    elif tab_choisi == "Supervision Prof":
-        pin = st.text_input("PIN Enseignant :", type="password") if user.lower() not in ['prof', 'admin'] else "1959"
-        if pin == "1959":
-            with st.expander("Gestion des mots de passe (Supabase)"):
-                st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
-                code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase")
-                if code_supabase == "996633":
-                    st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
-                elif code_supabase:
-                    st.error("Code incorrect.")
-
-            grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
-
-            if grp_p == "Tous les groupes":
-                e_list = conn.query("SELECT username FROM users ORDER BY username", ttl=0)['username'].tolist()
-            else:
-                e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=0)['username'].tolist()
-
-            if e_list:
-                e_sel = st.selectbox("Élève à inspecter :", e_list)
-                e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
-
-                if not e_data_df.empty:
-                    e_data = e_data_df.iloc[0]
-                    e_cash, e_grp = float(e_data['cash']), e_data['groupe']
-                    e_pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": e_sel}, ttl=0)
-
-                    pos_rows = []
-                    e_val_act = 0.0
-                    if not e_pos.empty:
-                        e_tks = e_pos['ticker'].unique().tolist()
-                        prix_dict_prof = obtenir_prix_groupes(e_tks)
-
-                        for _, row in e_pos.iterrows():
-                            tk = str(row['ticker'])
-                            sh = int(row['shares'])
-                            pm = float(row['avg_price'] or 0.0)
-                            pa_live = prix_dict_prof.get(tk.upper())
-                            pa = pa_live if pa_live is not None else pm
-                            val = sh * pa
-                            pnl = (pa - pm) * sh
-                            pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
-                            e_val_act += val
-
-                            fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
-                            fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
-
-                            pos_rows.append({
-                                "Action": tk,
-                                "Quantité": sh,
-                                "Prix Moyen": fmt_pm,
-                                "Prix Actuel": fmt_pa,
-                                "Valeur Totale": f"${val:,.2f}",
-                                "Gain / Perte": f"${pnl:+,.2f}",
-                                "Rendement": f"{pnl_pct:+.2f}%"
-                            })
-
-                    e_tot = e_cash + e_val_act
-                    e_pnl = e_tot - 10000.00
-                    e_perf = (e_pnl / 10000.00) * 100
-
-                    col_top_prof1, col_top_prof2, col_top_prof3 = st.columns([2.5, 1, 1])
-                    with col_top_prof1:
-                        st.markdown(f"#### Fiche d'investisseur : **{e_sel}** ({e_grp})")
-
-                    with col_top_prof2:
-                        if st.button(f"Réinitialiser {e_sel}", use_container_width=True):
-                            with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = 10000.00 WHERE username = :u"), {"u": e_sel})
-                                session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
-                                session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
-                                session.commit()
-                            st.session_state['flash_msg'] = ("success", f"Le compte de {e_sel} a été réinitialisé à 10 000 $ !")
-                            st.rerun()
-
-                    with col_top_prof3:
-                        if st.button("Supprimer le compte", use_container_width=True):
-                            with conn.session as session:
-                                session.execute(text("DELETE FROM portfolio WHERE username = :u"), {"u": e_sel})
-                                session.execute(text("DELETE FROM transactions WHERE username = :u"), {"u": e_sel})
-                                session.execute(text("DELETE FROM users WHERE username = :u"), {"u": e_sel})
-                                session.commit()
-                            st.session_state['flash_msg'] = ("success", f"Le profil de {e_sel} a été définitivement supprimé !")
-                            st.rerun()
-
-                    col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-                    col_t1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Disponible (Cash)</div><div class='kpi-value'>${e_cash:,.2f}</div></div>", unsafe_allow_html=True)
-                    col_t2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Actions Possédées</div><div class='kpi-value'>${e_val_act:,.2f}</div></div>", unsafe_allow_html=True)
-                    col_t3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${e_tot:,.2f}</div></div>", unsafe_allow_html=True)
-                    classe_delta_p = "kpi-delta up" if e_pnl >= 0 else "kpi-delta down"
-                    fleche_delta_p = "▲" if e_pnl >= 0 else "▼"
-                    classe_carte_p = "kpi-card kpi-up" if e_pnl >= 0 else "kpi-card kpi-down"
-                    col_t4.markdown(f"<div class='{classe_carte_p}'><div class='kpi-label'>Gains / Pertes</div><div class='kpi-value'>${e_pnl:+,.2f}</div><div class='{classe_delta_p}'>{fleche_delta_p} {e_perf:+.2f}%</div></div>", unsafe_allow_html=True)
-
-                    st.markdown("##### Portefeuille Détaillé")
-                    if pos_rows:
-                        st.dataframe(pd.DataFrame(pos_rows), use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Cet élève n'a aucune position ouverte actuellement.")
-
-                    st.markdown("##### Historique des Transactions")
-                    tx_e = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0)
-                    if not tx_e.empty:
-                        tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
-                        st.dataframe(tx_e, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Aucune transaction enregistrée.")
-            else:
-                st.info("Aucun élève trouvé dans ce groupe.")
+            "Ouverture":
