@@ -739,6 +739,39 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cloture_veille(ticker_symbol):
+    """Prix de clôture de la veille (ou None si indisponible).
+    Fonctionne avant, pendant et après les heures de marché."""
+    try:
+        t = yf.Ticker(ticker_symbol)
+        # previousClose de fast_info = clôture officielle précédente, fiable
+        # même en premarket
+        data = t.fast_info
+        pc = data.get('previousClose')
+        if pc is not None and not pd.isna(pc) and float(pc) > 0:
+            return round(float(pc), 4)
+        # Repli : historique 5 jours, prendre l'avant-dernière clôture
+        # (la dernière peut être la séance du jour en cours)
+        hist = t.history(period="5d")
+        if hist is None or hist.empty or len(hist) < 2:
+            return None
+        return round(float(hist['Close'].iloc[-2]), 4)
+    except Exception:
+        return None
+
+
+def achat_penny_stock_bloque(ticker_symbol):
+    """Vrai si l'action se tradait sous 10 $ la veille ET qu'on est avant
+    l'ouverture à 9h30. Dès 9h30, tout est permis."""
+    maintenant = datetime.now(ZoneInfo("America/Toronto"))
+    minutes = maintenant.hour * 60 + maintenant.minute
+    if minutes >= 9 * 60 + 30:
+        return False  # marché ouvert : tout est permis
+    veille = cloture_veille(ticker_symbol)
+    return veille is not None and veille < 10.0
+
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
     if not tickers_list:
@@ -1169,11 +1202,16 @@ else:
                 cost_total = prix * qty
                 st.write(f"Total estimé : **${cost_total:,.2f}**")
 
+                if achat_penny_stock_bloque(selected_ticker):
+                    st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
+
                 col_b, col_s = st.columns(2)
 
                 # ACHAT
                 if col_b.button("Acheter", use_container_width=True):
-                    if not verifier_cooldown(user, delai_secondes=3):
+                    if achat_penny_stock_bloque(selected_ticker):
+                        st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
+                    elif not verifier_cooldown(user, delai_secondes=3):
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
