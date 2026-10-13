@@ -808,6 +808,35 @@ def analyser_violations_9h30(date_debut, date_fin):
     return pd.concat(morceaux, ignore_index=True)
 
 
+def calculer_gains_9h30(violations_df):
+    """Ajoute une colonne 'gain_estime' à chaque transaction fautive : pour chaque
+    cas (date, élève, action), gain = (ventes du jour + valeur actuelle du reliquat)
+    - coût des achats fautifs. Permet de juger si l'infraction a vraiment profité."""
+    if violations_df.empty:
+        return violations_df
+    tickers = violations_df['ticker'].unique().tolist()
+    prix_actuels = obtenir_prix_groupes(tickers)
+    gains = {}
+    for (ds, u, tk), grp in violations_df.groupby(['date', 'username', 'ticker']):
+        cout = float(grp['total'].sum())
+        q_achats = int(grp['shares'].sum())
+        ventes = conn.query(
+            "SELECT shares, total FROM transactions WHERE username=:u AND ticker=:t "
+            f"AND timestamp >= '{ds} 00:00:00' AND timestamp < '{ds} 23:59:59' AND shares < 0",
+            params={"u": str(u), "t": str(tk)}, ttl=0
+        )
+        q_vendues = int((-ventes['shares']).sum()) if not ventes.empty else 0
+        tot_vendus = float(ventes['total'].sum()) if not ventes.empty else 0.0
+        reliquat = max(q_achats - q_vendues, 0)
+        px = prix_actuels.get(str(tk).upper())
+        val_reliquat = reliquat * px if px else 0.0
+        gains[(ds, str(u), str(tk))] = (tot_vendus + val_reliquat) - cout
+    violations_df['gain_estime'] = violations_df.apply(
+        lambda r: gains.get((r['date'], str(r['username']), str(r['ticker'])), 0.0), axis=1
+    )
+    return violations_df
+
+
 def executer_annulation_9h30(violations_df):
     """Annule toutes les transactions du jour fautif pour chaque triplet
     (élève, action, date), comme si elles n'avaient jamais existé : cash
@@ -1669,6 +1698,8 @@ else:
                     ds0, ds1 = date_debut.isoformat(), date_fin.isoformat()
                     with st.spinner(f"Analyse du {ds0} au {ds1} en cours..."):
                         viol = analyser_violations_9h30(ds0, ds1)
+                        if not viol.empty:
+                            viol = calculer_gains_9h30(viol)
                     if viol.empty:
                         st.success(f"Aucun achat fautif détecté entre le {ds0} et le {ds1} avant 9h30.")
                         st.session_state.pop('violations_9h30', None)
@@ -1680,17 +1711,26 @@ else:
                     resume = viol.groupby(['date', 'username', 'ticker']).agg(
                         nb_achats=('id', 'count'),
                         total_achats=('total', 'sum'),
-                        cloture_veille=('cloture_veille', 'first')
+                        cloture_veille=('cloture_veille', 'first'),
+                        gain_estime=('gain_estime', 'first')
                     ).reset_index()
-                    resume.columns = ["Date", "Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture veille ($)"]
-                    st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.**")
-                    st.dataframe(resume, use_container_width=True, hide_index=True)
-                    confirme = st.checkbox("Je confirme l'annulation de toutes les transactions fautives ci-dessus.", key="confirm_9h30")
-                    if st.button("Annuler ces transactions", key="btn_exec_9h30", disabled=not confirme):
+                    resume.columns = ["Date", "Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture veille ($)", "Gain estimé ($)"]
+                    resume["Sélectionner"] = True
+                    st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.** Coche les cas à annuler.")
+                    edited = st.data_editor(
+                        resume,
+                        column_config={"Sélectionner": st.column_config.CheckboxColumn("Sélectionner")},
+                        disabled=[c for c in resume.columns if c != "Sélectionner"],
+                        hide_index=True, use_container_width=True, key="editor_9h30"
+                    )
+                    sel = edited[edited["Sélectionner"]]
+                    st.markdown(f"**{len(sel)} cas sélectionnés.**")
+                    if st.button("Annuler la sélection", key="btn_exec_9h30", disabled=sel.empty):
+                        cles = set(zip(sel["Date"], sel["Élève"], sel["Action"]))
+                        viol_sel = viol[viol.apply(lambda r: (r['date'], r['username'], r['ticker']) in cles, axis=1)]
                         with st.spinner("Annulation en cours..."):
-                            nb_c, nb_tx, tot_cash = executer_annulation_9h30(viol)
+                            nb_c, nb_tx, tot_cash = executer_annulation_9h30(viol_sel)
                         st.session_state.pop('violations_9h30', None)
-                        st.session_state.pop('confirm_9h30', None)
                         st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} cas. Cash total réajusté : ${tot_cash:+,.2f}.")
                         st.rerun()
 
