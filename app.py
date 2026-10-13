@@ -778,7 +778,7 @@ def cloture_avant_date(ticker_symbol, date_limite):
 def analyser_violations_9h30(date_debut, date_fin):
     """Détecte les achats avant 9h30 (heure Toronto) entre date_debut et date_fin
     (incluses, format 'AAAA-MM-JJ') sur des actions dont la clôture du dernier
-    jour de bourse précédent était sous 10 $. Retourne un DataFrame des
+    jour de bourse précédent était sous 5 $. Retourne un DataFrame des
     transactions fautives, avec une colonne 'date' (jour de la transaction)."""
     from datetime import date as _date, timedelta as _td
     d0 = _date.fromisoformat(date_debut)
@@ -799,7 +799,7 @@ def analyser_violations_9h30(date_debut, date_fin):
                 clotures[str(tk)] = cloture_avant_date(str(tk), ds)
             tx['cloture_veille'] = tx['ticker'].map(clotures)
             tx['date'] = ds
-            viol = tx[(tx['cloture_veille'].notna()) & (tx['cloture_veille'] < 10.0)].copy()
+            viol = tx[(tx['cloture_veille'].notna()) & (tx['cloture_veille'] < 5.0)].copy()
             if not viol.empty:
                 morceaux.append(viol)
         j += _td(days=1)
@@ -920,14 +920,14 @@ def executer_annulation_9h30(violations_df):
 
 
 def achat_penny_stock_bloque(ticker_symbol):
-    """Vrai si l'action se tradait sous 10 $ la veille ET qu'on est avant
+    """Vrai si l'action clôturait sous 5 $ la veille ET qu'on est avant
     l'ouverture à 9h30. Dès 9h30, tout est permis."""
     maintenant = datetime.now(ZoneInfo("America/Toronto"))
     minutes = maintenant.hour * 60 + maintenant.minute
     if minutes >= 9 * 60 + 30:
         return False  # marché ouvert : tout est permis
     veille = cloture_veille(ticker_symbol)
-    return veille is not None and veille < 10.0
+    return veille is not None and veille < 5.0
 
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
@@ -1699,7 +1699,7 @@ else:
             with st.expander("Correction règle 9h30 (achats pré-marché)"):
                 st.info(
                     "Détecte automatiquement les achats avant 9h30 sur une période donnée, "
-                    "pour des actions dont la clôture du jour de bourse précédent était sous 10 $, "
+                    "pour des actions dont la clôture du jour de bourse précédent était sous 5 $, "
                     "puis annule d'un coup toutes les transactions du jour fautif pour ces actions "
                     "(achats et ventes), comme si elles n'avaient jamais existé : cash remboursé, "
                     "portefeuille recalculé."
