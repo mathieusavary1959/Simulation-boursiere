@@ -809,30 +809,42 @@ def analyser_violations_9h30(date_debut, date_fin):
 
 
 def calculer_gains_9h30(violations_df):
-    """Ajoute une colonne 'gain_estime' à chaque transaction fautive : pour chaque
-    cas (date, élève, action), gain = (ventes du jour + valeur actuelle du reliquat)
-    - coût des achats fautifs. Permet de juger si l'infraction a vraiment profité."""
+    """Ajoute à chaque transaction fautive : 'gain_estime' (ventes du jour +
+    valeur actuelle du reliquat - coût des achats fautifs), 'heures_achat'
+    (heures des achats fautifs) et 'heures_vente' (heures des reventes le jour
+    même, ou '-'). Permet de juger si l'infraction a vraiment profité."""
     if violations_df.empty:
         return violations_df
     tickers = violations_df['ticker'].unique().tolist()
     prix_actuels = obtenir_prix_groupes(tickers)
-    gains = {}
+    gains, h_achats, h_ventes = {}, {}, {}
     for (ds, u, tk), grp in violations_df.groupby(['date', 'username', 'ticker']):
         cout = float(grp['total'].sum())
         q_achats = int(grp['shares'].sum())
+        heures_a = sorted(set(str(t).split(' ')[1] for t in grp['timestamp']))
         ventes = conn.query(
-            "SELECT shares, total FROM transactions WHERE username=:u AND ticker=:t "
+            "SELECT shares, total, timestamp FROM transactions WHERE username=:u AND ticker=:t "
             f"AND timestamp >= '{ds} 00:00:00' AND timestamp < '{ds} 23:59:59' AND shares < 0",
             params={"u": str(u), "t": str(tk)}, ttl=0
         )
         q_vendues = int((-ventes['shares']).sum()) if not ventes.empty else 0
         tot_vendus = float(ventes['total'].sum()) if not ventes.empty else 0.0
+        heures_v = sorted(set(str(t).split(' ')[1] for t in ventes['timestamp'])) if not ventes.empty else []
         reliquat = max(q_achats - q_vendues, 0)
         px = prix_actuels.get(str(tk).upper())
         val_reliquat = reliquat * px if px else 0.0
-        gains[(ds, str(u), str(tk))] = (tot_vendus + val_reliquat) - cout
+        cle = (ds, str(u), str(tk))
+        gains[cle] = (tot_vendus + val_reliquat) - cout
+        h_achats[cle] = ", ".join(heures_a)
+        h_ventes[cle] = ", ".join(heures_v) if heures_v else "-"
     violations_df['gain_estime'] = violations_df.apply(
         lambda r: gains.get((r['date'], str(r['username']), str(r['ticker'])), 0.0), axis=1
+    )
+    violations_df['heures_achat'] = violations_df.apply(
+        lambda r: h_achats.get((r['date'], str(r['username']), str(r['ticker'])), ""), axis=1
+    )
+    violations_df['heures_vente'] = violations_df.apply(
+        lambda r: h_ventes.get((r['date'], str(r['username']), str(r['ticker'])), "-"), axis=1
     )
     return violations_df
 
@@ -1712,9 +1724,11 @@ else:
                         nb_achats=('id', 'count'),
                         total_achats=('total', 'sum'),
                         cloture_veille=('cloture_veille', 'first'),
-                        gain_estime=('gain_estime', 'first')
+                        gain_estime=('gain_estime', 'first'),
+                        heures_achat=('heures_achat', 'first'),
+                        heures_vente=('heures_vente', 'first')
                     ).reset_index()
-                    resume.columns = ["Date", "Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture veille ($)", "Gain estimé ($)"]
+                    resume.columns = ["Date", "Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture veille ($)", "Gain estimé ($)", "Achat à", "Revente à"]
                     resume["Sélectionner"] = True
                     st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.** Coche les cas à annuler.")
                     edited = st.data_editor(
