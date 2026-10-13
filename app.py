@@ -775,35 +775,48 @@ def cloture_avant_date(ticker_symbol, date_limite):
         return None
 
 
-def analyser_violations_9h30():
-    """Détecte les achats du 12 oct. 2026 avant 9h30 (heure Toronto) sur des
-    actions dont la clôture du dernier jour de bourse précédent (ven. 9 oct.)
-    était sous 10 $. Retourne un DataFrame des transactions fautives."""
-    tx = conn.query(
-        "SELECT id, username, ticker, shares, price, total, timestamp FROM transactions "
-        "WHERE timestamp >= '2026-10-12 00:00:00' AND timestamp < '2026-10-12 09:30:00' "
-        "AND shares > 0 ORDER BY id",
-        ttl=0
-    )
-    if tx.empty:
-        return tx
-    clotures = {}
-    for tk in tx['ticker'].unique().tolist():
-        clotures[str(tk)] = cloture_avant_date(str(tk), "2026-10-12")
-    tx['cloture_veille'] = tx['ticker'].map(clotures)
-    violations = tx[(tx['cloture_veille'].notna()) & (tx['cloture_veille'] < 10.0)].copy()
-    return violations
+def analyser_violations_9h30(date_debut, date_fin):
+    """Détecte les achats avant 9h30 (heure Toronto) entre date_debut et date_fin
+    (incluses, format 'AAAA-MM-JJ') sur des actions dont la clôture du dernier
+    jour de bourse précédent était sous 10 $. Retourne un DataFrame des
+    transactions fautives, avec une colonne 'date' (jour de la transaction)."""
+    from datetime import date as _date, timedelta as _td
+    d0 = _date.fromisoformat(date_debut)
+    d1 = _date.fromisoformat(date_fin)
+    morceaux = []
+    j = d0
+    while j <= d1:
+        ds = j.isoformat()
+        tx = conn.query(
+            "SELECT id, username, ticker, shares, price, total, timestamp FROM transactions "
+            f"WHERE timestamp >= '{ds} 00:00:00' AND timestamp < '{ds} 09:30:00' "
+            "AND shares > 0 ORDER BY id",
+            ttl=0
+        )
+        if not tx.empty:
+            clotures = {}
+            for tk in tx['ticker'].unique().tolist():
+                clotures[str(tk)] = cloture_avant_date(str(tk), ds)
+            tx['cloture_veille'] = tx['ticker'].map(clotures)
+            tx['date'] = ds
+            viol = tx[(tx['cloture_veille'].notna()) & (tx['cloture_veille'] < 10.0)].copy()
+            if not viol.empty:
+                morceaux.append(viol)
+        j += _td(days=1)
+    if not morceaux:
+        return pd.DataFrame()
+    return pd.concat(morceaux, ignore_index=True)
 
 
 def executer_annulation_9h30(violations_df):
-    """Annule toutes les transactions du 12 oct. 2026 pour chaque couple
-    (élève, action) fautif, comme si elles n'avaient jamais existé :
-    cash ajusté, transactions supprimées, portefeuille recalculé depuis les
-    transactions restantes. Retourne (nb_couples, nb_transactions, total_cash)."""
-    couples = violations_df[['username', 'ticker']].drop_duplicates()
+    """Annule toutes les transactions du jour fautif pour chaque triplet
+    (élève, action, date), comme si elles n'avaient jamais existé : cash
+    ajusté, transactions supprimées, portefeuille recalculé depuis les
+    transactions restantes. Retourne (nb_cas, nb_transactions, total_cash)."""
+    triplets = violations_df[['username', 'ticker', 'date']].drop_duplicates()
     plans = []
-    for _, row in couples.iterrows():
-        u, tk = str(row['username']), str(row['ticker'])
+    for _, row in triplets.iterrows():
+        u, tk, ds = str(row['username']), str(row['ticker']), str(row['date'])
         toutes = conn.query(
             "SELECT id, shares, price, total, timestamp FROM transactions "
             "WHERE username=:u AND ticker=:t ORDER BY id",
@@ -812,8 +825,8 @@ def executer_annulation_9h30(violations_df):
         if toutes.empty:
             continue
         a_annuler = toutes[
-            (toutes['timestamp'] >= '2026-10-12 00:00:00') &
-            (toutes['timestamp'] < '2026-10-13 00:00:00')
+            (toutes['timestamp'] >= f'{ds} 00:00:00') &
+            (toutes['timestamp'] < f'{ds} 23:59:59')
         ]
         if a_annuler.empty:
             continue
@@ -830,7 +843,7 @@ def executer_annulation_9h30(violations_df):
         if q_achats > 0 and new_shares > 0:
             new_avg = float((achats['shares'] * achats['price']).sum() / q_achats)
         plans.append({
-            'username': u, 'ticker': tk, 'ids': ids_annuler,
+            'username': u, 'ticker': tk, 'date': ds, 'ids': ids_annuler,
             'cash_delta': cash_delta, 'new_shares': max(new_shares, 0),
             'new_avg': new_avg, 'nb_tx': len(ids_annuler),
             'anomalie': new_shares < 0
@@ -1637,39 +1650,48 @@ else:
                 elif code_supabase:
                     st.error("Code incorrect.")
 
-            with st.expander("Correction règle 9h30 (transactions du 12 octobre 2026)"):
+            with st.expander("Correction règle 9h30 (achats pré-marché)"):
                 st.info(
-                    "Détecte automatiquement les achats du 12 oct. avant 9h30 sur des actions "
-                    "dont la clôture du vendredi 9 oct. était sous 10 $, puis annule d'un coup "
-                    "toutes les transactions du 12 oct. pour ces actions (achats et ventes), "
-                    "comme si elles n'avaient jamais existé : cash remboursé, portefeuille recalculé."
+                    "Détecte automatiquement les achats avant 9h30 sur une période donnée, "
+                    "pour des actions dont la clôture du jour de bourse précédent était sous 10 $, "
+                    "puis annule d'un coup toutes les transactions du jour fautif pour ces actions "
+                    "(achats et ventes), comme si elles n'avaient jamais existé : cash remboursé, "
+                    "portefeuille recalculé."
                 )
-                if st.button("Analyser les transactions du 12 octobre", key="btn_analyse_9h30"):
-                    with st.spinner("Analyse en cours (récupération des clôtures du 9 oct.)..."):
-                        viol = analyser_violations_9h30()
+                from datetime import date as _date, timedelta as _td
+                _auj = _date.today()
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    date_debut = st.date_input("Du", value=_auj - _td(days=7), key="d9_debut")
+                with col_d2:
+                    date_fin = st.date_input("Au", value=_auj, key="d9_fin")
+                if st.button("Analyser la période", key="btn_analyse_9h30"):
+                    ds0, ds1 = date_debut.isoformat(), date_fin.isoformat()
+                    with st.spinner(f"Analyse du {ds0} au {ds1} en cours..."):
+                        viol = analyser_violations_9h30(ds0, ds1)
                     if viol.empty:
-                        st.success("Aucun achat fautif détecté le 12 octobre avant 9h30.")
+                        st.success(f"Aucun achat fautif détecté entre le {ds0} et le {ds1} avant 9h30.")
                         st.session_state.pop('violations_9h30', None)
                     else:
                         st.session_state['violations_9h30'] = viol
                         st.rerun()
                 viol = st.session_state.get('violations_9h30')
                 if viol is not None and not viol.empty:
-                    resume = viol.groupby(['username', 'ticker']).agg(
+                    resume = viol.groupby(['date', 'username', 'ticker']).agg(
                         nb_achats=('id', 'count'),
                         total_achats=('total', 'sum'),
                         cloture_veille=('cloture_veille', 'first')
                     ).reset_index()
-                    resume.columns = ["Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture 9 oct. ($)"]
-                    st.markdown(f"**{len(resume)} couples élève/action concernés, {len(viol)} achats fautifs au total.**")
+                    resume.columns = ["Date", "Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture veille ($)"]
+                    st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.**")
                     st.dataframe(resume, use_container_width=True, hide_index=True)
-                    confirme = st.checkbox("Je confirme l'annulation de toutes les transactions du 12 oct. pour ces actions.", key="confirm_9h30")
+                    confirme = st.checkbox("Je confirme l'annulation de toutes les transactions fautives ci-dessus.", key="confirm_9h30")
                     if st.button("Annuler ces transactions", key="btn_exec_9h30", disabled=not confirme):
                         with st.spinner("Annulation en cours..."):
                             nb_c, nb_tx, tot_cash = executer_annulation_9h30(viol)
                         st.session_state.pop('violations_9h30', None)
                         st.session_state.pop('confirm_9h30', None)
-                        st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} couples élève/action. Cash total réajusté : ${tot_cash:+,.2f}.")
+                        st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} cas. Cash total réajusté : ${tot_cash:+,.2f}.")
                         st.rerun()
 
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
