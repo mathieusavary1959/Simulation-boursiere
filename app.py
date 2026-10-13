@@ -762,6 +762,104 @@ def cloture_veille(ticker_symbol):
         return None
 
 
+def cloture_avant_date(ticker_symbol, date_limite):
+    """Clôture du dernier jour de bourse strictement avant date_limite.
+    Ex : date_limite='2026-10-12' -> clôture du vendredi 2026-10-09."""
+    try:
+        t = yf.Ticker(ticker_symbol)
+        hist = t.history(start="2026-10-01", end=date_limite)
+        if hist is None or hist.empty:
+            return None
+        return round(float(hist['Close'].iloc[-1]), 4)
+    except Exception:
+        return None
+
+
+def analyser_violations_9h30():
+    """Détecte les achats du 12 oct. 2026 avant 9h30 (heure Toronto) sur des
+    actions dont la clôture du dernier jour de bourse précédent (ven. 9 oct.)
+    était sous 10 $. Retourne un DataFrame des transactions fautives."""
+    tx = conn.query(
+        "SELECT id, username, ticker, shares, price, total, timestamp FROM transactions "
+        "WHERE timestamp >= '2026-10-12 00:00:00' AND timestamp < '2026-10-12 09:30:00' "
+        "AND shares > 0 ORDER BY id",
+        ttl=0
+    )
+    if tx.empty:
+        return tx
+    clotures = {}
+    for tk in tx['ticker'].unique().tolist():
+        clotures[str(tk)] = cloture_avant_date(str(tk), "2026-10-12")
+    tx['cloture_veille'] = tx['ticker'].map(clotures)
+    violations = tx[(tx['cloture_veille'].notna()) & (tx['cloture_veille'] < 10.0)].copy()
+    return violations
+
+
+def executer_annulation_9h30(violations_df):
+    """Annule toutes les transactions du 12 oct. 2026 pour chaque couple
+    (élève, action) fautif, comme si elles n'avaient jamais existé :
+    cash ajusté, transactions supprimées, portefeuille recalculé depuis les
+    transactions restantes. Retourne (nb_couples, nb_transactions, total_cash)."""
+    couples = violations_df[['username', 'ticker']].drop_duplicates()
+    plans = []
+    for _, row in couples.iterrows():
+        u, tk = str(row['username']), str(row['ticker'])
+        toutes = conn.query(
+            "SELECT id, shares, price, total, timestamp FROM transactions "
+            "WHERE username=:u AND ticker=:t ORDER BY id",
+            params={"u": u, "t": tk}, ttl=0
+        )
+        if toutes.empty:
+            continue
+        a_annuler = toutes[
+            (toutes['timestamp'] >= '2026-10-12 00:00:00') &
+            (toutes['timestamp'] < '2026-10-13 00:00:00')
+        ]
+        if a_annuler.empty:
+            continue
+        restantes = toutes.drop(a_annuler.index)
+        ids_annuler = [int(i) for i in a_annuler['id'].tolist()]
+        cash_delta = 0.0
+        for _, t in a_annuler.iterrows():
+            cash_delta += float(t['total']) if int(t['shares']) > 0 else -float(t['total'])
+        achats = restantes[restantes['shares'] > 0]
+        q_achats = int(achats['shares'].sum()) if not achats.empty else 0
+        q_ventes = int((-restantes[restantes['shares'] < 0]['shares']).sum()) if not restantes.empty else 0
+        new_shares = q_achats - q_ventes
+        new_avg = 0.0
+        if q_achats > 0 and new_shares > 0:
+            new_avg = float((achats['shares'] * achats['price']).sum() / q_achats)
+        plans.append({
+            'username': u, 'ticker': tk, 'ids': ids_annuler,
+            'cash_delta': cash_delta, 'new_shares': max(new_shares, 0),
+            'new_avg': new_avg, 'nb_tx': len(ids_annuler),
+            'anomalie': new_shares < 0
+        })
+    nb_tx_total = 0
+    with conn.session as session:
+        for p in plans:
+            session.execute(
+                text("UPDATE users SET cash = cash + :d WHERE username = :u"),
+                {"d": p['cash_delta'], "u": p['username']}
+            )
+            for tx_id in p['ids']:
+                session.execute(text("DELETE FROM transactions WHERE id = :i"), {"i": tx_id})
+            session.execute(
+                text("DELETE FROM portfolio WHERE username = :u AND ticker = :t"),
+                {"u": p['username'], "t": p['ticker']}
+            )
+            if p['new_shares'] > 0:
+                session.execute(
+                    text("INSERT INTO portfolio (username, ticker, shares, avg_price) "
+                         "VALUES (:u, :t, :s, :p)"),
+                    {"u": p['username'], "t": p['ticker'], "s": p['new_shares'], "p": p['new_avg']}
+                )
+            nb_tx_total += p['nb_tx']
+        session.commit()
+    total_cash = sum(p['cash_delta'] for p in plans)
+    return len(plans), nb_tx_total, total_cash
+
+
 def achat_penny_stock_bloque(ticker_symbol):
     """Vrai si l'action se tradait sous 10 $ la veille ET qu'on est avant
     l'ouverture à 9h30. Dès 9h30, tout est permis."""
@@ -1538,6 +1636,41 @@ else:
                     st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
                 elif code_supabase:
                     st.error("Code incorrect.")
+
+            with st.expander("Correction règle 9h30 (transactions du 12 octobre 2026)"):
+                st.info(
+                    "Détecte automatiquement les achats du 12 oct. avant 9h30 sur des actions "
+                    "dont la clôture du vendredi 9 oct. était sous 10 $, puis annule d'un coup "
+                    "toutes les transactions du 12 oct. pour ces actions (achats et ventes), "
+                    "comme si elles n'avaient jamais existé : cash remboursé, portefeuille recalculé."
+                )
+                if st.button("Analyser les transactions du 12 octobre", key="btn_analyse_9h30"):
+                    with st.spinner("Analyse en cours (récupération des clôtures du 9 oct.)..."):
+                        viol = analyser_violations_9h30()
+                    if viol.empty:
+                        st.success("Aucun achat fautif détecté le 12 octobre avant 9h30.")
+                        st.session_state.pop('violations_9h30', None)
+                    else:
+                        st.session_state['violations_9h30'] = viol
+                        st.rerun()
+                viol = st.session_state.get('violations_9h30')
+                if viol is not None and not viol.empty:
+                    resume = viol.groupby(['username', 'ticker']).agg(
+                        nb_achats=('id', 'count'),
+                        total_achats=('total', 'sum'),
+                        cloture_veille=('cloture_veille', 'first')
+                    ).reset_index()
+                    resume.columns = ["Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture 9 oct. ($)"]
+                    st.markdown(f"**{len(resume)} couples élève/action concernés, {len(viol)} achats fautifs au total.**")
+                    st.dataframe(resume, use_container_width=True, hide_index=True)
+                    confirme = st.checkbox("Je confirme l'annulation de toutes les transactions du 12 oct. pour ces actions.", key="confirm_9h30")
+                    if st.button("Annuler ces transactions", key="btn_exec_9h30", disabled=not confirme):
+                        with st.spinner("Annulation en cours..."):
+                            nb_c, nb_tx, tot_cash = executer_annulation_9h30(viol)
+                        st.session_state.pop('violations_9h30', None)
+                        st.session_state.pop('confirm_9h30', None)
+                        st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} couples élève/action. Cash total réajusté : ${tot_cash:+,.2f}.")
+                        st.rerun()
 
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
 
