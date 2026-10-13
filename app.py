@@ -817,11 +817,12 @@ def calculer_gains_9h30(violations_df):
         return violations_df
     tickers = violations_df['ticker'].unique().tolist()
     prix_actuels = obtenir_prix_groupes(tickers)
-    gains, h_achats, h_ventes = {}, {}, {}
+    gains, h_achats, h_ventes, p_achats = {}, {}, {}, {}
     for (ds, u, tk), grp in violations_df.groupby(['date', 'username', 'ticker']):
         cout = float(grp['total'].sum())
         q_achats = int(grp['shares'].sum())
         heures_a = sorted(set(str(t).split(' ')[1] for t in grp['timestamp']))
+        prix_a = sorted(set(f"{float(p):.2f}" for p in grp['price']))
         ventes = conn.query(
             "SELECT shares, total, timestamp FROM transactions WHERE username=:u AND ticker=:t "
             f"AND timestamp >= '{ds} 00:00:00' AND timestamp < '{ds} 23:59:59' AND shares < 0",
@@ -837,6 +838,7 @@ def calculer_gains_9h30(violations_df):
         gains[cle] = (tot_vendus + val_reliquat) - cout
         h_achats[cle] = ", ".join(heures_a)
         h_ventes[cle] = ", ".join(heures_v) if heures_v else "-"
+        p_achats[cle] = ", ".join(prix_a)
     violations_df['gain_estime'] = violations_df.apply(
         lambda r: gains.get((r['date'], str(r['username']), str(r['ticker'])), 0.0), axis=1
     )
@@ -845,6 +847,9 @@ def calculer_gains_9h30(violations_df):
     )
     violations_df['heures_vente'] = violations_df.apply(
         lambda r: h_ventes.get((r['date'], str(r['username']), str(r['ticker'])), "-"), axis=1
+    )
+    violations_df['prix_achat'] = violations_df.apply(
+        lambda r: p_achats.get((r['date'], str(r['username']), str(r['ticker'])), ""), axis=1
     )
     return violations_df
 
@@ -1721,14 +1726,14 @@ else:
                 viol = st.session_state.get('violations_9h30')
                 if viol is not None and not viol.empty:
                     resume = viol.groupby(['date', 'username', 'ticker']).agg(
-                        nb_achats=('id', 'count'),
                         total_achats=('total', 'sum'),
+                        prix_achat=('prix_achat', 'first'),
                         cloture_veille=('cloture_veille', 'first'),
                         gain_estime=('gain_estime', 'first'),
                         heures_achat=('heures_achat', 'first'),
                         heures_vente=('heures_vente', 'first')
                     ).reset_index()
-                    resume.columns = ["Date", "Élève", "Action", "Nb achats fautifs", "Total achats ($)", "Clôture veille ($)", "Gain estimé ($)", "Achat à", "Revente à"]
+                    resume.columns = ["Date", "Élève", "Action", "Total achats ($)", "Prix achat ($)", "Clôture veille ($)", "Gain estimé ($)", "Achat à", "Revente à"]
                     resume["Sélectionner"] = True
                     st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.** Coche les cas à annuler.")
                     edited = st.data_editor(
