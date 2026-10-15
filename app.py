@@ -820,19 +820,6 @@ def obtenir_nouvelles(ticker_symbol):
     except Exception:
         return []
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def obtenir_domaine(ticker_symbol):
-    """Domaine du site officiel pour le logo. 1 appel par titre par 24 h, partagé entre élèves."""
-    try:
-        site = yf.Ticker(ticker_symbol).info.get('website', '') or ''
-        domaine = site.replace('https://', '').replace('http://', '').split('/')[0].strip().lower()
-        if domaine.startswith('www.'):
-            domaine = domaine[4:]
-        return domaine or None
-    except Exception:
-        return None
-
-
 @st.cache_data(ttl=300, show_spinner=False)
 def cloture_veille(ticker_symbol):
     """Prix de clôture de la veille (ou None si indisponible).
@@ -1375,56 +1362,6 @@ else:
             if st.button("Rafraîchir le cours", use_container_width=True):
                 st.rerun()
 
-        # --- BARRE MES FAVORIS (chips avec couleur de performance) ---
-        def _choisir_favori(tk):
-            st.session_state["recherche_ticker"] = tk
-
-        fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
-        if not fav_q.empty:
-            fav_tickers = fav_q['ticker'].tolist()
-            fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
-
-            st.markdown("### Mes favoris")
-            chip_css = (
-                "<style>"
-                "@keyframes neonPulseJaune {"
-                "0%,100% {box-shadow: 0 0 6px 1px rgba(255,215,0,0.55), 0 0 18px 4px rgba(255,215,0,0.22);}"
-                "50% {box-shadow: 0 0 16px 3px rgba(255,215,0,1), 0 0 40px 10px rgba(255,215,0,0.45);}"
-                "}"
-            )
-            for tk in fav_tickers:
-                px, vp = fav_data.get(tk.upper(), (None, None))
-                couleur_txt = "#10B981" if (vp or 0) >= 0 else "#EF4444"
-                cle = f"favchip_{tk}"
-                chip_css += (
-                    f'div[class*="st-key-{cle}"] button {{'
-                    f'background: #161616 !important;'
-                    f'border: 1px solid #FFD700 !important;'
-                    f'padding: 5px 6px !important;'
-                    f'animation: neonPulseJaune 2.4s ease-in-out infinite;'
-                    f'}}'
-                    f'div[class*="st-key-{cle}"] button p {{'
-                    f'color: {couleur_txt} !important; font-weight: 700 !important; font-size: 13px !important;'
-                    f'}}'
-                )
-            chip_css += "</style>"
-            st.markdown(chip_css, unsafe_allow_html=True)
-
-            fav_cols = st.columns(2)
-            for i, tk in enumerate(fav_tickers):
-                px, vp = fav_data.get(tk.upper(), (None, None))
-                if px is None:
-                    chip_label = f"{tk}"
-                else:
-                    fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
-                    signe = "+" if (vp or 0) >= 0 else ""
-                    fleche = "▲" if (vp or 0) >= 0 else "▼"
-                    chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
-                with fav_cols[i % 2]:
-                    st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
-        else:
-            st.caption("Astuce : ajoutez des titres à vos favoris avec le bouton ☆ dans le panneau d'ordre pour les retrouver ici.")
-
         selected_ticker = "AAPL"
 
         if search_query and len(search_query.strip()) > 0:
@@ -1451,11 +1388,7 @@ else:
             col_chart, col_order = st.columns([2.2, 1])
 
             with col_chart:
-                domaine_logo = obtenir_domaine(selected_ticker)
-                logo_html = (f"<img src='https://logo.clearbit.com/{domaine_logo}' "
-                             f"onerror=\"this.onerror=function(){{this.style.display='none'}};this.src='https://www.google.com/s2/favicons?domain={domaine_logo}&sz=64';\" "
-                             f"style='width:42px;height:42px;border-radius:10px;background:#FFFFFF;padding:3px;object-fit:contain;flex-shrink:0;'>") if domaine_logo else ""
-                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'>{logo_html}<div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -1694,6 +1627,9 @@ else:
                         session.execute(text("DELETE FROM favoris WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
                         session.commit()
 
+                def _choisir_favori(tk):
+                    st.session_state["recherche_ticker"] = tk
+
                 fav_check = conn.query("SELECT 1 FROM favoris WHERE username=:u AND ticker=:t", params={"u": user, "t": selected_ticker.upper()}, ttl=0)
                 if not fav_check.empty:
                     st.button("★ Dans mes favoris (retirer)", use_container_width=True, key=f"favrm_{selected_ticker}",
@@ -1704,6 +1640,49 @@ else:
                             session.execute(text("INSERT INTO favoris (username, ticker) VALUES (:u, :t) ON CONFLICT DO NOTHING"), {"u": user, "t": selected_ticker.upper()})
                             session.commit()
                         st.rerun()
+
+                # Liste des favoris sous le bouton jaune
+                fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
+                if not fav_q.empty:
+                    st.markdown("<div style='color:#9CA3AF;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;'>Mes favoris</div>", unsafe_allow_html=True)
+                    fav_tickers = fav_q['ticker'].tolist()
+                    fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
+                    chip_css = (
+                        "<style>"
+                        "@keyframes neonPulseJaune {"
+                        "0%,100% {box-shadow: 0 0 6px 1px rgba(255,215,0,0.55), 0 0 18px 4px rgba(255,215,0,0.22);}"
+                        "50% {box-shadow: 0 0 16px 3px rgba(255,215,0,1), 0 0 40px 10px rgba(255,215,0,0.45);}"
+                        "}"
+                    )
+                    for tk in fav_tickers:
+                        px, vp = fav_data.get(tk.upper(), (None, None))
+                        couleur_txt = "#10B981" if (vp or 0) >= 0 else "#EF4444"
+                        cle = f"favchip_{tk}"
+                        chip_css += (
+                            f'div[class*="st-key-{cle}"] button {{'
+                            f'background: #161616 !important;'
+                            f'border: 1px solid #FFD700 !important;'
+                            f'padding: 5px 6px !important;'
+                            f'animation: neonPulseJaune 2.4s ease-in-out infinite;'
+                            f'}}'
+                            f'div[class*="st-key-{cle}"] button p {{'
+                            f'color: {couleur_txt} !important; font-weight: 700 !important; font-size: 13px !important;'
+                            f'}}'
+                        )
+                    chip_css += "</style>"
+                    st.markdown(chip_css, unsafe_allow_html=True)
+                    fav_cols = st.columns(2)
+                    for i, tk in enumerate(fav_tickers):
+                        px, vp = fav_data.get(tk.upper(), (None, None))
+                        if px is None:
+                            chip_label = f"{tk}"
+                        else:
+                            fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
+                            signe = "+" if (vp or 0) >= 0 else ""
+                            fleche = "▲" if (vp or 0) >= 0 else "▼"
+                            chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
+                        with fav_cols[i % 2]:
+                            st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
         else:
             st.error(f"Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
