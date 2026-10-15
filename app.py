@@ -1346,27 +1346,32 @@ else:
             fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
 
             st.markdown("### Mes favoris")
-            chip_css = "<style>"
+            chip_css = (
+                "<style>"
+                "@keyframes neonPulseJaune {"
+                "0%,100% {box-shadow: 0 0 6px -1px rgba(247,201,72,0.45);}"
+                "50% {box-shadow: 0 0 18px -1px rgba(247,201,72,0.95);}"
+                "}"
+            )
             for tk in fav_tickers:
                 px, vp = fav_data.get(tk.upper(), (None, None))
-                couleur = "#10B981" if (vp or 0) >= 0 else "#EF4444"
+                couleur_txt = "#10B981" if (vp or 0) >= 0 else "#EF4444"
                 cle = f"favchip_{tk}"
                 chip_css += (
                     f'div[class*="st-key-{cle}"] button {{'
                     f'background: #161616 !important;'
-                    f'border: 1px solid {couleur} !important;'
-                    f'box-shadow: 0 0 16px -4px {couleur}80 !important;'
-                    f'padding: 10px 8px !important;'
+                    f'border: 1px solid rgba(247,201,72,0.65) !important;'
+                    f'padding: 5px 6px !important;'
+                    f'animation: neonPulseJaune 2.4s ease-in-out infinite;'
                     f'}}'
                     f'div[class*="st-key-{cle}"] button p {{'
-                    f'color: {couleur} !important; font-weight: 800 !important; font-size: 15px !important;'
+                    f'color: {couleur_txt} !important; font-weight: 700 !important; font-size: 13px !important;'
                     f'}}'
                 )
             chip_css += "</style>"
             st.markdown(chip_css, unsafe_allow_html=True)
 
-            nb_cols = min(len(fav_tickers), 6)
-            fav_cols = st.columns(nb_cols)
+            fav_cols = st.columns(2)
             for i, tk in enumerate(fav_tickers):
                 px, vp = fav_data.get(tk.upper(), (None, None))
                 if px is None:
@@ -1376,7 +1381,7 @@ else:
                     signe = "+" if (vp or 0) >= 0 else ""
                     fleche = "▲" if (vp or 0) >= 0 else "▼"
                     chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
-                with fav_cols[i % nb_cols]:
+                with fav_cols[i % 2]:
                     st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
         else:
             st.caption("Astuce : ajoutez des titres à vos favoris avec le bouton ☆ dans le panneau d'ordre pour les retrouver ici.")
