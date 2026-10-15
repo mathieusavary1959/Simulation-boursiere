@@ -57,6 +57,13 @@ def init_db():
                     created_at TEXT
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS favoris (
+                    username TEXT,
+                    ticker TEXT,
+                    PRIMARY KEY (username, ticker)
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
@@ -724,6 +731,38 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
+@st.cache_data(ttl=60, show_spinner=False)
+def obtenir_donnees_favoris(tickers_tuple):
+    """Prix + variation du jour pour les favoris, en un seul appel groupé. {ticker: (prix, var_pct)}"""
+    tickers_list = list(tickers_tuple)
+    if not tickers_list:
+        return {}
+    try:
+        clean = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
+        if not clean:
+            return {}
+        data = yf.Tickers(" ".join(clean))
+        out = {}
+        for tk in clean:
+            try:
+                fi = data.tickers[tk].fast_info
+                px = fi.get('lastPrice') or fi.get('regularMarketPrice') or fi.get('last_price')
+                op = fi.get('open') or fi.get('openPrice')
+                if px is not None and not pd.isna(px) and float(px) > 0:
+                    px = float(px)
+                    if op is not None and not pd.isna(op) and float(op) > 0:
+                        vp = (px - float(op)) / float(op) * 100
+                    else:
+                        vp = 0.0
+                    out[tk] = (round(px, 4), round(vp, 2))
+                else:
+                    out[tk] = (None, None)
+            except Exception:
+                out[tk] = (None, None)
+        return out
+    except Exception:
+        return {}
+
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
     try:
@@ -1237,12 +1276,36 @@ else:
             search_query = st.text_input(
                 "Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
                 value="",
-                placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)..."
+                placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)...",
+                key="recherche_ticker"
             )
         with col_s2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Rafraîchir le cours", use_container_width=True):
                 st.rerun()
+
+        # --- BARRE MES FAVORIS ---
+        fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
+        if not fav_q.empty:
+            st.markdown("### Mes favoris")
+            fav_tickers = fav_q['ticker'].tolist()
+            fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
+            nb_cols = min(len(fav_tickers), 6)
+            fav_cols = st.columns(nb_cols)
+            for i, tk in enumerate(fav_tickers):
+                px, vp = fav_data.get(tk.upper(), (None, None))
+                if px is None:
+                    chip_label = f"{tk} : --"
+                else:
+                    fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
+                    signe = "+" if (vp or 0) >= 0 else ""
+                    chip_label = f"{tk}  {fmt_px}  ({signe}{vp:.2f}%)"
+                with fav_cols[i % nb_cols]:
+                    if st.button(chip_label, key=f"favchip_{tk}", use_container_width=True):
+                        st.session_state["recherche_ticker"] = tk
+                        st.rerun()
+        else:
+            st.caption("Astuce : ajoutez des titres à vos favoris avec le bouton ☆ dans le panneau d'ordre pour les retrouver ici.")
 
         selected_ticker = "AAPL"
 
@@ -1437,6 +1500,21 @@ else:
                             st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
+
+                # FAVORIS
+                fav_check = conn.query("SELECT 1 FROM favoris WHERE username=:u AND ticker=:t", params={"u": user, "t": selected_ticker.upper()}, ttl=0)
+                if not fav_check.empty:
+                    if st.button("★ Dans mes favoris (retirer)", use_container_width=True, key=f"favrm_{selected_ticker}"):
+                        with conn.session as session:
+                            session.execute(text("DELETE FROM favoris WHERE username=:u AND ticker=:t"), {"u": user, "t": selected_ticker.upper()})
+                            session.commit()
+                        st.rerun()
+                else:
+                    if st.button("☆ Ajouter à mes favoris", use_container_width=True, key=f"favadd_{selected_ticker}"):
+                        with conn.session as session:
+                            session.execute(text("INSERT INTO favoris (username, ticker) VALUES (:u, :t) ON CONFLICT DO NOTHING"), {"u": user, "t": selected_ticker.upper()})
+                            session.commit()
+                        st.rerun()
         else:
             st.error(f"Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
@@ -1588,6 +1666,8 @@ else:
                 tks_all = p_all['ticker'].unique().tolist()
                 prix_dict_pos = obtenir_prix_groupes(tks_all)
 
+                pie_labels, pie_vals = [], []
+
                 for _, r in p_all.iterrows():
                     tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
                     pa_live = prix_dict_pos.get(tk.upper())
@@ -1595,6 +1675,8 @@ else:
                     val = sh * pa
                     pnl = (pa - pm) * sh
                     pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
+                    pie_labels.append(tk)
+                    pie_vals.append(val)
 
                     pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
                     fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
@@ -1606,6 +1688,50 @@ else:
 
                 table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
+
+                # --- CAMEMBERT : RÉPARTITION DU PORTEFEUILLE ---
+                cash_q = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
+                cash_val = float(cash_q.iloc[0]['cash']) if not cash_q.empty else 0.0
+
+                rep_labels = list(pie_labels) + (["Liquidités"] if cash_val > 0.005 else [])
+                rep_values = list(pie_vals) + ([cash_val] if cash_val > 0.005 else [])
+                total_pf = sum(rep_values)
+
+                if total_pf > 0:
+                    paires = sorted(zip(rep_labels, rep_values), key=lambda x: x[1], reverse=True)
+                    rep_labels, rep_values = [p[0] for p in paires], [p[1] for p in paires]
+
+                    palette = ["#E50914", "#10B981", "#3B82F6", "#F59E0B", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16", "#F97316", "#6366F1", "#14B8A6", "#EAB308"]
+                    couleurs = [("#6B7280" if lab == "Liquidités" else palette[i % len(palette)]) for i, lab in enumerate(rep_labels)]
+
+                    fig_pie = go.Figure(data=[go.Pie(
+                        labels=rep_labels,
+                        values=rep_values,
+                        hole=0.45,
+                        marker=dict(colors=couleurs, line=dict(color="#141414", width=3)),
+                        textinfo="label+percent",
+                        textfont=dict(color="#FFFFFF", family="Work Sans", size=14),
+                        hovertemplate="<b>%{label}</b><br>%{value:,.2f} $ (%{percent})<extra></extra>",
+                        sort=False,
+                    )])
+                    fig_pie.update_layout(
+                        title=dict(text="Répartition du portefeuille", font=dict(color="#FFFFFF", family="Bebas Neue", size=30), x=0.5, xanchor="center"),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#FFFFFF", family="Work Sans"),
+                        showlegend=False,
+                        height=480,
+                        margin=dict(l=20, r=20, t=70, b=20),
+                        annotations=[dict(
+                            text=f"${total_pf:,.2f}",
+                            x=0.5, y=0.5,
+                            font=dict(size=24, color="#FFFFFF", family="Work Sans"),
+                            showarrow=False
+                        )],
+                    )
+                    cp1, cp2, cp3 = st.columns([1, 2, 1])
+                    with cp2:
+                        st.plotly_chart(fig_pie, use_container_width=True)
 
                 st.markdown("<hr>", unsafe_allow_html=True)
                 st.markdown("### Vendre rapidement mes positions")
