@@ -258,6 +258,16 @@ st.markdown("""
         border-top-color: #E50914;
         box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 32px -6px rgba(229, 9, 20, 0.7);
     }
+
+    /* Cartes de vente rapide */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: linear-gradient(180deg, #1E1E1E 0%, #161616 100%) !important;
+        border: 1px solid #2E2E2E !important;
+        border-radius: 14px !important;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: rgba(229, 9, 20, 0.45) !important;
+    }
     .kpi-label {
         color: #FFFFFF;
         font-size: 0.78rem;
@@ -1828,7 +1838,6 @@ else:
 
             p_all = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
             if not p_all.empty:
-                options_vente = {}
                 html_rows = ""
 
                 tks_all = p_all['ticker'].unique().tolist()
@@ -1849,8 +1858,6 @@ else:
                     pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
                     fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
                     fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
-
-                    options_vente[f"{tk} ({sh} action(s) disponible(s))"] = (tk, sh, pa)
 
                     html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>{fmt_pm}</td><td>{fmt_pa}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
 
@@ -1904,42 +1911,59 @@ else:
                 st.markdown("<hr>", unsafe_allow_html=True)
                 st.markdown("### Vendre rapidement mes positions")
 
-                col_v1, col_v2, col_v3 = st.columns([2, 1, 1])
-                with col_v1:
-                    choix_v = st.selectbox("Sélectionnez l'action à vendre :", list(options_vente.keys()))
-                    tk_v, max_sh, pa_v = options_vente[choix_v]
-                with col_v2:
-                    qty_v = st.number_input("Quantité à vendre :", min_value=1, max_value=max_sh, value=min(1, max_sh), step=1)
-                with col_v3:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    total_vente = qty_v * pa_v
-                    if st.button(f"Vendre pour ${total_vente:,.2f}", use_container_width=True):
-                        if not verifier_cooldown(user, delai_secondes=3):
-                            st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
-                        else:
-                            check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk_v}, ttl=0)
-                            sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
+                cartes_vente = []
+                for _, r in p_all.iterrows():
+                    tk2, sh2 = str(r['ticker']), int(r['shares'])
+                    pm2 = float(r['avg_price'] or 0.0)
+                    pa2_live = prix_dict_pos.get(tk2.upper())
+                    pa2 = pa2_live if pa2_live is not None else pm2
+                    cartes_vente.append((tk2, sh2, pm2, pa2))
 
-                            if sh_real >= qty_v:
-                                prix_v_instantane = obtenir_prix_actuel(tk_v) or pa_v
-                                total_v_instantane = qty_v * prix_v_instantane
-                                now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-
-                                with conn.session as session:
-                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
-                                    rem = sh_real - qty_v
-                                    if rem > 0:
-                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk_v})
+                grille_vente = st.columns(2)
+                for i, (tk, sh, pm, pa) in enumerate(cartes_vente):
+                    with grille_vente[i % 2]:
+                        with st.container(border=True):
+                            pnl_u = (pa - pm) * sh
+                            pnl_u_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
+                            coul_u = "#10B981" if pnl_u >= 0 else "#EF4444"
+                            st.markdown(
+                                f"<div style='margin-bottom:2px;'><span style='font-family:\"Bebas Neue\",\"Work Sans\",sans-serif;font-size:26px;letter-spacing:0.04em;color:#FFFFFF;'>{tk}</span>"
+                                f"<span style='color:#9CA3AF;font-size:13px;margin-left:10px;'>{sh} action(s)</span></div>"
+                                f"<div style='color:#FFFFFF;font-size:15px;'>Valeur : <b>${sh * pa:,.2f}</b></div>"
+                                f"<div style='color:{coul_u};font-size:15px;font-weight:700;margin-bottom:6px;'>Gain/perte : ${pnl_u:+,.2f} ({pnl_u_pct:+.2f}%)</div>",
+                                unsafe_allow_html=True)
+                            qty_c = st.slider("Quantité à vendre", min_value=1, max_value=sh, value=sh, key=f"slqv_{tk}")
+                            tot_c = qty_c * pa
+                            pnl_c = (pa - pm) * qty_c
+                            coul_c = "#10B981" if pnl_c >= 0 else "#EF4444"
+                            st.markdown(
+                                f"<div style='color:#FFFFFF;font-size:14px;'>Tu recevras : <b>${tot_c:,.2f}</b></div>"
+                                f"<div style='color:{coul_c};font-size:14px;font-weight:700;margin-bottom:8px;'>Gain/perte sur cette vente : ${pnl_c:+,.2f}</div>",
+                                unsafe_allow_html=True)
+                            if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
+                                if not verifier_cooldown(user, delai_secondes=3):
+                                    st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
+                                else:
+                                    check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk}, ttl=0)
+                                    sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
+                                    if sh_real >= qty_c:
+                                        prix_v_instantane = obtenir_prix_actuel(tk) or pa
+                                        total_v_instantane = qty_c * prix_v_instantane
+                                        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                                        with conn.session as session:
+                                            session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
+                                            rem = sh_real - qty_c
+                                            if rem > 0:
+                                                session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk})
+                                            else:
+                                                session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
+                                            session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                            {"u": user, "t": tk, "s": -qty_c, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
+                                            session.commit()
+                                        st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !")
+                                        st.rerun()
                                     else:
-                                        session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk_v})
-
-                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": tk_v, "s": -qty_v, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
-                                    session.commit()
-
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_v} {tk_v} à ${prix_v_instantane:,.2f} effectuée !")
-                                st.rerun()
-                            else: st.error("Vous ne possédez plus ces actions.")
+                                        st.error("Vous ne possédez plus ces actions.")
             else: st.info("Vous n'avez aucune position ouverte actuellement.")
 
         afficher_positions_live()
