@@ -1244,7 +1244,7 @@ else:
                 css_tape = "<style>body{margin:0;background:#161616;font-family:'Work Sans',sans-serif;overflow:hidden;border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}.track{display:flex;width:max-content;padding:11px 0;animation:tapeScroll " + str(duree_tape) + "s linear infinite}.track:hover{animation-play-state:paused}.item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}@keyframes tapeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>"
                 components.html(f"<!DOCTYPE html><html><head>{css_tape}</head><body><div class='track'>{items_tape}{items_tape}</div></body></html>", height=46)
 
-        # --- SUIVI DES RÈGLES DU JEU ---
+        # --- SUIVI DES RÈGLES DU JEU (compact, effet néon discret) ---
         mois_court = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m")
         nb_titres = int(pos_df['ticker'].nunique()) if not pos_df.empty else 0
         ach_mois_q = conn.query(
@@ -1255,20 +1255,21 @@ else:
         regle_titres_ok = nb_titres >= 4
         regle_achats_ok = nb_achats_mois >= 5
 
-        def carte_regle(titre, valeur, cible, ok):
+        def puce_regle(titre, valeur, cible, ok):
             affichage = "✓" if ok else f"{valeur}/{cible}"
-            couleur = "#10B981" if ok else "#F59E0B"
+            couleur = "#10B981" if ok else "#E50914"
             pct = min(100, int(valeur / cible * 100)) if cible else 0
-            return (f"<div style=\"background:#1A1A1A;border:1px solid #2E2E2E;border-radius:10px;padding:12px 16px;\">"
-                    f"<div style=\"color:#9CA3AF;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;\">{titre}</div>"
-                    f"<div style=\"color:#FFFFFF;font-size:22px;font-weight:800;font-family:'Work Sans',sans-serif;\">{affichage}</div>"
-                    f"<div style=\"background:#2E2E2E;border-radius:6px;height:8px;margin-top:8px;\">"
-                    f"<div style=\"background:{couleur};border-radius:6px;height:8px;width:{pct}%;\"></div></div></div>")
+            return (f"<div style=\"background:#161616;border:1px solid #2E2E2E;border-radius:10px;padding:8px 14px;"
+                    f"box-shadow:0 0 18px -6px {couleur}66;\">"
+                    f"<span style=\"color:#9CA3AF;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;\">{titre}</span>"
+                    f"<span style=\"color:#FFFFFF;font-size:15px;font-weight:800;margin-left:8px;\">{affichage}</span>"
+                    f"<div style=\"background:#2E2E2E;border-radius:6px;height:5px;margin-top:6px;\">"
+                    f"<div style=\"background:{couleur};border-radius:6px;height:5px;width:{pct}%;box-shadow:0 0 10px {couleur};\"></div></div></div>")
 
-        st.markdown("### Mes règles du jeu")
+        st.markdown("<div style=\"color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:2px 0 8px 0;\">Règles du jeu</div>", unsafe_allow_html=True)
         rc1, rc2 = st.columns(2)
-        rc1.markdown(carte_regle("Titres différents (min. 4)", nb_titres, 4, regle_titres_ok), unsafe_allow_html=True)
-        rc2.markdown(carte_regle("Achats ce mois-ci (min. 5)", nb_achats_mois, 5, regle_achats_ok), unsafe_allow_html=True)
+        rc1.markdown(puce_regle("Titres différents (min. 4)", nb_titres, 4, regle_titres_ok), unsafe_allow_html=True)
+        rc2.markdown(puce_regle("Achats ce mois-ci (min. 5)", nb_achats_mois, 5, regle_achats_ok), unsafe_allow_html=True)
 
         manques = []
         if not regle_titres_ok:
@@ -1321,6 +1322,9 @@ else:
                 st.rerun()
 
         # --- BARRE MES FAVORIS ---
+        def _choisir_favori(tk):
+            st.session_state["recherche_ticker"] = tk
+
         fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
         if not fav_q.empty:
             st.markdown("### Mes favoris")
@@ -1337,9 +1341,7 @@ else:
                     signe = "+" if (vp or 0) >= 0 else ""
                     chip_label = f"{tk}  {fmt_px}  ({signe}{vp:.2f}%)"
                 with fav_cols[i % nb_cols]:
-                    if st.button(chip_label, key=f"favchip_{tk}", use_container_width=True):
-                        st.session_state["recherche_ticker"] = tk
-                        st.rerun()
+                    st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
         else:
             st.caption("Astuce : ajoutez des titres à vos favoris avec le bouton ☆ dans le panneau d'ordre pour les retrouver ici.")
 
