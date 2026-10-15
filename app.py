@@ -578,6 +578,21 @@ st.markdown("""
         transform: translateY(0px);
     }
 
+    /* Bouton favoris : jaune ambre pour le distinguer du rouge/vert */
+    div[data-testid="stButton"] button[kind="primary"] {
+        background: linear-gradient(180deg, #F7C948 0%, #E0A800 100%) !important;
+        border: 1px solid rgba(255, 220, 120, 0.55) !important;
+        color: #1A1A1A !important;
+        box-shadow: 0 10px 22px -10px rgba(247, 201, 72, 0.8) !important;
+    }
+    div[data-testid="stButton"] button[kind="primary"]:hover {
+        filter: brightness(1.08);
+        box-shadow: 0 14px 26px -10px rgba(247, 201, 72, 0.95) !important;
+    }
+    div[data-testid="stButton"] button[kind="primary"] p {
+        color: #1A1A1A !important;
+    }
+
     /* Boutons-liens vers les sites de finance */
     div[data-testid="stLinkButton"] > a {
         display: inline-flex !important;
@@ -1321,27 +1336,48 @@ else:
             if st.button("Rafraîchir le cours", use_container_width=True):
                 st.rerun()
 
-        # --- BARRE MES FAVORIS (pastilles compactes) ---
-        def _choisir_favori_pill():
-            choix = st.session_state.get("pills_favoris")
-            if choix:
-                st.session_state["recherche_ticker"] = choix
+        # --- BARRE MES FAVORIS (chips avec couleur de performance) ---
+        def _choisir_favori(tk):
+            st.session_state["recherche_ticker"] = tk
 
         fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
         if not fav_q.empty:
             fav_tickers = fav_q['ticker'].tolist()
             fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
 
-            def _etiquette_favori(tk):
+            st.markdown("### Mes favoris")
+            chip_css = "<style>"
+            for tk in fav_tickers:
+                px, vp = fav_data.get(tk.upper(), (None, None))
+                couleur = "#10B981" if (vp or 0) >= 0 else "#EF4444"
+                cle = f"favchip_{tk}"
+                chip_css += (
+                    f'div[class*="st-key-{cle}"] button {{'
+                    f'background: #161616 !important;'
+                    f'border: 1px solid {couleur} !important;'
+                    f'box-shadow: 0 0 16px -4px {couleur}80 !important;'
+                    f'padding: 10px 8px !important;'
+                    f'}}'
+                    f'div[class*="st-key-{cle}"] button p {{'
+                    f'color: {couleur} !important; font-weight: 800 !important; font-size: 15px !important;'
+                    f'}}'
+                )
+            chip_css += "</style>"
+            st.markdown(chip_css, unsafe_allow_html=True)
+
+            nb_cols = min(len(fav_tickers), 6)
+            fav_cols = st.columns(nb_cols)
+            for i, tk in enumerate(fav_tickers):
                 px, vp = fav_data.get(tk.upper(), (None, None))
                 if px is None:
-                    return f"{tk}"
-                fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
-                signe = "+" if (vp or 0) >= 0 else ""
-                return f"{tk} {fmt_px} ({signe}{vp:.2f}%)"
-
-            st.pills("Mes favoris", options=fav_tickers, format_func=_etiquette_favori,
-                     selection_mode="single", key="pills_favoris", on_change=_choisir_favori_pill)
+                    chip_label = f"{tk}"
+                else:
+                    fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
+                    signe = "+" if (vp or 0) >= 0 else ""
+                    fleche = "▲" if (vp or 0) >= 0 else "▼"
+                    chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
+                with fav_cols[i % nb_cols]:
+                    st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
         else:
             st.caption("Astuce : ajoutez des titres à vos favoris avec le bouton ☆ dans le panneau d'ordre pour les retrouver ici.")
 
@@ -1539,34 +1575,18 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-                # FAVORIS (bouton jaune pour le distinguer du rouge/vert)
-                st.markdown("""
-                    <style>
-                    div:has(> [data-testid="stMarkdownContainer"] .fav-jaune-anchor) + div [data-testid="stButton"] button {
-                        background: linear-gradient(180deg, #F7C948 0%, #E0A800 100%) !important;
-                        border: 1px solid rgba(255, 220, 120, 0.55) !important;
-                        color: #1A1A1A !important;
-                        box-shadow: 0 10px 22px -10px rgba(247, 201, 72, 0.8) !important;
-                    }
-                    div:has(> [data-testid="stMarkdownContainer"] .fav-jaune-anchor) + div [data-testid="stButton"] button:hover {
-                        filter: brightness(1.08);
-                        box-shadow: 0 14px 26px -10px rgba(247, 201, 72, 0.95) !important;
-                    }
-                    </style>
-                    <div class="fav-jaune-anchor"></div>
-                """, unsafe_allow_html=True)
+                # FAVORIS (bouton jaune via type="primary")
                 def _retirer_favori(tk):
                     with conn.session as session:
                         session.execute(text("DELETE FROM favoris WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
                         session.commit()
-                    st.session_state["pills_favoris"] = None
 
                 fav_check = conn.query("SELECT 1 FROM favoris WHERE username=:u AND ticker=:t", params={"u": user, "t": selected_ticker.upper()}, ttl=0)
                 if not fav_check.empty:
                     st.button("★ Dans mes favoris (retirer)", use_container_width=True, key=f"favrm_{selected_ticker}",
-                              on_click=_retirer_favori, args=(selected_ticker.upper(),))
+                              type="primary", on_click=_retirer_favori, args=(selected_ticker.upper(),))
                 else:
-                    if st.button("☆ Ajouter à mes favoris", use_container_width=True, key=f"favadd_{selected_ticker}"):
+                    if st.button("☆ Ajouter à mes favoris", use_container_width=True, key=f"favadd_{selected_ticker}", type="primary"):
                         with conn.session as session:
                             session.execute(text("INSERT INTO favoris (username, ticker) VALUES (:u, :t) ON CONFLICT DO NOTHING"), {"u": user, "t": selected_ticker.upper()})
                             session.commit()
