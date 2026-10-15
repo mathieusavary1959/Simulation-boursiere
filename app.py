@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import uuid
 from datetime import datetime
@@ -793,6 +794,24 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
+@st.cache_data(ttl=900, show_spinner=False)
+def obtenir_nouvelles(ticker_symbol):
+    """Actualités du titre (5 max). 1 appel par titre aux 15 min, partagé entre élèves."""
+    try:
+        return (yf.Ticker(ticker_symbol).news or [])[:5]
+    except Exception:
+        return []
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def obtenir_domaine(ticker_symbol):
+    """Domaine du site officiel pour le logo. 1 appel par titre par 24 h, partagé entre élèves."""
+    try:
+        site = yf.Ticker(ticker_symbol).info.get('website', '') or ''
+        domaine = site.replace('https://', '').replace('http://', '').split('/')[0].strip().lower()
+        return domaine or None
+    except Exception:
+        return None
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cloture_veille(ticker_symbol):
@@ -1412,7 +1431,10 @@ else:
             col_chart, col_order = st.columns([2.2, 1])
 
             with col_chart:
-                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
+                domaine_logo = obtenir_domaine(selected_ticker)
+                logo_html = (f"<img src='https://logo.clearbit.com/{domaine_logo}' onerror=\"this.style.display='none'\" "
+                             f"style='width:42px;height:42px;border-radius:10px;background:#FFFFFF;padding:3px;object-fit:contain;flex-shrink:0;'>") if domaine_logo else ""
+                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'>{logo_html}<div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -1433,6 +1455,13 @@ else:
                         key=f"horizon_{ticker}"
                     )
 
+                    type_graph = st.radio(
+                        "Type de graphique",
+                        options=["Ligne", "Chandeliers"],
+                        horizontal=True,
+                        key=f"typegraph_{ticker}"
+                    )
+
                     df_hist = obtenir_historique(ticker, selected_period)
                     if df_hist is not None and not df_hist.empty:
                         min_p = float(df_hist['Close'].min())
@@ -1444,6 +1473,51 @@ else:
                         y_max = max_p + padding
 
                         tick_fmt = "$.4f" if max_p < 1 else "$.2f"
+
+                        if type_graph == "Chandeliers" and all(c in df_hist.columns for c in ['Open', 'High', 'Low', 'Close']):
+                            fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                                row_heights=[0.72, 0.28], vertical_spacing=0.06)
+                            fig.add_trace(go.Candlestick(
+                                x=df_hist.index,
+                                open=df_hist['Open'], high=df_hist['High'],
+                                low=df_hist['Low'], close=df_hist['Close'],
+                                increasing_line_color='#10B981', increasing_fillcolor='#10B981',
+                                decreasing_line_color='#EF4444', decreasing_fillcolor='#EF4444',
+                                name='Cours'
+                            ), row=1, col=1)
+                            if len(df_hist) >= 20:
+                                fig.add_trace(go.Scatter(
+                                    x=df_hist.index, y=df_hist['Close'].rolling(window=20).mean(),
+                                    mode='lines', line=dict(color='#F59E0B', width=1.5), name='MM 20'
+                                ), row=1, col=1)
+                            if len(df_hist) >= 50:
+                                fig.add_trace(go.Scatter(
+                                    x=df_hist.index, y=df_hist['Close'].rolling(window=50).mean(),
+                                    mode='lines', line=dict(color='#8B5CF6', width=1.5), name='MM 50'
+                                ), row=1, col=1)
+                            vol = df_hist['Volume'].fillna(0) if 'Volume' in df_hist.columns else pd.Series(0, index=df_hist.index)
+                            coul_vol = ['#10B981' if c >= o else '#EF4444' for c, o in zip(df_hist['Close'], df_hist['Open'])]
+                            fig.add_trace(go.Bar(
+                                x=df_hist.index, y=vol, marker_color=coul_vol, opacity=0.55, name='Volume'
+                            ), row=2, col=1)
+                            fig.update_layout(
+                                paper_bgcolor='rgba(0,0,0,0)',
+                                plot_bgcolor='rgba(0,0,0,0)',
+                                height=460,
+                                margin=dict(l=10, r=10, t=30, b=10),
+                                xaxis_rangeslider_visible=False,
+                                showlegend=True,
+                                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0,
+                                            font=dict(color='#FFFFFF', size=11)),
+                                font=dict(color='#FFFFFF', family='Work Sans'),
+                                xaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.07)', gridwidth=0.8, zeroline=False),
+                                xaxis2=dict(showgrid=False, zeroline=False),
+                                yaxis=dict(range=[y_min, y_max], showgrid=True, gridcolor='rgba(255,255,255,0.07)',
+                                           gridwidth=0.8, zeroline=False, side='right', tickformat=tick_fmt),
+                                yaxis2=dict(showgrid=False, zeroline=False, side='right'),
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                            return
 
                         fig = go.Figure()
 
@@ -1494,6 +1568,19 @@ else:
                         st.plotly_chart(fig, use_container_width=True)
 
                 afficher_graphique_interactif(selected_ticker)
+
+                nouvelles = obtenir_nouvelles(selected_ticker)
+                if nouvelles:
+                    st.markdown("### Actualités")
+                    for n in nouvelles:
+                        nt, nl, npub = n.get('title'), n.get('link'), n.get('publisher', '')
+                        if nt and nl:
+                            st.markdown(
+                                "<div style='margin-bottom:10px;'>"
+                                f"<a href='{nl}' target='_blank' style='color:#FFFFFF;font-weight:600;text-decoration:none;'>{nt}</a>"
+                                f"<div style='color:#9CA3AF;font-size:12px;'>{npub}</div>"
+                                "</div>",
+                                unsafe_allow_html=True)
 
             with col_order:
                 st.markdown("### Passer un ordre")
