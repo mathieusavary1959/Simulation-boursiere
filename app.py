@@ -1349,8 +1349,8 @@ else:
             chip_css = (
                 "<style>"
                 "@keyframes neonPulseJaune {"
-                "0%,100% {box-shadow: 0 0 6px -1px rgba(247,201,72,0.45);}"
-                "50% {box-shadow: 0 0 18px -1px rgba(247,201,72,0.95);}"
+                "0%,100% {box-shadow: 0 0 6px 1px rgba(255,215,0,0.55), 0 0 18px 4px rgba(255,215,0,0.22);}"
+                "50% {box-shadow: 0 0 16px 3px rgba(255,215,0,1), 0 0 40px 10px rgba(255,215,0,0.45);}"
                 "}"
             )
             for tk in fav_tickers:
@@ -1360,7 +1360,7 @@ else:
                 chip_css += (
                     f'div[class*="st-key-{cle}"] button {{'
                     f'background: #161616 !important;'
-                    f'border: 1px solid rgba(247,201,72,0.65) !important;'
+                    f'border: 1px solid #FFD700 !important;'
                     f'padding: 5px 6px !important;'
                     f'animation: neonPulseJaune 2.4s ease-in-out infinite;'
                     f'}}'
