@@ -1923,11 +1923,19 @@ else:
                 for i, (tk, sh, pm, pa) in enumerate(cartes_vente):
                     with grille_vente[i % 3]:
                         with st.container(border=True):
+                            cle_slider = f"slqv_{tk}_{sh}"
+                            qty_init = max(1, min(st.session_state.get(cle_slider, sh), sh))
+                            pnl_badge = (pa - pm) * qty_init
+                            coul_b = "#10B981" if pnl_badge >= 0 else "#EF4444"
+                            fond_b = "rgba(16,185,129,0.12)" if pnl_badge >= 0 else "rgba(239,68,68,0.12)"
                             st.markdown(
-                                f"<div style='font-family:\"Bebas Neue\",\"Work Sans\",sans-serif;font-size:24px;letter-spacing:0.04em;color:#FFFFFF;'>{tk}</div>"
-                                f"<div style='color:#9CA3AF;font-size:13px;margin-bottom:8px;'>J'en possède : {sh}</div>",
+                                f"<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;'>"
+                                f"<div><div style='font-family:\"Bebas Neue\",\"Work Sans\",sans-serif;font-size:24px;letter-spacing:0.04em;color:#FFFFFF;'>{tk}</div>"
+                                f"<div style='color:#9CA3AF;font-size:13px;margin-bottom:8px;'>J'en possède : {sh}</div></div>"
+                                f"<div style='background:{fond_b};border:1px solid {coul_b};border-radius:8px;padding:4px 10px;color:{coul_b};font-weight:800;font-size:14px;white-space:nowrap;'>${pnl_badge:+,.2f}</div>"
+                                f"</div>",
                                 unsafe_allow_html=True)
-                            qty_c = st.slider("J'en vends :", min_value=1, max_value=sh, value=sh, key=f"slqv_{tk}")
+                            qty_c = st.slider("J'en vends :", min_value=1, max_value=sh, value=qty_init, key=cle_slider)
                             tot_c = qty_c * pa
                             st.markdown(
                                 f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_c:,.2f}</b></div>",
