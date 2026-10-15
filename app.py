@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import xml.etree.ElementTree as ET
 import requests
 import uuid
 from datetime import datetime
@@ -796,9 +797,26 @@ def obtenir_prix_actuel(ticker_symbol):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def obtenir_nouvelles(ticker_symbol):
-    """Actualités du titre (5 max). 1 appel par titre aux 15 min, partagé entre élèves."""
+    """Actualités du titre via Google News RSS (5 max). 1 appel par titre aux 15 min, partagé entre élèves."""
     try:
-        return (yf.Ticker(ticker_symbol).news or [])[:5]
+        import urllib.parse, urllib.request
+        q = urllib.parse.quote_plus(f"{ticker_symbol} stock")
+        url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = r.read()
+        root = ET.fromstring(data)
+        out = []
+        for it in root.findall('.//item')[:5]:
+            titre = it.findtext('title') or ''
+            lien = it.findtext('link') or ''
+            src_el = it.find('source')
+            pub = (src_el.text or '') if src_el is not None else ''
+            if ' - ' in titre:
+                titre = titre.rsplit(' - ', 1)[0]
+            if titre and lien:
+                out.append({'title': titre, 'link': lien, 'publisher': pub})
+        return out
     except Exception:
         return []
 
@@ -808,6 +826,8 @@ def obtenir_domaine(ticker_symbol):
     try:
         site = yf.Ticker(ticker_symbol).info.get('website', '') or ''
         domaine = site.replace('https://', '').replace('http://', '').split('/')[0].strip().lower()
+        if domaine.startswith('www.'):
+            domaine = domaine[4:]
         return domaine or None
     except Exception:
         return None
@@ -1432,7 +1452,8 @@ else:
 
             with col_chart:
                 domaine_logo = obtenir_domaine(selected_ticker)
-                logo_html = (f"<img src='https://logo.clearbit.com/{domaine_logo}' onerror=\"this.style.display='none'\" "
+                logo_html = (f"<img src='https://logo.clearbit.com/{domaine_logo}' "
+                             f"onerror=\"this.onerror=function(){{this.style.display='none'}};this.src='https://www.google.com/s2/favicons?domain={domaine_logo}&sz=64';\" "
                              f"style='width:42px;height:42px;border-radius:10px;background:#FFFFFF;padding:3px;object-fit:contain;flex-shrink:0;'>") if domaine_logo else ""
                 st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'>{logo_html}<div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
 
