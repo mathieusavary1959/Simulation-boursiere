@@ -1244,6 +1244,42 @@ else:
                 css_tape = "<style>body{margin:0;background:#161616;font-family:'Work Sans',sans-serif;overflow:hidden;border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}.track{display:flex;width:max-content;padding:11px 0;animation:tapeScroll " + str(duree_tape) + "s linear infinite}.track:hover{animation-play-state:paused}.item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}@keyframes tapeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>"
                 components.html(f"<!DOCTYPE html><html><head>{css_tape}</head><body><div class='track'>{items_tape}{items_tape}</div></body></html>", height=46)
 
+        # --- SUIVI DES RÈGLES DU JEU ---
+        mois_court = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m")
+        nb_titres = int(pos_df['ticker'].nunique()) if not pos_df.empty else 0
+        ach_mois_q = conn.query(
+            "SELECT COUNT(*) AS n FROM transactions WHERE username=:u AND shares > 0 AND timestamp LIKE :m",
+            params={"u": user, "m": mois_court + "%"}, ttl=0)
+        nb_achats_mois = int(ach_mois_q.iloc[0]['n']) if not ach_mois_q.empty else 0
+
+        regle_titres_ok = nb_titres >= 4
+        regle_achats_ok = nb_achats_mois >= 5
+
+        def carte_regle(titre, valeur, cible, ok):
+            affichage = "✓" if ok else f"{valeur}/{cible}"
+            couleur = "#10B981" if ok else "#F59E0B"
+            pct = min(100, int(valeur / cible * 100)) if cible else 0
+            return (f"<div style=\"background:#1A1A1A;border:1px solid #2E2E2E;border-radius:10px;padding:12px 16px;\">"
+                    f"<div style=\"color:#9CA3AF;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;\">{titre}</div>"
+                    f"<div style=\"color:#FFFFFF;font-size:22px;font-weight:800;font-family:'Work Sans',sans-serif;\">{affichage}</div>"
+                    f"<div style=\"background:#2E2E2E;border-radius:6px;height:8px;margin-top:8px;\">"
+                    f"<div style=\"background:{couleur};border-radius:6px;height:8px;width:{pct}%;\"></div></div></div>")
+
+        st.markdown("### Mes règles du jeu")
+        rc1, rc2 = st.columns(2)
+        rc1.markdown(carte_regle("Titres différents (min. 4)", nb_titres, 4, regle_titres_ok), unsafe_allow_html=True)
+        rc2.markdown(carte_regle("Achats ce mois-ci (min. 5)", nb_achats_mois, 5, regle_achats_ok), unsafe_allow_html=True)
+
+        manques = []
+        if not regle_titres_ok:
+            manques.append(f"ajoute {4 - nb_titres} titre(s) différent(s)")
+        if not regle_achats_ok:
+            manques.append(f"fais {5 - nb_achats_mois} achat(s) de plus ce mois-ci")
+        if manques:
+            st.caption("Pour respecter les règles : " + " et ".join(manques) + ".")
+        else:
+            st.caption("Règles respectées. Beau travail!")
+
     afficher_metrics_live()
 
     st.markdown("<hr>", unsafe_allow_html=True)
