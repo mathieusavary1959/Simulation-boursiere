@@ -1539,7 +1539,22 @@ else:
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
-                # FAVORIS
+                # FAVORIS (bouton jaune pour le distinguer du rouge/vert)
+                st.markdown("""
+                    <style>
+                    div:has(> [data-testid="stMarkdownContainer"] .fav-jaune-anchor) + div [data-testid="stButton"] button {
+                        background: linear-gradient(180deg, #F7C948 0%, #E0A800 100%) !important;
+                        border: 1px solid rgba(255, 220, 120, 0.55) !important;
+                        color: #1A1A1A !important;
+                        box-shadow: 0 10px 22px -10px rgba(247, 201, 72, 0.8) !important;
+                    }
+                    div:has(> [data-testid="stMarkdownContainer"] .fav-jaune-anchor) + div [data-testid="stButton"] button:hover {
+                        filter: brightness(1.08);
+                        box-shadow: 0 14px 26px -10px rgba(247, 201, 72, 0.95) !important;
+                    }
+                    </style>
+                    <div class="fav-jaune-anchor"></div>
+                """, unsafe_allow_html=True)
                 def _retirer_favori(tk):
                     with conn.session as session:
                         session.execute(text("DELETE FROM favoris WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
