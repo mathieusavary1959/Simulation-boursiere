@@ -1913,7 +1913,9 @@ else:
 
                 cartes_vente = []
                 for _, r in p_all.iterrows():
-                    tk2, sh2 = str(r['ticker']), int(r['shares'])
+                    tk2, sh2 = str(r['ticker']), int(r['shares'] or 0)
+                    if sh2 <= 0:
+                        continue  # ligne résiduelle sans action : rien à vendre, on l'ignore
                     pm2 = float(r['avg_price'] or 0.0)
                     pa2_live = prix_dict_pos.get(tk2.upper())
                     pa2 = pa2_live if pa2_live is not None else pm2
@@ -1923,8 +1925,9 @@ else:
                 for i, (tk, sh, pm, pa) in enumerate(cartes_vente):
                     with grille_vente[i % 3]:
                         with st.container(border=True):
-                            cle_slider = f"slqv_{tk}_{sh}"
-                            qty_init = max(1, min(st.session_state.get(cle_slider, sh), sh))
+                            sh_s = max(int(sh), 1)
+                            cle_slider = f"slqv_{tk}_{sh_s}"
+                            qty_init = max(1, min(int(st.session_state.get(cle_slider, sh_s)), sh_s))
                             pnl_badge = (pa - pm) * qty_init
                             coul_b = "#10B981" if pnl_badge >= 0 else "#EF4444"
                             fond_b = "rgba(16,185,129,0.12)" if pnl_badge >= 0 else "rgba(239,68,68,0.12)"
@@ -1935,7 +1938,7 @@ else:
                                 f"<div style='background:{fond_b};border:1px solid {coul_b};border-radius:8px;padding:4px 10px;color:{coul_b};font-weight:800;font-size:14px;white-space:nowrap;'>${pnl_badge:+,.2f}</div>"
                                 f"</div>",
                                 unsafe_allow_html=True)
-                            qty_c = st.slider("J'en vends :", min_value=1, max_value=sh, value=qty_init, key=cle_slider)
+                            qty_c = st.slider("J'en vends :", min_value=1, max_value=sh_s, value=qty_init, key=cle_slider)
                             tot_c = qty_c * pa
                             st.markdown(
                                 f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_c:,.2f}</b></div>",
