@@ -1919,26 +1919,18 @@ else:
                     pa2 = pa2_live if pa2_live is not None else pm2
                     cartes_vente.append((tk2, sh2, pm2, pa2))
 
-                grille_vente = st.columns(2)
+                grille_vente = st.columns(3)
                 for i, (tk, sh, pm, pa) in enumerate(cartes_vente):
-                    with grille_vente[i % 2]:
+                    with grille_vente[i % 3]:
                         with st.container(border=True):
-                            pnl_u = (pa - pm) * sh
-                            pnl_u_pct = ((pa - pm) / pm * 100) if pm > 0 else 0
-                            coul_u = "#10B981" if pnl_u >= 0 else "#EF4444"
                             st.markdown(
-                                f"<div style='margin-bottom:2px;'><span style='font-family:\"Bebas Neue\",\"Work Sans\",sans-serif;font-size:26px;letter-spacing:0.04em;color:#FFFFFF;'>{tk}</span>"
-                                f"<span style='color:#9CA3AF;font-size:13px;margin-left:10px;'>{sh} action(s)</span></div>"
-                                f"<div style='color:#FFFFFF;font-size:15px;'>Valeur : <b>${sh * pa:,.2f}</b></div>"
-                                f"<div style='color:{coul_u};font-size:15px;font-weight:700;margin-bottom:6px;'>Gain/perte : ${pnl_u:+,.2f} ({pnl_u_pct:+.2f}%)</div>",
+                                f"<div style='font-family:\"Bebas Neue\",\"Work Sans\",sans-serif;font-size:24px;letter-spacing:0.04em;color:#FFFFFF;'>{tk}</div>"
+                                f"<div style='color:#9CA3AF;font-size:13px;margin-bottom:8px;'>J'en possède : {sh}</div>",
                                 unsafe_allow_html=True)
-                            qty_c = st.slider("Quantité à vendre", min_value=1, max_value=sh, value=sh, key=f"slqv_{tk}")
+                            qty_c = st.slider("J'en vends :", min_value=1, max_value=sh, value=sh, key=f"slqv_{tk}")
                             tot_c = qty_c * pa
-                            pnl_c = (pa - pm) * qty_c
-                            coul_c = "#10B981" if pnl_c >= 0 else "#EF4444"
                             st.markdown(
-                                f"<div style='color:#FFFFFF;font-size:14px;'>Tu recevras : <b>${tot_c:,.2f}</b></div>"
-                                f"<div style='color:{coul_c};font-size:14px;font-weight:700;margin-bottom:8px;'>Gain/perte sur cette vente : ${pnl_c:+,.2f}</div>",
+                                f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_c:,.2f}</b></div>",
                                 unsafe_allow_html=True)
                             if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
                                 if not verifier_cooldown(user, delai_secondes=3):
