@@ -1938,7 +1938,12 @@ else:
                                 f"<div style='background:{fond_b};border:1px solid {coul_b};border-radius:8px;padding:4px 10px;color:{coul_b};font-weight:800;font-size:14px;white-space:nowrap;'>${pnl_badge:+,.2f}</div>"
                                 f"</div>",
                                 unsafe_allow_html=True)
-                            qty_c = st.slider("J'en vends :", min_value=1, max_value=sh_s, value=qty_init, key=cle_slider)
+                            if sh_s <= 1:
+                                # Streamlit refuse un curseur avec min == max : avec une seule action, pas de curseur
+                                qty_c = 1
+                                st.markdown("<div style='color:#9CA3AF;font-size:14px;margin:4px 0 8px 0;'>J'en vends : <b style='color:#FFFFFF;'>1</b></div>", unsafe_allow_html=True)
+                            else:
+                                qty_c = st.slider("J'en vends :", min_value=1, max_value=sh_s, value=qty_init, key=cle_slider)
                             tot_c = qty_c * pa
                             st.markdown(
                                 f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_c:,.2f}</b></div>",
