@@ -1355,9 +1355,20 @@ else:
 
             with col_order:
                 st.markdown("### Passer un ordre")
-                qty = st.number_input("Quantité", min_value=1, step=1, value=1)
-                cost_total = prix * qty
-                st.write(f"Total estimé : **${cost_total:,.2f}**")
+                mode_ordre = st.radio("Mode d'achat", ["Par quantité", "Par montant ($)"], horizontal=True, key=f"mode_{selected_ticker}")
+
+                if mode_ordre == "Par quantité":
+                    qty_achat = st.number_input("Quantité", min_value=1, step=1, value=1, key=f"qty_{selected_ticker}")
+                    st.write(f"Total estimé : **${prix*qty_achat:,.2f}**")
+                    qty_vente = qty_achat
+                else:
+                    montant = st.number_input("Montant à investir ($)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
+                    qty_achat = int(montant // prix) if prix and prix > 0 else 0
+                    if qty_achat >= 1:
+                        st.write(f"Vous pouvez acheter **{qty_achat}** actions pour **${qty_achat*prix:,.2f}**")
+                    else:
+                        st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
+                    qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
 
                 if achat_penny_stock_bloque(selected_ticker):
                     st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
@@ -1368,11 +1379,13 @@ else:
                 if col_b.button("Acheter", use_container_width=True):
                     if achat_penny_stock_bloque(selected_ticker):
                         st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
+                    elif qty_achat < 1:
+                        st.warning("Augmentez le montant pour acheter au moins une action.")
                     elif not verifier_cooldown(user, delai_secondes=3):
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
-                        cost_real = prix_instantane * qty
+                        cost_real = prix_instantane * qty_achat
 
                         c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
                         cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
@@ -1384,16 +1397,16 @@ else:
                                 p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                                 if not p_res.empty:
                                     anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_instantane)
-                                    n_s = anc_s + qty
-                                    n_p = ((anc_s * anc_p) + (qty * prix_instantane)) / n_s
+                                    n_s = anc_s + qty_achat
+                                    n_p = ((anc_s * anc_p) + (qty_achat * prix_instantane)) / n_s
                                     session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
                                 else:
-                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane})
+                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane})
                                 session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                                {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
 
-                            st.session_state['flash_msg'] = ("success", f"Achat de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
+                            st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
@@ -1403,25 +1416,25 @@ else:
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
-                        cost_real = prix_instantane * qty
+                        cost_real = prix_instantane * qty_vente
 
                         p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                         shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
-                        if shares_dispo >= qty:
+                        if shares_dispo >= qty_vente:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
                                 session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_real, "u": user})
-                                rem = shares_dispo - qty
+                                rem = shares_dispo - qty_vente
                                 if rem > 0:
                                     session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
                                 else:
                                     session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
                                 session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": -qty, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                                {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
 
-                            st.session_state['flash_msg'] = ("success", f"Vente de {qty} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
+                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
         else:
