@@ -1321,27 +1321,27 @@ else:
             if st.button("Rafraîchir le cours", use_container_width=True):
                 st.rerun()
 
-        # --- BARRE MES FAVORIS ---
-        def _choisir_favori(tk):
-            st.session_state["recherche_ticker"] = tk
+        # --- BARRE MES FAVORIS (pastilles compactes) ---
+        def _choisir_favori_pill():
+            choix = st.session_state.get("pills_favoris")
+            if choix:
+                st.session_state["recherche_ticker"] = choix
 
         fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
         if not fav_q.empty:
-            st.markdown("### Mes favoris")
             fav_tickers = fav_q['ticker'].tolist()
             fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
-            nb_cols = min(len(fav_tickers), 6)
-            fav_cols = st.columns(nb_cols)
-            for i, tk in enumerate(fav_tickers):
+
+            def _etiquette_favori(tk):
                 px, vp = fav_data.get(tk.upper(), (None, None))
                 if px is None:
-                    chip_label = f"{tk} : --"
-                else:
-                    fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
-                    signe = "+" if (vp or 0) >= 0 else ""
-                    chip_label = f"{tk}  {fmt_px}  ({signe}{vp:.2f}%)"
-                with fav_cols[i % nb_cols]:
-                    st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
+                    return f"{tk}"
+                fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
+                signe = "+" if (vp or 0) >= 0 else ""
+                return f"{tk} {fmt_px} ({signe}{vp:.2f}%)"
+
+            st.pills("Mes favoris", options=fav_tickers, format_func=_etiquette_favori,
+                     selection_mode="single", key="pills_favoris", on_change=_choisir_favori_pill)
         else:
             st.caption("Astuce : ajoutez des titres à vos favoris avec le bouton ☆ dans le panneau d'ordre pour les retrouver ici.")
 
@@ -1540,13 +1540,16 @@ else:
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
                 # FAVORIS
+                def _retirer_favori(tk):
+                    with conn.session as session:
+                        session.execute(text("DELETE FROM favoris WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
+                        session.commit()
+                    st.session_state["pills_favoris"] = None
+
                 fav_check = conn.query("SELECT 1 FROM favoris WHERE username=:u AND ticker=:t", params={"u": user, "t": selected_ticker.upper()}, ttl=0)
                 if not fav_check.empty:
-                    if st.button("★ Dans mes favoris (retirer)", use_container_width=True, key=f"favrm_{selected_ticker}"):
-                        with conn.session as session:
-                            session.execute(text("DELETE FROM favoris WHERE username=:u AND ticker=:t"), {"u": user, "t": selected_ticker.upper()})
-                            session.commit()
-                        st.rerun()
+                    st.button("★ Dans mes favoris (retirer)", use_container_width=True, key=f"favrm_{selected_ticker}",
+                              on_click=_retirer_favori, args=(selected_ticker.upper(),))
                 else:
                     if st.button("☆ Ajouter à mes favoris", use_container_width=True, key=f"favadd_{selected_ticker}"):
                         with conn.session as session:
