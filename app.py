@@ -1664,18 +1664,18 @@ else:
                         "50% {box-shadow: 0 0 16px 3px rgba(255,215,0,1), 0 0 40px 10px rgba(255,215,0,0.45);}"
                         "}"
                     )
-                    for tk in fav_tickers:
+                    for i, tk in enumerate(fav_tickers):
                         px, vp = fav_data.get(tk.upper(), (None, None))
                         couleur_txt = "#10B981" if (vp or 0) >= 0 else "#EF4444"
-                        cle = f"favchip_{tk}"
+                        cle = f"favchip_{i}"
                         chip_css += (
-                            f'div[class*="st-key-{cle}"] button {{'
+                            f'div[class~="st-key-{cle}"] button {{'
                             f'background: #161616 !important;'
                             f'border: 1px solid #FFD700 !important;'
                             f'padding: 5px 6px !important;'
                             f'animation: neonPulseJaune 2.4s ease-in-out infinite;'
                             f'}}'
-                            f'div[class*="st-key-{cle}"] button p {{'
+                            f'div[class~="st-key-{cle}"] button p {{'
                             f'color: {couleur_txt} !important; font-weight: 700 !important; font-size: 13px !important;'
                             f'}}'
                         )
@@ -1692,7 +1692,7 @@ else:
                             fleche = "▲" if (vp or 0) >= 0 else "▼"
                             chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
                         with fav_cols[i % 2]:
-                            st.button(chip_label, key=f"favchip_{tk}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
+                            st.button(chip_label, key=f"favchip_{i}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
         else:
             st.error(f"Impossible de trouver des données financières pour '{selected_ticker}'. Vérifiez le nom ou le symbole boursier.")
 
