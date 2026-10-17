@@ -72,32 +72,69 @@ def init_db():
 
 init_db()
 
-# --- FILTRE DE VALIDATION DES BOURSES NORD-AMÉRICAINES ---
-def est_marche_nord_americain(symbol, exch_code="", exch_disp=""):
-    symbol_upper = symbol.upper().strip()
+# --- VALIDATION STRICTE DES INSTRUMENTS AUTORISÉS ---
+# Règle de Mathieu (17 oct. 2026) : actions et FNB seulement, cotés uniquement
+# sur TSX (Toronto), NYSE ou Nasdaq. Aucune crypto, devise, future ni indice ;
+# aucun marché OTC, TSX-V, NEO, CSE ni bourse étrangère.
+# Codes d'échange Yahoo : TOR=TSX, NYQ=NYSE, NMS/NGM/NCM=Nasdaq,
+# PCX=NYSE Arca, ASE=NYSE American, BTS=Cboe BZX (lieux de cotation des FNB).
+EXCHANGES_AUTORISES = {'TOR', 'NYQ', 'NMS', 'NGM', 'NCM', 'PCX', 'ASE', 'BTS'}
+TYPES_AUTORISES = {'EQUITY', 'ETF'}
 
-    suffixes_interdits = (
-        '.PA', '.T', '.L', '.DE', '.MI', '.SS', '.HK', '.AX',
-        '.BR', '.LS', '.MC', '.AS', '.SW', '.SA', '.MX', '.BE', '.F', '.VI'
-    )
-    if symbol_upper.endswith(suffixes_interdits):
+def _symbole_syntaxe_ok(symbol):
+    """Pré-filtre sans appel réseau : rejette devises (=X), futures (=F),
+    indices (^...), cryptos (-USD) et symboles vides."""
+    s = (symbol or '').upper().strip()
+    if not s:
         return False
+    return not ('^' in s or '=' in s or s.endswith('-USD'))
 
-    if '.' in symbol_upper:
-        suffix = symbol_upper.split('.')[-1]
-        if suffix not in ['TO', 'V', 'CN', 'NE']:
-            return False
-
-    mots_cles_na = [
-        'NYSE', 'NASDAQ', 'TSX', 'TORONTO', 'AMEX', 'OTC', 'NEO',
-        'VENTURE', 'CBOE', 'AMERICAN', 'PNK', 'NMS', 'NYQ', 'NGM', 'NCM', 'TOR', 'VAN'
-    ]
-
-    comb = f"{exch_code} {exch_disp}".upper()
-    if comb.strip():
-        return any(kw in comb for kw in mots_cles_na)
-
+def instrument_autorise(symbol, exch_code="", exch_disp="", quote_type=""):
+    """Vrai si l'instrument peut être acheté dans le jeu."""
+    s = (symbol or '').upper().strip()
+    if not _symbole_syntaxe_ok(s):
+        return False
+    # Seul le suffixe .TO (TSX Toronto) est accepté ; toute autre bourse
+    # à suffixe (TSX-V, NEO, CSE, Paris, Tokyo...) est rejetée.
+    if '.' in s and not s.endswith('.TO'):
+        return False
+    # Si l'info d'échange est fournie, elle doit être TSX/NYSE/Nasdaq.
+    codes = set(f"{exch_code} {exch_disp}".upper().split())
+    if codes and not (codes & EXCHANGES_AUTORISES):
+        return False
+    # Si le type d'instrument est fourni, actions et FNB seulement.
+    qt = (quote_type or '').upper().strip()
+    if qt and qt not in TYPES_AUTORISES:
+        return False
     return True
+
+# --- CONVERSION AUTOMATIQUE USD -> CAD ---
+# L'élève ne fait aucun calcul : tous les prix sont affichés et comptabilisés
+# en dollars canadiens. Un seul appel Yahoo par heure, partagé par les 200+
+# élèves via le cache (aucun ralentissement).
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtenir_taux_usdcad():
+    try:
+        r = yf.Ticker('USDCAD=X').fast_info.get('lastPrice')
+        if r is not None and not pd.isna(r) and float(r) > 0:
+            return float(r)
+    except Exception:
+        pass
+    return None
+
+def convertir_vers_cad(prix, devise):
+    """Convertit un prix vers le dollar canadien (invisible pour l'élève)."""
+    if prix is None:
+        return None
+    try:
+        p = float(prix)
+    except (TypeError, ValueError):
+        return None
+    if str(devise or '').upper() == 'USD':
+        taux = obtenir_taux_usdcad()
+        if taux:
+            return round(p * taux, 4)
+    return round(p, 4)
 
 # --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN DE 3 SECONDES) ---
 def verifier_cooldown(username, delai_secondes=3):
@@ -750,10 +787,12 @@ def rechercher_symbole_universel(query):
             shortname = quote.get('shortname') or quote.get('longname') or symbol
             exch = quote.get('exchDisp') or quote.get('exchange') or ''
             type_disp = quote.get('typeDisp') or ''
+            exch_code = (quote.get('exchange') or '').upper()
 
-            if symbol and (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
-                if est_marche_nord_americain(symbol, exch_code=quote.get('exchange', ''), exch_disp=exch):
-                    results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
+            if symbol and _symbole_syntaxe_ok(symbol):
+                if (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
+                    if not exch_code or exch_code in EXCHANGES_AUTORISES:
+                        results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
         return results
     except Exception:
         return []
@@ -773,6 +812,7 @@ def obtenir_donnees_favoris(tickers_tuple):
         for tk in clean:
             try:
                 fi = data.tickers[tk].fast_info
+                devise = str(fi.get('currency') or 'CAD').upper()
                 px = fi.get('lastPrice') or fi.get('regularMarketPrice') or fi.get('last_price')
                 op = fi.get('open') or fi.get('openPrice')
                 if px is not None and not pd.isna(px) and float(px) > 0:
@@ -781,7 +821,7 @@ def obtenir_donnees_favoris(tickers_tuple):
                         vp = (px - float(op)) / float(op) * 100
                     else:
                         vp = 0.0
-                    out[tk] = (round(px, 4), round(vp, 2))
+                    out[tk] = (convertir_vers_cad(px, devise), round(vp, 2))
                 else:
                     out[tk] = (None, None)
             except Exception:
@@ -795,12 +835,13 @@ def obtenir_prix_actuel(ticker_symbol):
     try:
         t = yf.Ticker(ticker_symbol)
         data = t.fast_info
+        devise = str(data.get('currency') or 'CAD').upper()
         prix = data.get('lastPrice') or data.get('regularMarketPrice') or data.get('last_price')
         if prix is not None and not pd.isna(prix) and float(prix) > 0:
-            return round(float(prix), 4)
+            return convertir_vers_cad(float(prix), devise)
         hist = t.history(period="1d")
         if not hist.empty:
-            return round(float(hist['Close'].iloc[-1]), 4)
+            return convertir_vers_cad(float(hist['Close'].iloc[-1]), devise)
         return None
     except Exception:
         return None
@@ -839,15 +880,16 @@ def cloture_veille(ticker_symbol):
         # previousClose de fast_info = clôture officielle précédente, fiable
         # même en premarket
         data = t.fast_info
+        devise = str(data.get('currency') or 'CAD').upper()
         pc = data.get('previousClose')
         if pc is not None and not pd.isna(pc) and float(pc) > 0:
-            return round(float(pc), 4)
+            return convertir_vers_cad(float(pc), devise)
         # Repli : historique 5 jours, prendre l'avant-dernière clôture
         # (la dernière peut être la séance du jour en cours)
         hist = t.history(period="5d")
         if hist is None or hist.empty or len(hist) < 2:
             return None
-        return round(float(hist['Close'].iloc[-2]), 4)
+        return convertir_vers_cad(float(hist['Close'].iloc[-2]), devise)
     except Exception:
         return None
 
@@ -860,7 +902,11 @@ def cloture_avant_date(ticker_symbol, date_limite):
         hist = t.history(start="2026-10-01", end=date_limite)
         if hist is None or hist.empty:
             return None
-        return round(float(hist['Close'].iloc[-1]), 4)
+        try:
+            devise = str(t.fast_info.get('currency') or 'CAD').upper()
+        except Exception:
+            devise = 'CAD'
+        return convertir_vers_cad(float(hist['Close'].iloc[-1]), devise)
     except Exception:
         return None
 
@@ -1033,9 +1079,10 @@ def obtenir_prix_groupes(tickers_list):
         for tk in clean_tickers:
             try:
                 info = data.tickers[tk].fast_info
+                devise = str(info.get('currency') or 'CAD').upper()
                 px = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
                 if px is not None and not pd.isna(px):
-                    prix_dict[tk] = round(float(px), 4)
+                    prix_dict[tk] = convertir_vers_cad(float(px), devise)
                 else:
                     prix_dict[tk] = None
             except Exception:
@@ -1046,12 +1093,20 @@ def obtenir_prix_groupes(tickers_list):
 
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_details_financiers(ticker_symbol):
-    if not est_marche_nord_americain(ticker_symbol):
+    if not _symbole_syntaxe_ok(ticker_symbol):
         return {"erreur": "non_na"}
 
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.fast_info
+
+        # Validation stricte : actions/FNB du TSX, NYSE ou Nasdaq seulement.
+        exch = str(info.get('exchange') or '')
+        qtype = str(info.get('quoteType') or '')
+        if not instrument_autorise(ticker_symbol, exch_code=exch, quote_type=qtype):
+            return {"erreur": "non_na"}
+
+        devise = str(info.get('currency') or 'CAD').upper()
 
         last = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
         if last is None or pd.isna(last) or float(last) <= 0:
@@ -1075,33 +1130,44 @@ def obtenir_details_financiers(ticker_symbol):
         else:
             open_p = float(open_p)
 
-        change = last - open_p
-        change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
-        fmt = ".4f" if last < 1 else ".2f"
+        # Tout est converti en dollars canadiens (invisible pour l'élève).
+        last_cad = convertir_vers_cad(last, devise)
+        open_cad = convertir_vers_cad(open_p, devise)
+        change = last_cad - open_cad
+        change_pct = (change / open_cad) * 100 if open_cad > 0 else 0.0
+        fmt = ".4f" if last_cad < 1 else ".2f"
 
-        high_p = info.get('dayHigh', last)
-        low_p = info.get('dayLow', last)
-        y_high = info.get('yearHigh', last)
-        y_low = info.get('yearLow', last)
+        high_cad = convertir_vers_cad(info.get('dayHigh') or last, devise)
+        low_cad = convertir_vers_cad(info.get('dayLow') or last, devise)
+        y_high_cad = convertir_vers_cad(info.get('yearHigh') or last, devise)
+        y_low_cad = convertir_vers_cad(info.get('yearLow') or last, devise)
 
         return {
-            "Prix": last,
+            "Prix": last_cad,
             "Variation": change,
             "VariationPct": change_pct,
-            "Ouverture": f"${open_p:{fmt}}",
-            "Plus Haut": f"${high_p:{fmt}}",
-            "Plus Bas": f"${low_p:{fmt}}",
-            "52 sem. Haut": f"${y_high:{fmt}}",
-            "52 sem. Bas": f"${y_low:{fmt}}"
+            "Ouverture": f"${open_cad:{fmt}}",
+            "Plus Haut": f"${high_cad:{fmt}}",
+            "Plus Bas": f"${low_cad:{fmt}}",
+            "52 sem. Haut": f"${y_high_cad:{fmt}}",
+            "52 sem. Bas": f"${y_low_cad:{fmt}}",
+            "Devise": devise
         }
     except Exception:
         return None
 
 @st.cache_data(ttl=300, show_spinner=False)
-def obtenir_historique(ticker_symbol, periode):
+def obtenir_historique(ticker_symbol, periode, devise="CAD"):
     try:
         interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
-        return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
+        df = yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
+        if df is not None and not df.empty and str(devise or '').upper() == 'USD':
+            taux = obtenir_taux_usdcad()
+            if taux:
+                for col in ('Open', 'High', 'Low', 'Close'):
+                    if col in df.columns:
+                        df[col] = df[col] * taux
+        return df
     except Exception: return None
 
 # --- CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
@@ -1362,9 +1428,9 @@ else:
         col_s1, col_s2 = st.columns([4, 1])
         with col_s1:
             search_query = st.text_input(
-                "Rechercher une action nord-américaine (ex: Apple, Tesla, Royal Bank, NVDA, SHOP.TO...)",
+                "Rechercher une action (TSX, NYSE, Nasdaq seulement)",
                 value="",
-                placeholder="Tapez le nom d'une entreprise ou un symbole (NYSE, NASDAQ, TSX)...",
+                placeholder="Tapez le nom d'une entreprise ou un symbole (ex: Apple, SHOP.TO)...",
                 key="recherche_ticker"
             )
         with col_s2:
@@ -1387,7 +1453,7 @@ else:
         details = obtenir_details_financiers(selected_ticker)
 
         if details == {"erreur": "non_na"}:
-            st.error(f"**Marché non autorisé :** L'action `{selected_ticker}` est cotée hors de l'Amérique du Nord (ex: Paris, Tokyo, Londres). Seules les bourses nord-américaines (NYSE, NASDAQ, TSX, TSX-V, OTC) sont permises.")
+            st.error(f"**Instrument non autorisé :** Seules les actions et FNB cotés au TSX (Toronto), au NYSE ou au Nasdaq sont permis. Aucune crypto, devise, future ni indice.")
         elif details:
             prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
             chart_color = "#10B981" if var >= 0 else "#EF4444"
@@ -1399,6 +1465,7 @@ else:
 
             with col_chart:
                 st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
+                st.caption("Prix affichés en dollars canadiens.")
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -1426,7 +1493,7 @@ else:
                         key=f"typegraph_{ticker}"
                     )
 
-                    df_hist = obtenir_historique(ticker, selected_period)
+                    df_hist = obtenir_historique(ticker, selected_period, details.get("Devise", "CAD"))
                     if df_hist is not None and not df_hist.empty:
                         min_p = float(df_hist['Close'].min())
                         max_p = float(df_hist['Close'].max())
