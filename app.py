@@ -66,6 +66,11 @@ def init_db():
                     PRIMARY KEY (username, ticker)
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS groupes_fermes (
+                    groupe TEXT PRIMARY KEY
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
@@ -1270,19 +1275,33 @@ if st.session_state['user'] is None:
                     else: st.error("Identifiants incorrects.")
 
         with tab2:
+            try:
+                _fermes_inscr = set(conn.query("SELECT groupe FROM groupes_fermes", ttl=0)['groupe'].tolist())
+            except Exception:
+                _fermes_inscr = set()
+            _groupes_ouverts = [g for g in LISTE_GROUPES if g not in _fermes_inscr]
             with st.form("form_inscription"):
                 u_new = st.text_input("Identifiant (ex: PrenomNom)", key="new_user")
-                g_new = st.selectbox("Groupe", LISTE_GROUPES, key="new_group")
+                if _groupes_ouverts:
+                    g_new = st.selectbox("Groupe", _groupes_ouverts, key="new_group")
+                else:
+                    st.warning("Les inscriptions sont fermées pour tous les groupes.")
+                    g_new = None
                 p_new = st.text_input("Mot de passe", type="password", key="new_pass")
                 if st.form_submit_button("S'inscrire", use_container_width=True):
-                    if u_new and p_new:
-                        res_check = conn.query("SELECT username FROM users WHERE username=:u", params={"u": u_new.strip()}, ttl=0)
-                        if res_check.empty:
-                            with conn.session as session:
-                                session.execute(text("INSERT INTO users VALUES (:u, :p, 10000.00, :g)"), {"u": u_new.strip(), "p": p_new, "g": g_new})
-                                session.commit()
-                            st.success("Compte créé ! Connectez-vous.")
-                        else: st.error("Ce nom d'utilisateur existe déjà.")
+                    if u_new and p_new and g_new:
+                        # Sécurité : revérifier que le groupe n'a pas été fermé entre-temps
+                        _rev = conn.query("SELECT 1 FROM groupes_fermes WHERE groupe=:g", params={"g": g_new}, ttl=0)
+                        if not _rev.empty:
+                            st.error("Ce groupe vient d'être fermé. Choisissez un autre groupe.")
+                        else:
+                            res_check = conn.query("SELECT username FROM users WHERE username=:u", params={"u": u_new.strip()}, ttl=0)
+                            if res_check.empty:
+                                with conn.session as session:
+                                    session.execute(text("INSERT INTO users VALUES (:u, :p, 10000.00, :g)"), {"u": u_new.strip(), "p": p_new, "g": g_new})
+                                    session.commit()
+                                st.success("Compte créé ! Connectez-vous.")
+                            else: st.error("Ce nom d'utilisateur existe déjà.")
                     else: st.error("Veuillez remplir tous les champs.")
 
 else:
@@ -2159,6 +2178,37 @@ else:
                         st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} cas. Cash total réajusté : ${tot_cash:+,.2f}.")
                         st.rerun()
 
+            with st.expander("Groupes : inscriptions et changements de groupe"):
+                st.info(
+                    "Fermez un groupe quand tous ses élèves sont inscrits : plus personne "
+                    "ne pourra s'y inscrire. Les élèves déjà inscrits ne sont pas affectés. "
+                    "Rouvrir un groupe réactive les inscriptions."
+                )
+                try:
+                    _fermes = set(conn.query("SELECT groupe FROM groupes_fermes", ttl=0)['groupe'].tolist())
+                except Exception:
+                    _fermes = set()
+                _comptes = conn.query("SELECT groupe, COUNT(*) as n FROM users GROUP BY groupe", ttl=0)
+                _nb_par_groupe = {str(r['groupe']): int(r['n']) for _, r in _comptes.iterrows()} if not _comptes.empty else {}
+                for g in LISTE_GROUPES:
+                    _nb = _nb_par_groupe.get(g, 0)
+                    _est_ferme = g in _fermes
+                    cg1, cg2, cg3 = st.columns([3, 2, 2])
+                    cg1.markdown(f"**{g}** — {_nb} inscrit(s)")
+                    cg2.markdown("Fermé" if _est_ferme else "Ouvert")
+                    if _est_ferme:
+                        if cg3.button("Rouvrir", key=f"rouvrir_{g}", use_container_width=True):
+                            with conn.session as session:
+                                session.execute(text("DELETE FROM groupes_fermes WHERE groupe = :g"), {"g": g})
+                                session.commit()
+                            st.rerun()
+                    else:
+                        if cg3.button("Fermer", key=f"fermer_{g}", use_container_width=True):
+                            with conn.session as session:
+                                session.execute(text("INSERT INTO groupes_fermes (groupe) VALUES (:g)"), {"g": g})
+                                session.commit()
+                            st.rerun()
+
             grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
 
             if grp_p == "Tous les groupes":
@@ -2231,6 +2281,22 @@ else:
                                 session.execute(text("DELETE FROM users WHERE username = :u"), {"u": e_sel})
                                 session.commit()
                             st.session_state['flash_msg'] = ("success", f"Le profil de {e_sel} a été définitivement supprimé !")
+                            st.rerun()
+
+                    col_g1, col_g2 = st.columns([3, 1])
+                    with col_g1:
+                        _idx_grp = LISTE_GROUPES.index(e_grp) if e_grp in LISTE_GROUPES else 0
+                        _nv_grp = st.selectbox("Changer le groupe de l'élève :", LISTE_GROUPES, index=_idx_grp, key=f"nvgrp_{e_sel}")
+                    with col_g2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("Changer de groupe", use_container_width=True, key=f"btngrp_{e_sel}"):
+                            if _nv_grp != e_grp:
+                                with conn.session as session:
+                                    session.execute(text("UPDATE users SET groupe = :g WHERE username = :u"), {"g": _nv_grp, "u": e_sel})
+                                    session.commit()
+                                st.session_state['flash_msg'] = ("success", f"{e_sel} est maintenant dans le groupe {_nv_grp}.")
+                            else:
+                                st.session_state['flash_msg'] = ("success", f"{e_sel} est déjà dans le groupe {_nv_grp}.")
                             st.rerun()
 
                     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
