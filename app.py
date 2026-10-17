@@ -117,7 +117,7 @@ def instrument_autorise(symbol, exch_code="", exch_disp="", quote_type=""):
 # L'élève ne fait aucun calcul : tous les prix sont affichés et comptabilisés
 # en dollars canadiens. Un seul appel Yahoo par heure, partagé par les 200+
 # élèves via le cache (aucun ralentissement).
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def obtenir_taux_usdcad():
     try:
         r = yf.Ticker('USDCAD=X').fast_info.get('lastPrice')
