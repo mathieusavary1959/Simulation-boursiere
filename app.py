@@ -71,11 +71,60 @@ def init_db():
                     groupe TEXT PRIMARY KEY
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS regles_vues (
+                    username TEXT PRIMARY KEY,
+                    version INT,
+                    vue_le TEXT
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
 
 init_db()
+
+# --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
+VERSION_REGLES = 2
+
+@st.dialog("Nouvelles règles du jeu")
+def afficher_popup_regles(username):
+    st.markdown(
+        "**Lis ça une fois. Après, tu ne pourras plus dire que tu ne savais pas.**\n\n"
+        "**1. 3 bourses seulement : Toronto, New York et Nasdaq.**\n"
+        "Fini les cryptos, les devises, les paris sur la peur. "
+        "*En vrai, on ne trade pas le franc suisse à l'école. On joue à la vraie bourse.*\n\n"
+        "**2. Tout est en dollars canadiens, automatiquement.**\n"
+        "*Pour que tu n'aies aucun calcul à faire.*\n\n"
+        "**3. Ta position ne peut pas dépasser 5 % de ce qui s'échange chaque jour sur un titre.**\n"
+        "*En vrai, un ordre géant fait bouger le prix.*\n\n"
+        "**4. Détention minimale : 1 h pour les actions, 24 h pour les ETF.**\n"
+        "*Acheter et revendre en 60 secondes sans réfléchir, ce n'est pas investir.*\n\n"
+        "**5. Rappel : 4 titres différents minimum, 5 achats par mois.**\n"
+        "*C'est une évaluation, pas juste un jeu.*\n\n"
+        "**6. Les points perdus aux vérifications ne reviennent pas.**\n"
+        "*Tu connais les règles : c'est un risque que tu prends.*"
+    )
+    lu = st.checkbox("J'ai lu et je comprends ces règles.")
+    if st.button("Fermer", disabled=not lu, use_container_width=True):
+        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+        with conn.session as session:
+            session.execute(
+                text("INSERT INTO regles_vues (username, version, vue_le) VALUES (:u, :v, :d) "
+                     "ON CONFLICT (username) DO UPDATE SET version=:v, vue_le=:d"),
+                {"u": username, "v": VERSION_REGLES, "d": now_str})
+            session.commit()
+        st.rerun()
+
+
+def verifier_popup_regles(username):
+    """Affiche la fenêtre des règles tant que l'élève n'a pas vu la version en cours."""
+    try:
+        r = conn.query("SELECT version FROM regles_vues WHERE username=:u", params={"u": username}, ttl=0)
+        if r.empty or int(r.iloc[0]['version']) < VERSION_REGLES:
+            afficher_popup_regles(username)
+    except Exception:
+        pass
 
 # --- VALIDATION STRICTE DES INSTRUMENTS AUTORISÉS ---
 # Règle de Mathieu (17 oct. 2026) : actions et FNB seulement, cotés uniquement
@@ -1407,6 +1456,8 @@ else:
         st.session_state['user'] = None
         st.query_params.clear()
         st.rerun()
+
+    verifier_popup_regles(user)
 
     cash_actuel = float(res_u.iloc[0]['cash'])
     groupe_actuel = res_u.iloc[0]['groupe']
