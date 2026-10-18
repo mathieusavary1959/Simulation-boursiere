@@ -901,6 +901,51 @@ def verifier_limite_volume(username, ticker_symbol, prix_unitaire_cad, cout_ordr
         return None
 
 
+# --- DELAI DE DETENTION MINIMUM AVANT REVENTE ---
+# Actions ordinaires : 1 h minimum (anti-flip de quelques secondes).
+# ETF : 24 h minimum (oblige a prendre le risque overnight, anti-faux-prophetes).
+DELAI_DETENTION_UNIVERSEL_H = 1
+DELAI_DETENTION_ETF_H = 24
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def est_etf(ticker_symbol):
+    """Vrai si le titre est un ETF (quoteType). Type quasi fixe : cache 24 h."""
+    try:
+        t = yf.Ticker(ticker_symbol)
+        return str(t.fast_info.get('quoteType') or '').upper() == 'ETF'
+    except Exception:
+        return False
+
+
+def delai_detention_requis(ticker_symbol):
+    """Delai de detention en heures : 24 h pour les ETF, 1 h sinon."""
+    return DELAI_DETENTION_ETF_H if est_etf(ticker_symbol) else DELAI_DETENTION_UNIVERSEL_H
+
+
+def vente_avant_delai_bloquee(username, ticker_symbol):
+    """Vrai si le dernier achat du titre date de moins que le delai requis."""
+    try:
+        delai_h = delai_detention_requis(ticker_symbol)
+        r = conn.query(
+            "SELECT MAX(timestamp) AS dernier FROM transactions WHERE username=:u AND LOWER(ticker)=LOWER(:t) AND shares > 0",
+            params={"u": username, "t": ticker_symbol}, ttl=0)
+        if r.empty or not r.iloc[0]['dernier']:
+            return False
+        dernier_achat = datetime.strptime(str(r.iloc[0]['dernier'])[:19], '%Y-%m-%d %H:%M:%S')
+        dernier_achat = dernier_achat.replace(tzinfo=ZoneInfo("America/Toronto"))
+        maintenant = datetime.now(ZoneInfo("America/Toronto"))
+        return (maintenant - dernier_achat).total_seconds() < delai_h * 3600
+    except Exception:
+        return False
+
+
+def message_delai_detention(ticker_symbol):
+    """Message d'avertissement adapte au delai du titre."""
+    if est_etf(ticker_symbol):
+        return "Tu dois garder ce titre au moins 24 h avant de le revendre (ETF)."
+    return "Tu dois garder ce titre au moins 1 h avant de le revendre."
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def obtenir_nouvelles(ticker_symbol):
     """Actualités du titre via Google News RSS (5 max). 1 appel par titre aux 15 min, partagé entre élèves."""
@@ -1703,6 +1748,10 @@ else:
                 vol_jour_cap = obtenir_volume_quotidien_moyen(selected_ticker)
                 if vol_jour_cap and LIMITE_VOLUME_PCT * vol_jour_cap < 1000000:
                     st.caption(f"Position maximale sur {selected_ticker.upper()} : {LIMITE_VOLUME_PCT * vol_jour_cap:,.0f} $")
+                if est_etf(selected_ticker):
+                    st.caption("Revente possible 24 h après l'achat (ETF).")
+                else:
+                    st.caption("Revente possible 1 h après l'achat.")
 
                 if achat_penny_stock_bloque(selected_ticker):
                     st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
@@ -1749,7 +1798,9 @@ else:
 
                 # VENTE
                 if col_s.button("Vendre", use_container_width=True):
-                    if not verifier_cooldown(user, delai_secondes=3):
+                    if vente_avant_delai_bloquee(user, selected_ticker):
+                        st.warning(message_delai_detention(selected_ticker))
+                    elif not verifier_cooldown(user, delai_secondes=3):
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
@@ -2093,7 +2144,9 @@ else:
                                 f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_c:,.2f}</b></div>",
                                 unsafe_allow_html=True)
                             if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
-                                if not verifier_cooldown(user, delai_secondes=3):
+                                if vente_avant_delai_bloquee(user, tk):
+                                    st.warning(message_delai_detention(tk))
+                                elif not verifier_cooldown(user, delai_secondes=3):
                                     st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                                 else:
                                     check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk}, ttl=0)
