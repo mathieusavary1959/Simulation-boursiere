@@ -851,6 +851,56 @@ def obtenir_prix_actuel(ticker_symbol):
     except Exception:
         return None
 
+# --- LIMITE DE POSITION : 5 % DU VOLUME QUOTIDIEN MOYEN ---
+# Un élève ne peut pas détenir plus que 5 % de ce qui s'échange vraiment
+# chaque jour sur un titre (en $). En vrai, un ordre plus gros ferait bouger
+# le prix. Donnée lente (moyenne 10 jours) : cache 24 h partagé, zéro ralentissement.
+LIMITE_VOLUME_PCT = 0.05
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def obtenir_volume_quotidien_moyen(ticker_symbol):
+    """Volume quotidien moyen en $ CAD (moyenne 10 jours x prix).
+    Retourne None si indisponible : dans ce cas on laisse passer l'ordre
+    (fail open, on ne punit pas l'élève pour une panne de données)."""
+    try:
+        t = yf.Ticker(ticker_symbol)
+        info = t.info or {}
+        vol = info.get('averageDailyVolume10Day') or info.get('averageVolume')
+        devise = str(info.get('currency') or 'CAD').upper()
+        if not vol or float(vol) <= 0:
+            return None
+        fi = t.fast_info
+        px = fi.get('lastPrice') or fi.get('regularMarketPrice')
+        if not px:
+            hist = t.history(period="1d")
+            if hist is None or hist.empty:
+                return None
+            px = float(hist['Close'].iloc[-1])
+        return convertir_vers_cad(float(vol) * float(px), devise)
+    except Exception:
+        return None
+
+
+def verifier_limite_volume(username, ticker_symbol, prix_unitaire_cad, cout_ordre_cad):
+    """Retourne un message d'erreur si (position actuelle + nouvel ordre)
+    dépasserait 5 % du volume quotidien moyen, sinon None."""
+    try:
+        vol_moyen = obtenir_volume_quotidien_moyen(ticker_symbol)
+        if not vol_moyen or vol_moyen <= 0:
+            return None
+        limite = LIMITE_VOLUME_PCT * vol_moyen
+        p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)",
+                           params={"u": username, "t": ticker_symbol}, ttl=0)
+        val_existante = int(p_res.iloc[0]['shares']) * float(prix_unitaire_cad) if not p_res.empty else 0.0
+        if val_existante + float(cout_ordre_cad) > limite:
+            return (f"Ordre refusé : ta position sur {ticker_symbol.upper()} ne peut pas dépasser "
+                    f"5 % de ce qui s'échange chaque jour ({limite:,.0f} $). "
+                    f"En vrai, un ordre plus gros ferait bouger le prix.")
+        return None
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def obtenir_nouvelles(ticker_symbol):
     """Actualités du titre via Google News RSS (5 max). 1 appel par titre aux 15 min, partagé entre élèves."""
@@ -1649,6 +1699,11 @@ else:
                         st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
                     qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
 
+                st.caption("Règle : ta position sur un titre ne peut pas dépasser 5 % de son volume d'échange quotidien.")
+                vol_jour_cap = obtenir_volume_quotidien_moyen(selected_ticker)
+                if vol_jour_cap and LIMITE_VOLUME_PCT * vol_jour_cap < 1000000:
+                    st.caption(f"Position maximale sur {selected_ticker.upper()} : {LIMITE_VOLUME_PCT * vol_jour_cap:,.0f} $")
+
                 if achat_penny_stock_bloque(selected_ticker):
                     st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
 
@@ -1669,7 +1724,10 @@ else:
                         c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
                         cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
 
-                        if cash_actuel_db >= cost_real:
+                        msg_limite = verifier_limite_volume(user, selected_ticker, prix_instantane, cost_real)
+                        if msg_limite:
+                            st.error(msg_limite)
+                        elif cash_actuel_db >= cost_real:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
                                 session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_real, "u": user})
