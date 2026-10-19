@@ -909,8 +909,9 @@ LIMITE_VOLUME_PCT = 0.05
 @st.cache_data(ttl=86400, show_spinner=False)
 def obtenir_volume_quotidien_moyen(ticker_symbol):
     """Volume quotidien moyen en $ CAD (moyenne 10 jours x prix).
-    Retourne None si indisponible : dans ce cas on laisse passer l'ordre
-    (fail open, on ne punit pas l'élève pour une panne de données)."""
+    Retourne None si indisponible : dans ce cas l'achat est BLOQUE
+    (fail closed, comme un vrai courtier qui refuse les titres obscurs
+    sans données de volume vérifiables)."""
     try:
         t = yf.Ticker(ticker_symbol)
         info = t.info or {}
@@ -932,11 +933,14 @@ def obtenir_volume_quotidien_moyen(ticker_symbol):
 
 def verifier_limite_volume(username, ticker_symbol, prix_unitaire_cad, cout_ordre_cad):
     """Retourne un message d'erreur si (position actuelle + nouvel ordre)
-    dépasserait 5 % du volume quotidien moyen, sinon None."""
+    dépasserait 5 % du volume quotidien moyen, sinon None.
+    Si le volume est invérifiable : achat BLOQUE (fail closed)."""
     try:
         vol_moyen = obtenir_volume_quotidien_moyen(ticker_symbol)
         if not vol_moyen or vol_moyen <= 0:
-            return None
+            return (f"Ordre refusé : impossible de vérifier ce qui s'échange chaque jour "
+                    f"sur {ticker_symbol.upper()}. Sans ces données, l'achat est bloqué. "
+                    f"En vrai, ton courtier refuserait aussi de te laisser acheter un titre obscur.")
         limite = LIMITE_VOLUME_PCT * vol_moyen
         p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)",
                            params={"u": username, "t": ticker_symbol}, ttl=0)
