@@ -85,7 +85,7 @@ def init_db():
 init_db()
 
 # --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
-VERSION_REGLES = 2
+VERSION_REGLES = 3
 
 @st.dialog("Nouvelles règles du jeu")
 def afficher_popup_regles(username):
@@ -94,8 +94,8 @@ def afficher_popup_regles(username):
         "**1. 3 bourses seulement : Toronto, New York et Nasdaq.**\n"
         "Fini les cryptos, les devises, les paris sur la peur. "
         "*En vrai, on ne trade pas le franc suisse à l'école. On joue à la vraie bourse.*\n\n"
-        "**2. Tout est en dollars canadiens, automatiquement.**\n"
-        "*Pour que tu n'aies aucun calcul à faire.*\n\n"
+        "**2. Les prix sont affichés dans la devise du titre (ex. $ US pour Apple), comme sur les vrais sites.**\n"
+        "*Ton compte reste en dollars canadiens : à l'achat et à la vente, le montant est converti au taux de change du jour, et tu vois l'ajustement avant de confirmer.*\n\n"
         "**3. Ta position ne peut pas dépasser 5 % de ce qui s'échange chaque jour sur un titre.**\n"
         "*En vrai, un ordre géant fait bouger le prix.*\n\n"
         "**4. Détention minimale : 1 h pour les actions, 24 h pour les ETF.**\n"
@@ -177,7 +177,7 @@ def obtenir_taux_usdcad():
     return None
 
 def convertir_vers_cad(prix, devise):
-    """Convertit un prix vers le dollar canadien (invisible pour l'élève)."""
+    """Convertit un prix vers le dollar canadien (comptabilité du compte)."""
     if prix is None:
         return None
     try:
@@ -189,6 +189,46 @@ def convertir_vers_cad(prix, devise):
         if taux:
             return round(p * taux, 4)
     return round(p, 4)
+
+
+# --- AFFICHAGE EN DEVISE NATURELLE (depuis le 20 oct. 2026) ---
+# Les prix s'affichent dans la devise du titre (ex. $ US pour Apple), comme
+# sur les vrais sites. Le compte de l'élève reste en CAD : la conversion
+# s'applique au moment de l'achat/vente, avec l'ajustement de change
+# indiqué. La comptabilité (transactions, prix moyens, totaux) ne change
+# pas : toujours en CAD.
+def devise_naturelle(ticker_symbol):
+    """Devise naturelle d'après le symbole : suffixe canadien (.TO, .V,
+    .NE, .CN) = CAD, sinon USD (NYSE/Nasdaq). Affichage seulement."""
+    t = str(ticker_symbol or '').upper().strip()
+    return 'CAD' if '.' in t else 'USD'
+
+
+def vers_natif(prix_cad, devise):
+    """Convertit un montant CAD vers la devise naturelle, au taux du jour.
+    AFFICHAGE seulement : la comptabilité reste en CAD."""
+    if prix_cad is None:
+        return None
+    try:
+        p = float(prix_cad)
+    except (TypeError, ValueError):
+        return None
+    if str(devise or '').upper() == 'USD':
+        taux = obtenir_taux_usdcad()
+        if taux:
+            return round(p / taux, 4)
+    return round(p, 4)
+
+
+def fmt_prix(valeur, devise=None):
+    """Formate un prix affiché : $X,XX, suffixe ' US' si devise USD."""
+    if valeur is None:
+        return "n/d"
+    v = float(valeur)
+    s = f"${v:,.4f}" if v < 1 else f"${v:,.2f}"
+    if str(devise or '').upper() == 'USD':
+        s += " US"
+    return s
 
 # --- FONCTION DE PROTECTION ANTI-SPAM (COOLDOWN DE 3 SECONDES) ---
 def verifier_cooldown(username, delai_secondes=3):
@@ -853,7 +893,7 @@ def rechercher_symbole_universel(query):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def obtenir_donnees_favoris(tickers_tuple):
-    """Prix + variation du jour pour les favoris, en un seul appel groupé. {ticker: (prix, var_pct)}"""
+    """Prix NATIF + variation du jour pour les favoris, en un seul appel groupé. {ticker: (prix_natif, var_pct, devise)}"""
     tickers_list = list(tickers_tuple)
     if not tickers_list:
         return {}
@@ -875,11 +915,11 @@ def obtenir_donnees_favoris(tickers_tuple):
                         vp = (px - float(op)) / float(op) * 100
                     else:
                         vp = 0.0
-                    out[tk] = (convertir_vers_cad(px, devise), round(vp, 2))
+                    out[tk] = (round(px, 4), round(vp, 2), devise)
                 else:
-                    out[tk] = (None, None)
+                    out[tk] = (None, None, devise)
             except Exception:
-                out[tk] = (None, None)
+                out[tk] = (None, None, devise_naturelle(tk))
         return out
     except Exception:
         return {}
@@ -1121,7 +1161,8 @@ def calculer_gains_9h30(violations_df):
         tot_vendus = float(ventes['total'].sum()) if not ventes.empty else 0.0
         heures_v = sorted(set(str(t).split(' ')[1] for t in ventes['timestamp'])) if not ventes.empty else []
         reliquat = max(q_achats - q_vendues, 0)
-        px = prix_actuels.get(str(tk).upper())
+        _info_px = prix_actuels.get(str(tk).upper())
+        px = _info_px["cad"] if _info_px else None
         val_reliquat = reliquat * px if px else 0.0
         cle = (ds, str(u), str(tk))
         gains[cle] = (tot_vendus + val_reliquat) - cout
@@ -1235,11 +1276,13 @@ def obtenir_prix_groupes(tickers_list):
                 devise = str(info.get('currency') or 'CAD').upper()
                 px = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
                 if px is not None and not pd.isna(px):
-                    prix_dict[tk] = convertir_vers_cad(float(px), devise)
+                    natif = float(px)
+                    prix_dict[tk] = {"cad": convertir_vers_cad(natif, devise),
+                                     "natif": round(natif, 4), "devise": devise}
                 else:
-                    prix_dict[tk] = None
+                    prix_dict[tk] = {"cad": None, "natif": None, "devise": devise}
             except Exception:
-                prix_dict[tk] = None
+                prix_dict[tk] = {"cad": None, "natif": None, "devise": devise_naturelle(tk)}
         return prix_dict
     except Exception:
         return {}
@@ -1283,27 +1326,28 @@ def obtenir_details_financiers(ticker_symbol):
         else:
             open_p = float(open_p)
 
-        # Tout est converti en dollars canadiens (invisible pour l'élève).
-        last_cad = convertir_vers_cad(last, devise)
-        open_cad = convertir_vers_cad(open_p, devise)
-        change = last_cad - open_cad
-        change_pct = (change / open_cad) * 100 if open_cad > 0 else 0.0
-        fmt = ".4f" if last_cad < 1 else ".2f"
+        # Prix en devise NATURELLE du titre (affichage, comme les vrais
+        # sites). "PrixCAD" sert aux calculs du panneau d'ordre : le compte
+        # de l'élève est en dollars canadiens.
+        change = last - open_p
+        change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
+        fmt = ".4f" if last < 1 else ".2f"
 
-        high_cad = convertir_vers_cad(info.get('dayHigh') or last, devise)
-        low_cad = convertir_vers_cad(info.get('dayLow') or last, devise)
-        y_high_cad = convertir_vers_cad(info.get('yearHigh') or last, devise)
-        y_low_cad = convertir_vers_cad(info.get('yearLow') or last, devise)
+        high_n = float(info.get('dayHigh') or last)
+        low_n = float(info.get('dayLow') or last)
+        y_high_n = float(info.get('yearHigh') or last)
+        y_low_n = float(info.get('yearLow') or last)
 
         return {
-            "Prix": last_cad,
+            "Prix": last,
+            "PrixCAD": convertir_vers_cad(last, devise),
             "Variation": change,
             "VariationPct": change_pct,
-            "Ouverture": f"${open_cad:{fmt}}",
-            "Plus Haut": f"${high_cad:{fmt}}",
-            "Plus Bas": f"${low_cad:{fmt}}",
-            "52 sem. Haut": f"${y_high_cad:{fmt}}",
-            "52 sem. Bas": f"${y_low_cad:{fmt}}",
+            "Ouverture": f"${open_p:{fmt}}",
+            "Plus Haut": f"${high_n:{fmt}}",
+            "Plus Bas": f"${low_n:{fmt}}",
+            "52 sem. Haut": f"${y_high_n:{fmt}}",
+            "52 sem. Bas": f"${y_low_n:{fmt}}",
             "Devise": devise
         }
     except Exception:
@@ -1311,16 +1355,11 @@ def obtenir_details_financiers(ticker_symbol):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def obtenir_historique(ticker_symbol, periode, devise="CAD"):
+    """Historique en devise NATURELLE du titre (aucune conversion :
+    le graphique montre les mêmes chiffres que les vrais sites)."""
     try:
         interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
-        df = yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
-        if df is not None and not df.empty and str(devise or '').upper() == 'USD':
-            taux = obtenir_taux_usdcad()
-            if taux:
-                for col in ('Open', 'High', 'Low', 'Close'):
-                    if col in df.columns:
-                        df[col] = df[col] * taux
-        return df
+        return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
 
 # --- CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
@@ -1347,7 +1386,8 @@ def obtenir_donnees_classement(grp_filter):
         if not u_p.empty:
             for _, row in u_p.iterrows():
                 tk_sym = str(row['ticker']).upper()
-                px = prix_dict.get(tk_sym)
+                _info_px = prix_dict.get(tk_sym)
+                px = _info_px["cad"] if _info_px else None
                 px_f = px if px is not None else float(row['avg_price'] or 0.0)
                 u_val_act += px_f * row['shares']
 
@@ -1497,7 +1537,8 @@ else:
             prix_dict = obtenir_prix_groupes(unique_tks)
             for _, row in pos_df.iterrows():
                 tk_sym = str(row['ticker']).strip().upper()
-                px_actuel = prix_dict.get(tk_sym)
+                _info_px = prix_dict.get(tk_sym)
+                px_actuel = _info_px["cad"] if _info_px else None
                 px_final = px_actuel if px_actuel is not None else float(row['avg_price'] or 0.0)
                 valeur_actions += px_final * row['shares']
 
@@ -1518,12 +1559,18 @@ else:
             items_tape = ""
             for _, row in pos_df.iterrows():
                 tk_tape = str(row['ticker']).strip().upper()
-                px_tape = prix_dict.get(tk_tape)
+                _info_tape = prix_dict.get(tk_tape)
                 pm_tape = float(row['avg_price'] or 0.0)
-                px_aff = px_tape if px_tape is not None else pm_tape
-                fmt_tape = f"${px_aff:,.4f}" if px_aff < 1 else f"${px_aff:,.2f}"
-                couleur_tape = "#34D399" if px_aff >= pm_tape else "#F87171"
-                fleche_tape = "▲" if px_aff >= pm_tape else "▼"
+                dv_tape = _info_tape["devise"] if _info_tape else devise_naturelle(tk_tape)
+                px_cad_tape = _info_tape["cad"] if _info_tape else None
+                px_natif_tape = _info_tape["natif"] if _info_tape else None
+                # Flèche : comparaison en CAD (prix actuel CAD vs coût moyen CAD).
+                base_cmp = px_cad_tape if px_cad_tape is not None else pm_tape
+                # Prix affiché : devise naturelle du titre.
+                px_aff = px_natif_tape if px_natif_tape is not None else vers_natif(pm_tape, dv_tape)
+                fmt_tape = fmt_prix(px_aff, dv_tape)
+                couleur_tape = "#34D399" if base_cmp >= pm_tape else "#F87171"
+                fleche_tape = "▲" if base_cmp >= pm_tape else "▼"
                 items_tape += f"<span class='item'><b>{tk_tape}</b>&nbsp;<span style='color:{couleur_tape};'>{fleche_tape} {fmt_tape}</span></span>"
             if items_tape:
                 duree_tape = max(20, 5 * len(pos_df))
@@ -1625,16 +1672,21 @@ else:
             st.error(f"**Instrument non autorisé :** Seules les actions et FNB cotés au TSX (Toronto), au NYSE ou au Nasdaq sont permis. Aucune crypto, devise, future ni indice.")
         elif details:
             prix, var, var_pct = details["Prix"], details["Variation"], details["VariationPct"]
+            prix_cad = details.get("PrixCAD") or prix
+            devise_titre = str(details.get("Devise") or "CAD").upper()
             chart_color = "#10B981" if var >= 0 else "#EF4444"
             fill_color = "rgba(16, 185, 129, 0.20)" if var >= 0 else "rgba(239, 68, 68, 0.20)"
             signe = "+" if var >= 0 else ""
-            fmt_prix = f"${prix:,.4f}" if prix < 1 else f"${prix:,.2f}"
+            fmt_prix_carte = fmt_prix(prix, devise_titre)
 
             col_chart, col_order = st.columns([2.2, 1])
 
             with col_chart:
-                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
-                st.caption("Prix affichés en dollars canadiens.")
+                st.markdown(f"<div class='quote-card {'up' if var >= 0 else 'down'}' data-tk='{selected_ticker}'><div class='quote-ticker'>{selected_ticker}</div><div class='quote-price'>{fmt_prix_carte}</div><div class='quote-var {'up' if var >= 0 else 'down'}'>{signe}{var_pct:.2f}% ({signe}{var:,.2f})</div></div>", unsafe_allow_html=True)
+                if devise_titre == "USD":
+                    st.caption("Prix en dollars américains (devise du titre), comme sur les vrais sites. Ton compte est en dollars canadiens : la conversion se fait à l'achat, au taux du jour.")
+                else:
+                    st.caption("Prix en dollars canadiens (devise du titre).")
 
                 @st.fragment
                 def afficher_graphique_interactif(ticker):
@@ -1788,16 +1840,27 @@ else:
 
                 if mode_ordre == "Par quantité":
                     qty_achat = st.number_input("Quantité", min_value=1, step=1, value=1, key=f"qty_{selected_ticker}")
-                    st.write(f"Total estimé : **${prix*qty_achat:,.2f}**")
+                    if devise_titre == "USD":
+                        st.write(f"Total estimé : **{fmt_prix(prix*qty_achat, 'USD')}** (≈ **${prix_cad*qty_achat:,.2f} CAD** débités)")
+                    else:
+                        st.write(f"Total estimé : **${prix*qty_achat:,.2f}**")
                     qty_vente = qty_achat
                 else:
-                    montant = st.number_input("Montant à investir ($)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
-                    qty_achat = int(montant // prix) if prix and prix > 0 else 0
+                    montant = st.number_input("Montant à investir ($ CAD)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
+                    qty_achat = int(montant // prix_cad) if prix_cad and prix_cad > 0 else 0
                     if qty_achat >= 1:
-                        st.write(f"Vous pouvez acheter **{qty_achat}** actions pour **${qty_achat*prix:,.2f}**")
+                        if devise_titre == "USD":
+                            st.write(f"Vous pouvez acheter **{qty_achat}** actions à **{fmt_prix(prix, 'USD')}** pour **${qty_achat*prix_cad:,.2f} CAD**")
+                        else:
+                            st.write(f"Vous pouvez acheter **{qty_achat}** actions pour **${qty_achat*prix_cad:,.2f}**")
                     else:
                         st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
                     qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
+
+                if devise_titre == "USD":
+                    _taux_jour = obtenir_taux_usdcad()
+                    if _taux_jour:
+                        st.caption(f"Ajustement de change : 1 $ US = {_taux_jour:.4f} $ CAD aujourd'hui. Le montant débité ou crédité est toujours en dollars canadiens.")
 
                 st.caption("Règle : ta position sur un titre ne peut pas dépasser 5 % de son volume d'échange quotidien.")
                 vol_jour_cap = obtenir_volume_quotidien_moyen(selected_ticker)
@@ -1822,7 +1885,7 @@ else:
                     elif not verifier_cooldown(user, delai_secondes=3):
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
-                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
+                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
                         cost_real = prix_instantane * qty_achat
 
                         c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
@@ -1847,7 +1910,12 @@ else:
                                                 {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
 
-                            st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
+                            if devise_titre == "USD":
+                                _taux_fx = obtenir_taux_usdcad()
+                                _msg_fx = f" (débité : ${cost_real:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (débité : ${cost_real:,.2f} CAD)"
+                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectué !{_msg_fx}")
+                            else:
+                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
@@ -1858,7 +1926,7 @@ else:
                     elif not verifier_cooldown(user, delai_secondes=3):
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
-                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix
+                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
                         cost_real = prix_instantane * qty_vente
 
                         p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
@@ -1877,7 +1945,12 @@ else:
                                                 {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
                                 session.commit()
 
-                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
+                            if devise_titre == "USD":
+                                _taux_fx = obtenir_taux_usdcad()
+                                _msg_fx = f" (crédité : ${cost_real:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (crédité : ${cost_real:,.2f} CAD)"
+                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectuée !{_msg_fx}")
+                            else:
+                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
@@ -1915,7 +1988,7 @@ else:
                         "}"
                     )
                     for i, tk in enumerate(fav_tickers):
-                        px, vp = fav_data.get(tk.upper(), (None, None))
+                        px, vp, dv_fav = fav_data.get(tk.upper(), (None, None, devise_naturelle(tk)))
                         couleur_txt = "#10B981" if (vp or 0) >= 0 else "#EF4444"
                         cle = f"favchip_{i}"
                         chip_css += (
@@ -1933,11 +2006,11 @@ else:
                     st.markdown(chip_css, unsafe_allow_html=True)
                     fav_cols = st.columns(2)
                     for i, tk in enumerate(fav_tickers):
-                        px, vp = fav_data.get(tk.upper(), (None, None))
+                        px, vp, dv_fav = fav_data.get(tk.upper(), (None, None, devise_naturelle(tk)))
                         if px is None:
                             chip_label = f"{tk}"
                         else:
-                            fmt_px = f"${px:,.4f}" if px < 1 else f"${px:,.2f}"
+                            fmt_px = fmt_prix(px, dv_fav)
                             signe = "+" if (vp or 0) >= 0 else ""
                             fleche = "▲" if (vp or 0) >= 0 else "▼"
                             chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
@@ -2024,7 +2097,8 @@ else:
                 prix_dict = obtenir_prix_groupes(unique_tks)
                 for _, r in pos_df_live.iterrows():
                     tk_sym = str(r['ticker']).strip().upper()
-                    px_a = prix_dict.get(tk_sym)
+                    _info_px = prix_dict.get(tk_sym)
+                    px_a = _info_px["cad"] if _info_px else None
                     px_f = px_a if px_a is not None else float(r['avg_price'] or 0.0)
                     val_actions_live += px_f * r['shares']
 
@@ -2097,7 +2171,8 @@ else:
 
                 for _, r in p_all.iterrows():
                     tk, sh, pm = str(r['ticker']), int(r['shares']), float(r['avg_price'] or 0.0)
-                    pa_live = prix_dict_pos.get(tk.upper())
+                    _info_pos = prix_dict_pos.get(tk.upper())
+                    pa_live = _info_pos["cad"] if _info_pos else None
                     pa = pa_live if pa_live is not None else pm
                     val = sh * pa
                     pnl = (pa - pm) * sh
@@ -2105,14 +2180,22 @@ else:
                     pie_labels.append(tk)
                     pie_vals.append(val)
 
+                    # Affichage des prix unitaires en devise naturelle (le prix
+                    # moyen CAD est converti au taux du jour, affichage seulement).
+                    # Valeur, gain et rendement restent en CAD exacts.
+                    dv_pos = _info_pos["devise"] if _info_pos else devise_naturelle(tk)
+                    pa_aff = _info_pos["natif"] if (_info_pos and _info_pos["natif"] is not None) else vers_natif(pa, dv_pos)
+                    pm_aff = vers_natif(pm, dv_pos)
+
                     pnl_color = "#10B981" if pnl >= 0 else "#EF4444"
-                    fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
-                    fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
+                    fmt_pa = fmt_prix(pa_aff, dv_pos)
+                    fmt_pm = fmt_prix(pm_aff, dv_pos)
 
                     html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>{fmt_pm}</td><td>{fmt_pa}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
 
                 table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
                 st.markdown(table_html, unsafe_allow_html=True)
+                st.caption("Prix moyen et prix actuel : devise naturelle du titre (prix moyen converti au taux du jour). Valeur, gain/perte et rendement : dollars canadiens.")
 
                 # --- CAMEMBERT : RÉPARTITION DU PORTEFEUILLE ---
                 cash_q = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
@@ -2167,7 +2250,8 @@ else:
                     if sh2 <= 0:
                         continue  # ligne résiduelle sans action : rien à vendre, on l'ignore
                     pm2 = float(r['avg_price'] or 0.0)
-                    pa2_live = prix_dict_pos.get(tk2.upper())
+                    _info_v = prix_dict_pos.get(tk2.upper())
+                    pa2_live = _info_v["cad"] if _info_v else None
                     pa2 = pa2_live if pa2_live is not None else pm2
                     cartes_vente.append((tk2, sh2, pm2, pa2))
 
@@ -2220,7 +2304,10 @@ else:
                                             session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                             {"u": user, "t": tk, "s": -qty_c, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
                                             session.commit()
-                                        st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !")
+                                        if devise_naturelle(tk) == "USD":
+                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à {fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD')} effectuée ! (crédité : ${total_v_instantane:,.2f} CAD)")
+                                        else:
+                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !")
                                         st.rerun()
                                     else:
                                         st.error("Vous ne possédez plus ces actions.")
@@ -2232,7 +2319,7 @@ else:
     elif tab_choisi == "Mon Historique":
         tx_all = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=0)
         if not tx_all.empty:
-            tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
+            tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($ CAD)", "Total ($ CAD)"]
             st.dataframe(tx_all, use_container_width=True, hide_index=True)
         else: st.info("Aucune transaction.")
 
@@ -2401,15 +2488,18 @@ else:
                             tk = str(row['ticker'])
                             sh = int(row['shares'])
                             pm = float(row['avg_price'] or 0.0)
-                            pa_live = prix_dict_prof.get(tk.upper())
+                            _info_prof = prix_dict_prof.get(tk.upper())
+                            pa_live = _info_prof["cad"] if _info_prof else None
                             pa = pa_live if pa_live is not None else pm
                             val = sh * pa
                             pnl = (pa - pm) * sh
                             pnl_pct = ((pa - pm) / pm * 100) if pm > 0 else 0.0
                             e_val_act += val
 
-                            fmt_pa = f"${pa:,.4f}" if pa < 1 else f"${pa:,.2f}"
-                            fmt_pm = f"${pm:,.4f}" if pm < 1 else f"${pm:,.2f}"
+                            dv_prof = _info_prof["devise"] if _info_prof else devise_naturelle(tk)
+                            pa_aff_p = _info_prof["natif"] if (_info_prof and _info_prof["natif"] is not None) else vers_natif(pa, dv_prof)
+                            fmt_pa = fmt_prix(pa_aff_p, dv_prof)
+                            fmt_pm = fmt_prix(vers_natif(pm, dv_prof), dv_prof)
 
                             pos_rows.append({
                                 "Action": tk,
@@ -2483,7 +2573,7 @@ else:
                     st.markdown("##### Historique des Transactions")
                     tx_e = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": e_sel}, ttl=0)
                     if not tx_e.empty:
-                        tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($)", "Total ($)"]
+                        tx_e.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($ CAD)", "Total ($ CAD)"]
                         st.dataframe(tx_e, use_container_width=True, hide_index=True)
                     else:
                         st.info("Aucune transaction enregistrée.")
