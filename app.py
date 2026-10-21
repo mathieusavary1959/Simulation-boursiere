@@ -992,7 +992,7 @@ def rechercher_symbole_universel(query):
     except Exception:
         return []
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def obtenir_donnees_favoris(tickers_tuple):
     """Prix NATIF + variation du jour pour les favoris, en un seul appel groupé. {ticker: (prix_natif, var_pct, devise)}"""
     tickers_list = list(tickers_tuple)
@@ -1404,7 +1404,7 @@ def _prix_depuis_historique(ticker_symbol):
         return vide
 
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
     if not tickers_list:
         return {}
@@ -1542,7 +1542,7 @@ def _details_voie_historique(t, ticker_symbol):
     }
 
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def obtenir_details_financiers(ticker_symbol):
     if not _symbole_syntaxe_ok(ticker_symbol):
         return {"erreur": "non_na"}
@@ -1614,7 +1614,7 @@ def initiales_de(nom):
 
 
 # --- CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def obtenir_donnees_classement(grp_filter):
     if grp_filter == "Tous les groupes":
         users_df = conn.query("SELECT username, cash, groupe FROM users", ttl=0)
@@ -1825,7 +1825,7 @@ else:
     # Rafraîchissement automatique des 4 carrés toutes les 30 s (fragment seul, sans refresh de page).
     # Si la version de Streamlit ne supporte pas run_every, les carrés restent statiques comme avant.
     try:
-        fragment_auto = st.fragment(run_every=30)
+        fragment_auto = st.fragment(run_every=60)
     except TypeError:
         fragment_auto = st.fragment
 
