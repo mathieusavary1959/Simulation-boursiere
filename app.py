@@ -1398,71 +1398,130 @@ def obtenir_prix_groupes(tickers_list):
         prix_dict[tk] = entree
     return prix_dict
 
+def _details_voie_rapide(t, ticker_symbol):
+    """Voie rapide (fast_info). Retourne le dict de détails, la chaîne
+    'non_na' si le titre est refusé (mauvaise bourse ou mauvais type),
+    ou None si Yahoo n'a pas répondu (échec technique, pas un refus)."""
+    info = t.fast_info
+
+    # Validation stricte : actions/FNB du TSX, NYSE ou Nasdaq seulement.
+    exch = str(info.get('exchange') or '')
+    qtype = str(info.get('quoteType') or '')
+    if not instrument_autorise(ticker_symbol, exch_code=exch, quote_type=qtype):
+        return "non_na"
+
+    devise = str(info.get('currency') or 'CAD').upper()
+
+    last = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
+    if last is None or pd.isna(last) or float(last) <= 0:
+        hist = t.history(period="2d")
+        if hist is not None and not hist.empty:
+            last = float(hist['Close'].iloc[-1])
+        else:
+            return None
+    else:
+        last = float(last)
+
+    open_p = info.get('open') or info.get('openPrice')
+    if open_p is None or pd.isna(open_p):
+        hist = t.history(period="2d")
+        if hist is not None and len(hist) >= 2:
+            open_p = float(hist['Close'].iloc[-2])
+        elif hist is not None and not hist.empty:
+            open_p = float(hist['Open'].iloc[-1])
+        else:
+            open_p = last
+    else:
+        open_p = float(open_p)
+
+    # Prix en devise NATURELLE du titre (affichage, comme les vrais
+    # sites). "PrixCAD" sert aux calculs du panneau d'ordre : le compte
+    # de l'élève est en dollars canadiens.
+    change = last - open_p
+    change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
+    fmt = ".4f" if last < 1 else ".2f"
+
+    high_n = float(info.get('dayHigh') or last)
+    low_n = float(info.get('dayLow') or last)
+    y_high_n = float(info.get('yearHigh') or last)
+    y_low_n = float(info.get('yearLow') or last)
+
+    return {
+        "Prix": last,
+        "PrixCAD": convertir_vers_cad(last, devise),
+        "Variation": change,
+        "VariationPct": change_pct,
+        "Ouverture": f"${open_p:{fmt}}",
+        "Plus Haut": f"${high_n:{fmt}}",
+        "Plus Bas": f"${low_n:{fmt}}",
+        "52 sem. Haut": f"${y_high_n:{fmt}}",
+        "52 sem. Bas": f"${y_low_n:{fmt}}",
+        "Devise": devise
+    }
+
+
+def _details_voie_historique(t, ticker_symbol):
+    """Voie de repli : métadonnées et historique Yahoo (l'API graphique,
+    celle qui répond de façon fiable depuis les serveurs du site).
+    Même validation stricte des bourses et des types d'instruments.
+    Sans ce repli, un simple hoquet de Yahoo disait à l'élève que le
+    titre n'existait pas et bloquait son achat (ex. SVRN, NASDAQ,
+    21 oct. 2026). Retourne le dict, 'non_na' ou None comme la voie
+    rapide."""
+    md = t.history_metadata or {}
+    exch = str(md.get('exchangeName') or '')
+    qtype = str(md.get('instrumentType') or '')
+    if not instrument_autorise(ticker_symbol, exch_code=exch, quote_type=qtype):
+        return "non_na"
+
+    hist = t.history(period="1y")
+    if hist is None or hist.empty or 'Close' not in hist.columns:
+        return None
+    devise = str(md.get('currency') or '').upper() or devise_naturelle(ticker_symbol)
+    last = float(hist['Close'].iloc[-1])
+    if last <= 0:
+        return None
+    open_p = hist['Open'].iloc[-1]
+    open_p = float(open_p) if open_p is not None and not pd.isna(open_p) and float(open_p) > 0 else (
+        float(hist['Close'].iloc[-2]) if len(hist) >= 2 else last)
+    change = last - open_p
+    change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
+    fmt = ".4f" if last < 1 else ".2f"
+    return {
+        "Prix": last,
+        "PrixCAD": convertir_vers_cad(last, devise),
+        "Variation": change,
+        "VariationPct": change_pct,
+        "Ouverture": f"${open_p:{fmt}}",
+        "Plus Haut": f"${float(hist['High'].iloc[-1]):{fmt}}",
+        "Plus Bas": f"${float(hist['Low'].iloc[-1]):{fmt}}",
+        "52 sem. Haut": f"${float(hist['High'].max()):{fmt}}",
+        "52 sem. Bas": f"${float(hist['Low'].min()):{fmt}}",
+        "Devise": devise
+    }
+
+
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_details_financiers(ticker_symbol):
     if not _symbole_syntaxe_ok(ticker_symbol):
         return {"erreur": "non_na"}
 
+    t = yf.Ticker(ticker_symbol)
     try:
-        t = yf.Ticker(ticker_symbol)
-        info = t.fast_info
-
-        # Validation stricte : actions/FNB du TSX, NYSE ou Nasdaq seulement.
-        exch = str(info.get('exchange') or '')
-        qtype = str(info.get('quoteType') or '')
-        if not instrument_autorise(ticker_symbol, exch_code=exch, quote_type=qtype):
-            return {"erreur": "non_na"}
-
-        devise = str(info.get('currency') or 'CAD').upper()
-
-        last = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
-        if last is None or pd.isna(last) or float(last) <= 0:
-            hist = t.history(period="2d")
-            if not hist.empty:
-                last = float(hist['Close'].iloc[-1])
-            else:
-                return None
-        else:
-            last = float(last)
-
-        open_p = info.get('open') or info.get('openPrice')
-        if open_p is None or pd.isna(open_p):
-            hist = t.history(period="2d")
-            if len(hist) >= 2:
-                open_p = float(hist['Close'].iloc[-2])
-            elif not hist.empty:
-                open_p = float(hist['Open'].iloc[-1])
-            else:
-                open_p = last
-        else:
-            open_p = float(open_p)
-
-        # Prix en devise NATURELLE du titre (affichage, comme les vrais
-        # sites). "PrixCAD" sert aux calculs du panneau d'ordre : le compte
-        # de l'élève est en dollars canadiens.
-        change = last - open_p
-        change_pct = (change / open_p) * 100 if open_p > 0 else 0.0
-        fmt = ".4f" if last < 1 else ".2f"
-
-        high_n = float(info.get('dayHigh') or last)
-        low_n = float(info.get('dayLow') or last)
-        y_high_n = float(info.get('yearHigh') or last)
-        y_low_n = float(info.get('yearLow') or last)
-
-        return {
-            "Prix": last,
-            "PrixCAD": convertir_vers_cad(last, devise),
-            "Variation": change,
-            "VariationPct": change_pct,
-            "Ouverture": f"${open_p:{fmt}}",
-            "Plus Haut": f"${high_n:{fmt}}",
-            "Plus Bas": f"${low_n:{fmt}}",
-            "52 sem. Haut": f"${y_high_n:{fmt}}",
-            "52 sem. Bas": f"${y_low_n:{fmt}}",
-            "Devise": devise
-        }
+        r = _details_voie_rapide(t, ticker_symbol)
     except Exception:
-        return None
+        r = None
+    if r == "non_na":
+        return {"erreur": "non_na"}
+    if r is not None:
+        return r
+    try:
+        r = _details_voie_historique(t, ticker_symbol)
+    except Exception:
+        r = None
+    if r == "non_na":
+        return {"erreur": "non_na"}
+    return r
 
 @st.cache_data(ttl=300, show_spinner=False)
 def obtenir_historique(ticker_symbol, periode, devise="CAD"):
