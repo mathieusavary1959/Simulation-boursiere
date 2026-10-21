@@ -78,6 +78,13 @@ def init_db():
                     vue_le TEXT
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS photos (
+                    username TEXT PRIMARY KEY,
+                    image TEXT,
+                    maj TEXT
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
@@ -589,6 +596,59 @@ st.markdown("""
         color: #FFFFFF;
         font-variant-numeric: tabular-nums;
     }
+    .podium-jour {
+        margin-top: 10px;
+        padding: 7px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 9px;
+        background: rgba(0, 0, 0, 0.35);
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #FFFFFF;
+        font-variant-numeric: tabular-nums;
+    }
+    .podium-jour .hausse { color: #4ADE80; }
+    .podium-jour .baisse { color: #FF6B6B; }
+    .podium-photo-wrap {
+        position: relative;
+        width: 80px;
+        margin: 2px auto 10px;
+    }
+    .podium-photo {
+        width: 80px; height: 80px;
+        border-radius: 50%;
+        object-fit: cover;
+        display: block;
+        border: 3px solid #FFFFFF;
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.55);
+    }
+    .podium-initiales {
+        width: 80px; height: 80px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 1.7rem; color: #FFFFFF;
+        background: radial-gradient(circle at 32% 30%, #3d3d3d, #171717 72%);
+        border: 3px solid #FFFFFF;
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.55);
+    }
+    .podium-or .podium-photo, .podium-or .podium-initiales { border-color: #FFD700; }
+    .podium-argent .podium-photo, .podium-argent .podium-initiales { border-color: #E8E8E8; }
+    .podium-bronze .podium-photo, .podium-bronze .podium-initiales { border-color: #E09A5A; }
+    .podium-badge {
+        position: absolute; right: -5px; bottom: -5px;
+        width: 29px; height: 29px;
+        border-radius: 50%;
+        background: #FFFFFF; color: #111111;
+        font-weight: 800; font-size: 0.95rem;
+        display: flex; align-items: center; justify-content: center;
+        border: 2px solid rgba(0, 0, 0, 0.25);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+    }
+    .podium-or .podium-badge { background: #FFD700; }
+    .podium-argent .podium-badge { background: #E8E8E8; }
+    .podium-bronze .podium-badge { background: #E09A5A; }
+    .podium-nom, .podium-val, .podium-perf, .podium-jour { text-align: center; }
     .podium-1 { animation-delay: 0.00s; }
     .podium-2 { animation-delay: 0.15s; }
     .podium-3 { animation-delay: 0.30s; }
@@ -1277,12 +1337,19 @@ def obtenir_prix_groupes(tickers_list):
                 px = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
                 if px is not None and not pd.isna(px):
                     natif = float(px)
+                    prev = info.get('previousClose')
+                    prev_cad = None
+                    if prev is not None and not pd.isna(prev):
+                        prev_cad = convertir_vers_cad(float(prev), devise)
                     prix_dict[tk] = {"cad": convertir_vers_cad(natif, devise),
-                                     "natif": round(natif, 4), "devise": devise}
+                                     "natif": round(natif, 4), "devise": devise,
+                                     "prev_cad": prev_cad}
                 else:
-                    prix_dict[tk] = {"cad": None, "natif": None, "devise": devise}
+                    prix_dict[tk] = {"cad": None, "natif": None, "devise": devise,
+                                     "prev_cad": None}
             except Exception:
-                prix_dict[tk] = {"cad": None, "natif": None, "devise": devise_naturelle(tk)}
+                prix_dict[tk] = {"cad": None, "natif": None, "devise": devise_naturelle(tk),
+                                 "prev_cad": None}
         return prix_dict
     except Exception:
         return {}
@@ -1362,6 +1429,46 @@ def obtenir_historique(ticker_symbol, periode, devise="CAD"):
         return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
     except Exception: return None
 
+# --- PHOTOS DES MENEURS (déposées par le prof dans Supervision) ---
+def traiter_photo(octets):
+    """Recadre la photo au carré sur le visage, la réduit à 256 px
+    et la compresse en JPEG (base64) pour la base de données."""
+    import base64
+    import io as _io
+    from PIL import Image
+    img = Image.open(_io.BytesIO(octets)).convert("RGB")
+    cote = min(img.size)
+    gauche = (img.width - cote) // 2
+    haut = max(0, int((img.height - cote) * 0.18))
+    img = img.crop((gauche, haut, gauche + cote, haut + cote)).resize((256, 256))
+    tampon = _io.BytesIO()
+    img.save(tampon, format="JPEG", quality=82)
+    return base64.b64encode(tampon.getvalue()).decode()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def obtenir_photo(username):
+    try:
+        df = conn.query("SELECT image FROM photos WHERE username=:u",
+                        params={"u": username}, ttl=0)
+        if not df.empty and df.iloc[0]['image']:
+            return str(df.iloc[0]['image'])
+    except Exception:
+        pass
+    return None
+
+
+def initiales_de(nom):
+    morceaux = [m for m in str(nom).replace("_", " ").replace(".", " ").split() if m]
+    if len(morceaux) >= 2:
+        return (morceaux[0][0] + morceaux[1][0]).upper()
+    nom = str(nom)
+    for c in nom[1:]:
+        if c.isupper():
+            return (nom[0] + c).upper()
+    return nom[:2].upper()
+
+
 # --- CACHE DES CALCULS DU CLASSEMENT (TTL = 30s) ---
 @st.cache_data(ttl=30, show_spinner=False)
 def obtenir_donnees_classement(grp_filter):
@@ -1383,6 +1490,8 @@ def obtenir_donnees_classement(grp_filter):
         u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
 
         u_val_act = 0.0
+        u_gain_jour = 0.0
+        u_base_jour = 0.0
         if not u_p.empty:
             for _, row in u_p.iterrows():
                 tk_sym = str(row['ticker']).upper()
@@ -1390,10 +1499,18 @@ def obtenir_donnees_classement(grp_filter):
                 px = _info_px["cad"] if _info_px else None
                 px_f = px if px is not None else float(row['avg_price'] or 0.0)
                 u_val_act += px_f * row['shares']
+                # Gain du jour : positions actuelles comparées à la clôture
+                # de la veille (même appel de prix, aucun coût réseau ajouté).
+                _prev = _info_px.get("prev_cad") if _info_px else None
+                if _prev is not None and px is not None:
+                    u_gain_jour += (px - _prev) * row['shares']
+                    u_base_jour += _prev * row['shares']
 
         tot = u_cash + u_val_act
         perf = ((tot - 10000.00) / 10000.00) * 100
-        lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf})
+        gain_jour_pct = (u_gain_jour / u_base_jour * 100) if u_base_jour > 0 else 0.0
+        lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf,
+                   "GainJour": u_gain_jour, "GainJourPct": gain_jour_pct})
 
     if lb:
         df_lb = pd.DataFrame(lb).sort_values(by="Portefeuille", ascending=False).reset_index(drop=True)
@@ -1401,7 +1518,7 @@ def obtenir_donnees_classement(grp_filter):
         df_lb['Rang'] = df_lb.index
         df_lb["Portefeuille"] = df_lb["Portefeuille"].map("${:,.2f}".format)
         df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
-        return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']]
+        return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance', 'GainJour', 'GainJourPct']]
     return pd.DataFrame()
 
 # --- SÉCURITÉ ET PERSISTENCE PAR JETON DE SESSION ---
@@ -1439,13 +1556,33 @@ st.markdown("""
 
 # --- PORTAIL CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
+    # Anti-bulle de mot de passe : dit aux navigateurs et aux gestionnaires
+    # de mots de passe de ne rien proposer dans les champs (ni génération,
+    # ni choix enregistrés). Les champs restent vides, l'élève tape lui-même.
+    components.html("""
+    <script>
+    try {
+      const doc = window.parent.document;
+      const eteindre = () => {
+        doc.querySelectorAll('form').forEach(f => f.setAttribute('autocomplete', 'off'));
+        doc.querySelectorAll('input').forEach(i => {
+          i.setAttribute('autocomplete', 'off');
+          i.setAttribute('data-lpignore', 'true');
+          i.setAttribute('data-1p-ignore', 'true');
+        });
+      };
+      eteindre();
+      new MutationObserver(eteindre).observe(doc.body, {childList: true, subtree: true});
+    } catch (e) {}
+    </script>
+    """, height=0)
     col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
         tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
         with tab1:
             with st.form("form_connexion"):
-                u_login = st.text_input("Identifiant", key="login_user")
-                p_login = st.text_input("Mot de passe", type="password", key="login_pass")
+                u_login = st.text_input("Identifiant", key="login_user", autocomplete="off")
+                p_login = st.text_input("Mot de passe", type="password", key="login_pass", autocomplete="off")
                 if st.form_submit_button("Se connecter", use_container_width=True):
                     res = conn.query("SELECT * FROM users WHERE username=:u AND password=:p", params={"u": u_login.strip(), "p": p_login}, ttl=0)
                     if not res.empty:
@@ -1469,13 +1606,13 @@ if st.session_state['user'] is None:
                 _fermes_inscr = set()
             _groupes_ouverts = [g for g in LISTE_GROUPES if g not in _fermes_inscr]
             with st.form("form_inscription"):
-                u_new = st.text_input("Identifiant (ex: PrenomNom)", key="new_user")
+                u_new = st.text_input("Identifiant (ex: PrenomNom)", key="new_user", autocomplete="off")
                 if _groupes_ouverts:
                     g_new = st.selectbox("Groupe", _groupes_ouverts, key="new_group")
                 else:
                     st.warning("Les inscriptions sont fermées pour tous les groupes.")
                     g_new = None
-                p_new = st.text_input("Mot de passe", type="password", key="new_pass")
+                p_new = st.text_input("Mot de passe", type="password", key="new_pass", autocomplete="off")
                 if st.form_submit_button("S'inscrire", use_container_width=True):
                     if u_new and p_new and g_new:
                         # Sécurité : revérifier que le groupe n'a pas été fermé entre-temps
@@ -2342,7 +2479,24 @@ else:
             classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
             cols_podium = st.columns(len(top3))
             for i, (_, r_pod) in enumerate(top3.iterrows()):
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'><div class='podium-rang'>{int(r_pod['Rang'])}</div><div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div></div>", unsafe_allow_html=True)
+                _gj = float(r_pod['GainJour'])
+                _gjp = float(r_pod['GainJourPct'])
+                _classe_jour = 'hausse' if _gj >= 0 else 'baisse'
+                _signe_jour = '+' if _gj >= 0 else '-'
+                _jour_html = (f"<div class='podium-jour'>Aujourd'hui : "
+                              f"<span class='{_classe_jour}'>{_signe_jour}${abs(_gj):,.2f} "
+                              f"({_gjp:+.2f}%)</span></div>")
+                _nom_pod = str(r_pod['Élève'])
+                _photo_pod = obtenir_photo(_nom_pod)
+                if _photo_pod:
+                    _avatar = (f"<div class='podium-photo-wrap'>"
+                               f"<img class='podium-photo' src='data:image/jpeg;base64,{_photo_pod}' alt=''>"
+                               f"<span class='podium-badge'>{int(r_pod['Rang'])}</span></div>")
+                else:
+                    _avatar = (f"<div class='podium-photo-wrap'>"
+                               f"<div class='podium-initiales'>{initiales_de(_nom_pod)}</div>"
+                               f"<span class='podium-badge'>{int(r_pod['Rang'])}</span></div>")
+                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
 
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
@@ -2357,22 +2511,53 @@ else:
                     styles = ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
                 return styles
 
-            styled_df = df_classement.style.apply(highlight_row, axis=1)
+            styled_df = df_classement[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']].style.apply(highlight_row, axis=1)
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
         else:
             st.info("Aucun élève trouvé pour ce classement.")
 
     # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
     elif tab_choisi == "Supervision Prof":
-        pin = st.text_input("PIN Enseignant :", type="password") if user.lower() not in ['prof', 'admin'] else "1959"
+        pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off") if user.lower() not in ['prof', 'admin'] else "1959"
         if pin == "1959":
             with st.expander("Gestion des mots de passe (Supabase)"):
                 st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
-                code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase")
+                code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase", autocomplete="off")
                 if code_supabase == "996633":
                     st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
                 elif code_supabase:
                     st.error("Code incorrect.")
+
+            with st.expander("Photos des meneurs (podium du classement)"):
+                st.info("Choisis un élève, dépose sa photo officielle : elle apparaîtra dans sa carte du podium s'il est dans les 3 premiers. Sans photo, la carte affiche ses initiales.")
+                _df_users_ph = conn.query("SELECT username FROM users ORDER BY username", ttl=0)
+                _liste_eleves_ph = _df_users_ph['username'].tolist() if not _df_users_ph.empty else []
+                if _liste_eleves_ph:
+                    eleve_photo = st.selectbox("Élève :", _liste_eleves_ph, key="eleve_photo_podium")
+                    photo_existante = obtenir_photo(eleve_photo)
+                    if photo_existante:
+                        st.image(f"data:image/jpeg;base64,{photo_existante}", width=90)
+                        st.caption("Photo actuelle de cet élève.")
+                    fichier_meneur = st.file_uploader("Photo de l'élève (jpg ou png)", type=["jpg", "jpeg", "png"], key="uploader_photo_meneur")
+                    col_ph1, col_ph2 = st.columns(2)
+                    if fichier_meneur and col_ph1.button("Enregistrer la photo", use_container_width=True):
+                        try:
+                            b64_meneur = traiter_photo(fichier_meneur.getvalue())
+                            with conn.session as session:
+                                session.execute(text("INSERT INTO photos (username, image, maj) VALUES (:u, :i, :d) ON CONFLICT (username) DO UPDATE SET image=:i, maj=:d"),
+                                                {"u": eleve_photo, "i": b64_meneur, "d": datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")})
+                                session.commit()
+                            obtenir_photo.clear()
+                            st.success(f"Photo enregistrée pour {eleve_photo}.")
+                            st.rerun()
+                        except Exception:
+                            st.error("Cette image n'a pas pu être traitée. Essaie un autre fichier.")
+                    if photo_existante and col_ph2.button("Retirer la photo", use_container_width=True):
+                        with conn.session as session:
+                            session.execute(text("DELETE FROM photos WHERE username=:u"), {"u": eleve_photo})
+                            session.commit()
+                        obtenir_photo.clear()
+                        st.rerun()
 
             with st.expander("Correction règle 9h30 (achats pré-marché)"):
                 st.info(
