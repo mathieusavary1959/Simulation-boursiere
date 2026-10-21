@@ -1554,28 +1554,34 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+# --- ANTI-BULLE GLOBAL ---
+# Aucun champ de l'application ne doit déclencher l'autoremplissage du
+# navigateur : ni mot de passe généré, ni nom d'identifiant proposé, dans
+# TOUS les écrans (connexion, classement, supervision, formulaires).
+components.html("""
+<script>
+try {
+  const doc = window.parent.document;
+  const eteindre = () => {
+    doc.querySelectorAll('form').forEach(f => f.setAttribute('autocomplete', 'off'));
+    doc.querySelectorAll('input, textarea').forEach(i => {
+      i.setAttribute('autocomplete', 'off');
+      i.setAttribute('autocorrect', 'off');
+      i.setAttribute('autocapitalize', 'off');
+      i.setAttribute('spellcheck', 'false');
+      i.setAttribute('data-lpignore', 'true');
+      i.setAttribute('data-1p-ignore', 'true');
+      i.setAttribute('data-bwignore', 'true');
+    });
+  };
+  eteindre();
+  new MutationObserver(eteindre).observe(doc.body, {childList: true, subtree: true});
+} catch (e) {}
+</script>
+""", height=0)
+
 # --- PORTAIL CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
-    # Anti-bulle de mot de passe : dit aux navigateurs et aux gestionnaires
-    # de mots de passe de ne rien proposer dans les champs (ni génération,
-    # ni choix enregistrés). Les champs restent vides, l'élève tape lui-même.
-    components.html("""
-    <script>
-    try {
-      const doc = window.parent.document;
-      const eteindre = () => {
-        doc.querySelectorAll('form').forEach(f => f.setAttribute('autocomplete', 'off'));
-        doc.querySelectorAll('input').forEach(i => {
-          i.setAttribute('autocomplete', 'off');
-          i.setAttribute('data-lpignore', 'true');
-          i.setAttribute('data-1p-ignore', 'true');
-        });
-      };
-      eteindre();
-      new MutationObserver(eteindre).observe(doc.body, {childList: true, subtree: true});
-    } catch (e) {}
-    </script>
-    """, height=0)
     col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
         tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
@@ -2466,7 +2472,7 @@ else:
         with col_r1:
             grp_filter = st.selectbox("Filtrer par groupe :", ["Tous les groupes"] + LISTE_GROUPES)
         with col_r2:
-            search_user_rank = st.text_input("Rechercher un élève :", value="", placeholder="Tapez un nom d'élève...")
+            search_user_rank = st.text_input("Rechercher un élève :", value="", placeholder="Tapez un nom d'élève...", autocomplete="off")
         with col_r3:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Actualiser", use_container_width=True):
