@@ -928,26 +928,45 @@ st.markdown("""
 
 # --- CACHE DES DONNÉES FINANCIÈRES EN TEMPS RÉEL SÉCURISÉ (TTL = 10s) ---
 @st.cache_data(ttl=3600)
+def _recherche_cached(query):
+    """Recherche de symboles chez Yahoo, deux serveurs en relais.
+    Lève une exception si les deux échouent : Streamlit ne met pas les
+    exceptions en cache. Avant, un échec retournait une liste vide que
+    le cache figeait pendant une heure, donc la recherche restait morte
+    pour ce mot-là même après le retour de Yahoo (21 oct. 2026)."""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    derniere_erreur = None
+    for hote in ("query2", "query1"):
+        url = f"https://{hote}.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
+        try:
+            r = requests.get(url, headers=headers, timeout=3)
+            if r.status_code != 200:
+                derniere_erreur = Exception(f"HTTP {r.status_code}")
+                continue
+            data = r.json()
+            results = []
+            for quote in data.get('quotes', []):
+                symbol = quote.get('symbol')
+                shortname = quote.get('shortname') or quote.get('longname') or symbol
+                exch = quote.get('exchDisp') or quote.get('exchange') or ''
+                type_disp = quote.get('typeDisp') or ''
+                exch_code = (quote.get('exchange') or '').upper()
+
+                if symbol and _symbole_syntaxe_ok(symbol):
+                    if (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
+                        if not exch_code or exch_code in EXCHANGES_AUTORISES:
+                            results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
+            return results
+        except Exception as e:
+            derniere_erreur = e
+            continue
+    raise derniere_erreur or Exception("Recherche Yahoo indisponible")
+
+
 def rechercher_symbole_universel(query):
     if not query or len(query.strip()) < 1: return []
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=10&newsCount=0"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     try:
-        r = requests.get(url, headers=headers, timeout=3)
-        data = r.json()
-        results = []
-        for quote in data.get('quotes', []):
-            symbol = quote.get('symbol')
-            shortname = quote.get('shortname') or quote.get('longname') or symbol
-            exch = quote.get('exchDisp') or quote.get('exchange') or ''
-            type_disp = quote.get('typeDisp') or ''
-            exch_code = (quote.get('exchange') or '').upper()
-
-            if symbol and _symbole_syntaxe_ok(symbol):
-                if (type_disp in ['Equity', 'ETF', 'Action', 'Stock'] or not type_disp):
-                    if not exch_code or exch_code in EXCHANGES_AUTORISES:
-                        results.append({'symbol': symbol, 'label': f"{shortname} ({symbol}) — {exch}"})
-        return results
+        return _recherche_cached(query)
     except Exception:
         return []
 
