@@ -1698,47 +1698,6 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- ANTI-BULLE GLOBAL ---
-# Aucun champ de l'application ne doit déclencher l'autoremplissage du
-# navigateur : ni mot de passe généré, ni nom d'identifiant proposé, dans
-# TOUS les écrans (connexion, classement, supervision, formulaires).
-components.html("""
-<script>
-try {
-  const doc = window.parent.document;
-  const eteindre = () => {
-    doc.querySelectorAll('form').forEach(f => f.setAttribute('autocomplete', 'off'));
-    doc.querySelectorAll('input, textarea').forEach(i => {
-      i.setAttribute('autocomplete', 'off');
-      i.setAttribute('autocorrect', 'off');
-      i.setAttribute('autocapitalize', 'off');
-      i.setAttribute('spellcheck', 'false');
-      i.setAttribute('data-lpignore', 'true');
-      i.setAttribute('data-1p-ignore', 'true');
-      i.setAttribute('data-bwignore', 'true');
-      // Chrome ignore autocomplete=off sur les champs de mot de passe.
-      // En lecture seule, son gestionnaire ne propose rien du tout ;
-      // le clic dans le champ retire la lecture seule (voir focusin).
-      if (i.type === 'password' && doc.activeElement !== i) {
-        i.setAttribute('readonly', '');
-      }
-    });
-  };
-  if (!doc.__antiBulleFocus) {
-    doc.__antiBulleFocus = true;
-    doc.addEventListener('focusin', e => {
-      const t = e.target;
-      if (t && t.tagName === 'INPUT' && t.type === 'password') {
-        t.removeAttribute('readonly');
-      }
-    }, true);
-  }
-  eteindre();
-  new MutationObserver(eteindre).observe(doc.body, {childList: true, subtree: true});
-} catch (e) {}
-</script>
-""", height=0)
-
 # --- PORTAIL CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
     col_centered = st.columns([1, 1.2, 1])[1]
