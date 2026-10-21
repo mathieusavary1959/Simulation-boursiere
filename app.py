@@ -14,6 +14,28 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layout="wide")
 
+# --- MODE MAINTENANCE (activé le 21 oct. 2026 : problèmes techniques en classe) ---
+# Pour rouvrir le site : passer à False et redéployer.
+MODE_MAINTENANCE = True
+if MODE_MAINTENANCE:
+    st.markdown("""
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Work+Sans:wght@400;600;800&display=swap');
+        .maint-wrap { max-width: 720px; margin: 9vh auto 0 auto; text-align: center; padding: 48px 32px; background: #141414; border: 1px solid #2b2b2b; border-top: 4px solid #E50914; border-radius: 14px; }
+        .maint-marque { font-family: 'Bebas Neue', 'Arial Narrow', sans-serif; font-size: 64px; letter-spacing: 0.04em; color: #FFFFFF; line-height: 1; }
+        .maint-marque span { color: #E50914; }
+        .maint-titre { font-family: 'Work Sans', sans-serif; font-weight: 800; font-size: 26px; color: #FFFFFF; margin-top: 26px; }
+        .maint-texte { font-family: 'Work Sans', sans-serif; font-size: 17px; color: #E8E8E8; line-height: 1.55; margin-top: 12px; }
+    </style>
+    <div class="maint-wrap">
+        <div class="maint-marque">MONDE <span>&amp;</span> FINANCE</div>
+        <div class="maint-titre">Site en maintenance</div>
+        <div class="maint-texte">On corrige des problèmes techniques pour que le site fonctionne mieux.<br>Revenez un peu plus tard.</div>
+        <div class="maint-texte">Vos comptes, vos positions et votre argent virtuel sont en sécurité : rien n'est perdu.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
+
 # Liste des 10 groupes + Groupe Enseignants
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 
