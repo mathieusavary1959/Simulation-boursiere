@@ -1007,26 +1007,45 @@ def obtenir_prix_actuel(ticker_symbol):
 LIMITE_VOLUME_PCT = 0.05
 
 @st.cache_data(ttl=86400, show_spinner=False)
+def _volume_quotidien_moyen_cached(ticker_symbol):
+    """Volume quotidien moyen en $ CAD (moyenne des 10 derniers jours
+    d'échanges x dernier prix de clôture).
+    Source principale : l'historique des prix, fiable partout.
+    L'ancien champ « info » de Yahoo est capricieux depuis les serveurs
+    infonuagiques : c'est lui qui a bloqué ATD.TO et Tesla le 21 oct. 2026.
+    On le garde seulement en dernier recours.
+    Lève une exception si aucune donnée : Streamlit ne met pas les
+    exceptions en cache, donc un échec temporaire ne fige plus le titre
+    pour 24 h comme le faisait l'ancien None mis en cache."""
+    t = yf.Ticker(ticker_symbol)
+    hist = t.history(period="1mo")
+    if hist is not None and not hist.empty and 'Volume' in hist.columns and 'Close' in hist.columns:
+        vols = [float(v) for v in hist['Volume'].tail(10) if v is not None and float(v) > 0]
+        px = float(hist['Close'].iloc[-1])
+        if vols and px > 0:
+            try:
+                devise = str(t.fast_info.get('currency') or '').upper() or devise_naturelle(ticker_symbol)
+            except Exception:
+                devise = devise_naturelle(ticker_symbol)
+            return convertir_vers_cad((sum(vols) / len(vols)) * px, devise)
+    info = t.info or {}
+    vol = info.get('averageDailyVolume10Day') or info.get('averageVolume')
+    if vol and float(vol) > 0:
+        devise = str(info.get('currency') or '').upper() or devise_naturelle(ticker_symbol)
+        fi = t.fast_info
+        px = fi.get('lastPrice') or fi.get('regularMarketPrice')
+        if px:
+            return convertir_vers_cad(float(vol) * float(px), devise)
+    raise ValueError(f"Aucune donnée de volume pour {ticker_symbol}")
+
+
 def obtenir_volume_quotidien_moyen(ticker_symbol):
     """Volume quotidien moyen en $ CAD (moyenne 10 jours x prix).
     Retourne None si indisponible : dans ce cas l'achat est BLOQUE
     (fail closed, comme un vrai courtier qui refuse les titres obscurs
     sans données de volume vérifiables)."""
     try:
-        t = yf.Ticker(ticker_symbol)
-        info = t.info or {}
-        vol = info.get('averageDailyVolume10Day') or info.get('averageVolume')
-        devise = str(info.get('currency') or 'CAD').upper()
-        if not vol or float(vol) <= 0:
-            return None
-        fi = t.fast_info
-        px = fi.get('lastPrice') or fi.get('regularMarketPrice')
-        if not px:
-            hist = t.history(period="1d")
-            if hist is None or hist.empty:
-                return None
-            px = float(hist['Close'].iloc[-1])
-        return convertir_vers_cad(float(vol) * float(px), devise)
+        return _volume_quotidien_moyen_cached(ticker_symbol)
     except Exception:
         return None
 
