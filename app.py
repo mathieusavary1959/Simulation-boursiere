@@ -1572,8 +1572,23 @@ try {
       i.setAttribute('data-lpignore', 'true');
       i.setAttribute('data-1p-ignore', 'true');
       i.setAttribute('data-bwignore', 'true');
+      // Chrome ignore autocomplete=off sur les champs de mot de passe.
+      // En lecture seule, son gestionnaire ne propose rien du tout ;
+      // le clic dans le champ retire la lecture seule (voir focusin).
+      if (i.type === 'password' && doc.activeElement !== i) {
+        i.setAttribute('readonly', '');
+      }
     });
   };
+  if (!doc.__antiBulleFocus) {
+    doc.__antiBulleFocus = true;
+    doc.addEventListener('focusin', e => {
+      const t = e.target;
+      if (t && t.tagName === 'INPUT' && t.type === 'password') {
+        t.removeAttribute('readonly');
+      }
+    }, true);
+  }
   eteindre();
   new MutationObserver(eteindre).observe(doc.body, {childList: true, subtree: true});
 } catch (e) {}
