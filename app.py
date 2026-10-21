@@ -16,7 +16,7 @@ st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layou
 
 # --- MODE MAINTENANCE (activé le 21 oct. 2026 : problèmes techniques en classe) ---
 # Pour rouvrir le site : passer à False et redéployer.
-MODE_MAINTENANCE = True
+MODE_MAINTENANCE = False
 if MODE_MAINTENANCE:
     st.markdown("""
     <style>
