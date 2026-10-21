@@ -195,15 +195,54 @@ def instrument_autorise(symbol, exch_code="", exch_disp="", quote_type=""):
 # L'élève ne fait aucun calcul : tous les prix sont affichés et comptabilisés
 # en dollars canadiens. Un seul appel Yahoo par heure, partagé par les 200+
 # élèves via le cache (aucun ralentissement).
+@st.cache_resource
+def _memo_dernier_taux():
+    """Dernier taux USD/CAD valide, gardé tant que l'app roule. Filet de
+    sécurité : une coupure des sources ne doit jamais faire retomber les
+    conversions à « aucune conversion » (prix US alors traités comme des
+    CAD : valeur totale amputée d'environ 2 600 $ à l'écran sur un seul
+    compte, vu le 21 oct. 2026)."""
+    return {"taux": None, "echec": 0.0}
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
-def obtenir_taux_usdcad():
+def _taux_usdcad_sources():
+    """Taux USD/CAD depuis les sources, dans l'ordre. Lève une exception
+    si aucune source ne répond : Streamlit ne met pas les exceptions en
+    cache, donc un échec ne fige pas le taux pour 30 minutes."""
+    # 1) Yahoo (temps réel)
     try:
         r = yf.Ticker('USDCAD=X').fast_info.get('lastPrice')
         if r is not None and not pd.isna(r) and float(r) > 0:
             return float(r)
     except Exception:
         pass
-    return None
+    # 2) Frankfurter (taux de référence quotidien, indépendant de Yahoo)
+    try:
+        d = requests.get('https://api.frankfurter.dev/v1/latest?base=USD&symbols=CAD',
+                         timeout=5).json()
+        v = float(d['rates']['CAD'])
+        if v > 0:
+            return v
+    except Exception:
+        pass
+    raise RuntimeError("Taux USD/CAD indisponible (toutes sources)")
+
+
+def obtenir_taux_usdcad():
+    memo = _memo_dernier_taux()
+    t = None
+    # Pendant une panne totale, on ne retente les sources qu'une fois par
+    # minute ; entre-temps, le dernier taux connu sert les conversions.
+    if datetime.now().timestamp() - memo.get("echec", 0.0) > 60:
+        try:
+            t = _taux_usdcad_sources()
+        except Exception:
+            memo["echec"] = datetime.now().timestamp()
+    if t:
+        memo["taux"] = t
+        return t
+    return memo["taux"]
 
 def convertir_vers_cad(prix, devise):
     """Convertit un prix vers le dollar canadien (comptabilité du compte)."""
