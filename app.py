@@ -1338,40 +1338,65 @@ def achat_penny_stock_bloque(ticker_symbol):
     veille = cloture_veille(ticker_symbol)
     return veille is not None and veille < 5.0
 
+def _prix_depuis_historique(ticker_symbol):
+    """Repli prix : dernière clôture connue (5 derniers jours).
+    Sert quand le prix en direct de Yahoo ne répond pas : sans ce repli,
+    l'affichage remplaçait le prix actuel par le prix d'achat et le
+    gain/perte de la position tombait à exactement 0,00 $ (vu le
+    21 oct. 2026, ex. Rob Thibeault). Un gain presque juste, basé sur
+    la dernière clôture, vaut mieux qu'un faux zéro."""
+    vide = {"cad": None, "natif": None, "devise": devise_naturelle(ticker_symbol), "prev_cad": None}
+    try:
+        hist = yf.Ticker(ticker_symbol).history(period="5d")
+        if hist is None or hist.empty or 'Close' not in hist.columns:
+            return vide
+        devise = devise_naturelle(ticker_symbol)
+        px = float(hist['Close'].iloc[-1])
+        if px <= 0:
+            return vide
+        prev_cad = None
+        if len(hist) >= 2:
+            prev_cad = convertir_vers_cad(float(hist['Close'].iloc[-2]), devise)
+        return {"cad": convertir_vers_cad(px, devise), "natif": round(px, 4),
+                "devise": devise, "prev_cad": prev_cad}
+    except Exception:
+        return vide
+
+
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_groupes(tickers_list):
     if not tickers_list:
         return {}
+    clean_tickers = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
+    if not clean_tickers:
+        return {}
     try:
-        clean_tickers = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
-        if not clean_tickers:
-            return {}
-
         data = yf.Tickers(" ".join(clean_tickers))
-        prix_dict = {}
-        for tk in clean_tickers:
+    except Exception:
+        data = None
+    prix_dict = {}
+    for tk in clean_tickers:
+        entree = None
+        if data is not None:
             try:
                 info = data.tickers[tk].fast_info
                 devise = str(info.get('currency') or 'CAD').upper()
                 px = info.get('lastPrice') or info.get('regularMarketPrice') or info.get('last_price')
-                if px is not None and not pd.isna(px):
+                if px is not None and not pd.isna(px) and float(px) > 0:
                     natif = float(px)
                     prev = info.get('previousClose')
                     prev_cad = None
                     if prev is not None and not pd.isna(prev):
                         prev_cad = convertir_vers_cad(float(prev), devise)
-                    prix_dict[tk] = {"cad": convertir_vers_cad(natif, devise),
-                                     "natif": round(natif, 4), "devise": devise,
-                                     "prev_cad": prev_cad}
-                else:
-                    prix_dict[tk] = {"cad": None, "natif": None, "devise": devise,
-                                     "prev_cad": None}
+                    entree = {"cad": convertir_vers_cad(natif, devise),
+                              "natif": round(natif, 4), "devise": devise,
+                              "prev_cad": prev_cad}
             except Exception:
-                prix_dict[tk] = {"cad": None, "natif": None, "devise": devise_naturelle(tk),
-                                 "prev_cad": None}
-        return prix_dict
-    except Exception:
-        return {}
+                entree = None
+        if entree is None:
+            entree = _prix_depuis_historique(tk)
+        prix_dict[tk] = entree
+    return prix_dict
 
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_details_financiers(ticker_symbol):
