@@ -107,6 +107,32 @@ def init_db():
                     maj TEXT
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS prix_relais (
+                    ticker TEXT PRIMARY KEY,
+                    prix_natif DOUBLE PRECISION,
+                    prev_natif DOUBLE PRECISION,
+                    ouverture DOUBLE PRECISION,
+                    haut DOUBLE PRECISION,
+                    bas DOUBLE PRECISION,
+                    haut52 DOUBLE PRECISION,
+                    bas52 DOUBLE PRECISION,
+                    devise TEXT,
+                    maj TEXT
+                );
+            '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS historique_relais (
+                    ticker TEXT,
+                    jour TEXT,
+                    o DOUBLE PRECISION,
+                    h DOUBLE PRECISION,
+                    l DOUBLE PRECISION,
+                    c DOUBLE PRECISION,
+                    v DOUBLE PRECISION,
+                    PRIMARY KEY (ticker, jour)
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
@@ -1066,6 +1092,9 @@ def obtenir_donnees_favoris(tickers_tuple):
 
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
+    """Prix d'exécution d'un ordre. Yahoo d'abord ; si Yahoo ne répond
+    pas depuis le nuage, repli sur le relais de prix (sonde multi-sources),
+    pour qu'un hoquet de Yahoo ne bloque plus les achats et les ventes."""
     try:
         t = yf.Ticker(ticker_symbol)
         data = t.fast_info
@@ -1076,9 +1105,10 @@ def obtenir_prix_actuel(ticker_symbol):
         hist = t.history(period="1d")
         if not hist.empty:
             return convertir_vers_cad(float(hist['Close'].iloc[-1]), devise)
-        return None
     except Exception:
-        return None
+        pass
+    entree = _entree_depuis_relais(ticker_symbol)
+    return entree["cad"] if entree else None
 
 # --- LIMITE DE POSITION : 5 % DU VOLUME QUOTIDIEN MOYEN ---
 # Un élève ne peut pas détenir plus que 5 % de ce qui s'échange vraiment
@@ -1428,6 +1458,56 @@ def _memo_derniers_prix():
     return {}
 
 
+# --- RELAIS DE PRIX (sources multiples, indépendant du nuage) ---
+# Une sonde sur la machine de Muse interroge Yahoo ET l'API Nasdaq
+# toutes les minutes et écrit les prix dans la base (tables prix_relais
+# et historique_relais). Quand Yahoo ne répond pas depuis les serveurs
+# de Streamlit (adresse partagée limitée en pleine classe), l'app lit
+# le relais au lieu de rester muette : positions, achats, détails et
+# graphiques continuent de fonctionner.
+
+def _relais_lire_prix(tickers):
+    """Lignes du relais pour une liste de titres : {TICKER: ligne}."""
+    propres = [str(t).strip().upper() for t in tickers if t and str(t).strip()]
+    if not propres:
+        return {}
+    try:
+        marques = ", ".join(f":t{i}" for i in range(len(propres)))
+        params = {f"t{i}": t for i, t in enumerate(propres)}
+        df = conn.query(
+            "SELECT ticker, prix_natif, prev_natif, ouverture, haut, bas, "
+            f"haut52, bas52, devise FROM prix_relais WHERE ticker IN ({marques})",
+            params=params, ttl=0)
+        return {str(r['ticker']).upper(): r for _, r in df.iterrows()}
+    except Exception:
+        return {}
+
+
+def _entree_depuis_ligne_relais(ligne, ticker_symbol):
+    """Convertit une ligne prix_relais au format des prix groupés."""
+    if ligne is None:
+        return None
+    try:
+        px = float(ligne['prix_natif'])
+        if px <= 0:
+            return None
+    except Exception:
+        return None
+    devise = str(ligne['devise'] or '').upper() or devise_naturelle(ticker_symbol)
+    prev_cad = None
+    prev = ligne['prev_natif']
+    if prev is not None and not pd.isna(prev) and float(prev) > 0:
+        prev_cad = convertir_vers_cad(float(prev), devise)
+    return {"cad": convertir_vers_cad(px, devise), "natif": round(px, 4),
+            "devise": devise, "prev_cad": prev_cad}
+
+
+def _entree_depuis_relais(ticker_symbol):
+    lignes = _relais_lire_prix([ticker_symbol])
+    return _entree_depuis_ligne_relais(
+        lignes.get(str(ticker_symbol).strip().upper()), ticker_symbol)
+
+
 def _prix_depuis_historique(ticker_symbol):
     """Repli prix : dernière clôture connue (5 derniers jours).
     Sert quand le prix en direct de Yahoo ne répond pas : sans ce repli,
@@ -1497,6 +1577,17 @@ def obtenir_prix_groupes(tickers_list):
         elif memo_prix.get(tk):
             entree = dict(memo_prix[tk])
         prix_dict[tk] = entree
+    # Repli relais : les titres restés sans prix (Yahoo muet des deux
+    # voies ET filet vide) sont remplis depuis la table du relais.
+    manquants = [tk for tk, e in prix_dict.items()
+                 if e is None or e.get("cad") is None]
+    if manquants:
+        lignes = _relais_lire_prix(manquants)
+        for tk in manquants:
+            entree_r = _entree_depuis_ligne_relais(lignes.get(tk), tk)
+            if entree_r is not None and entree_r.get("cad") is not None:
+                prix_dict[tk] = entree_r
+                _memo_derniers_prix()[tk] = dict(entree_r)
     return prix_dict
 
 def _details_voie_rapide(t, ticker_symbol):
@@ -1602,6 +1693,46 @@ def _details_voie_historique(t, ticker_symbol):
     }
 
 
+def _details_depuis_relais(ticker_symbol):
+    """Détails de repli depuis le relais : même format que la voie
+    historique. Sans ce repli, un silence de Yahoo fermait toute la
+    page du titre, graphique et achat compris (vu le 22 oct. 2026)."""
+    lignes = _relais_lire_prix([ticker_symbol])
+    ligne = lignes.get(str(ticker_symbol).strip().upper())
+    if ligne is None:
+        return None
+    try:
+        px = float(ligne['prix_natif'])
+        if px <= 0:
+            return None
+    except Exception:
+        return None
+    devise = str(ligne['devise'] or '').upper() or devise_naturelle(ticker_symbol)
+
+    def _val(col, repli):
+        v = ligne[col]
+        if v is None or pd.isna(v) or float(v) <= 0:
+            return float(repli)
+        return float(v)
+
+    ouv = _val('ouverture', px)
+    change = px - ouv
+    change_pct = (change / ouv) * 100 if ouv > 0 else 0.0
+    fmt = ".4f" if px < 1 else ".2f"
+    return {
+        "Prix": px,
+        "PrixCAD": convertir_vers_cad(px, devise),
+        "Variation": change,
+        "VariationPct": change_pct,
+        "Ouverture": f"${ouv:{fmt}}",
+        "Plus Haut": f"${_val('haut', px):{fmt}}",
+        "Plus Bas": f"${_val('bas', px):{fmt}}",
+        "52 sem. Haut": f"${_val('haut52', px):{fmt}}",
+        "52 sem. Bas": f"${_val('bas52', px):{fmt}}",
+        "Devise": devise
+    }
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def obtenir_details_financiers(ticker_symbol):
     if not _symbole_syntaxe_ok(ticker_symbol):
@@ -1622,16 +1753,56 @@ def obtenir_details_financiers(ticker_symbol):
         r = None
     if r == "non_na":
         return {"erreur": "non_na"}
-    return r
+    if r is not None:
+        return r
+    try:
+        return _details_depuis_relais(ticker_symbol)
+    except Exception:
+        return None
+
+
+def _historique_depuis_relais(ticker_symbol, periode):
+    """Graphique de repli : bougies QUOTIDIENNES stockées par la sonde
+    dans historique_relais. Moins fin que l'intrajournalier Yahoo,
+    mais le graphique (et l'achat, qui vit sur la même page) reste
+    disponible quand Yahoo ne répond pas depuis le nuage."""
+    try:
+        df = conn.query(
+            "SELECT jour, o, h, l, c, v FROM historique_relais "
+            "WHERE ticker=:t ORDER BY jour",
+            params={"t": str(ticker_symbol).strip().upper()}, ttl=0)
+        if df is None or df.empty:
+            return None
+        fenetres = {"1d": 5, "5d": 5, "1mo": 22, "3mo": 66,
+                    "6mo": 132, "1y": 252, "2y": 504, "5y": 1260}
+        df = df.tail(fenetres.get(periode, 252))
+        out = pd.DataFrame({
+            "Open": df['o'].astype(float).values,
+            "High": df['h'].astype(float).values,
+            "Low": df['l'].astype(float).values,
+            "Close": df['c'].astype(float).values,
+            "Volume": df['v'].fillna(0).astype(float).values,
+        }, index=pd.to_datetime(df['jour']))
+        out.index.name = "Date"
+        return out
+    except Exception:
+        return None
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def obtenir_historique(ticker_symbol, periode, devise="CAD"):
     """Historique en devise NATURELLE du titre (aucune conversion :
-    le graphique montre les mêmes chiffres que les vrais sites)."""
+    le graphique montre les mêmes chiffres que les vrais sites).
+    Repli : bougies quotidiennes du relais quand Yahoo ne répond pas,
+    pour que le graphique (et l'achat, sur la même page) reste ouvert."""
     try:
         interval = "5m" if periode == "1d" else ("15m" if periode == "5d" else "1d")
-        return yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
-    except Exception: return None
+        df = yf.Ticker(ticker_symbol).history(period=periode, interval=interval)
+        if df is not None and not df.empty:
+            return df
+    except Exception:
+        pass
+    return _historique_depuis_relais(ticker_symbol, periode)
 
 # --- PHOTOS DES MENEURS (déposées par le prof dans Supervision) ---
 def traiter_photo(octets):
