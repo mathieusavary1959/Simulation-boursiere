@@ -1418,6 +1418,16 @@ def achat_penny_stock_bloque(ticker_symbol):
     veille = cloture_veille(ticker_symbol)
     return veille is not None and veille < 5.0
 
+@st.cache_resource
+def _memo_derniers_prix():
+    """Derniers prix valides obtenus par titre, gardés tant que l'app roule.
+    Filet de sécurité : quand Yahoo se tait complètement (direct ET
+    historique en même temps), l'affichage retombait sur le prix d'achat
+    et tous les gains tombaient à 0,00 $ (vu le 22 oct. 2026). Avec ce
+    filet, on affiche le dernier prix réel connu plutôt qu'un faux zéro."""
+    return {}
+
+
 def _prix_depuis_historique(ticker_symbol):
     """Repli prix : dernière clôture connue (5 derniers jours).
     Sert quand le prix en direct de Yahoo ne répond pas : sans ce repli,
@@ -1475,6 +1485,17 @@ def obtenir_prix_groupes(tickers_list):
                 entree = None
         if entree is None:
             entree = _prix_depuis_historique(tk)
+        # Filet « dernier prix connu » : si les deux voies Yahoo sont
+        # muettes (cad = None), on réutilise le dernier prix réel obtenu
+        # pour ce titre plutôt que de laisser l'affichage retomber sur le
+        # prix d'achat, ce qui affichait un faux gain de 0,00 $ partout
+        # (vu le 22 oct. 2026). Si un prix valide arrive, il alimente le
+        # filet pour les prochains hoquets.
+        memo_prix = _memo_derniers_prix()
+        if entree is not None and entree.get("cad") is not None:
+            memo_prix[tk] = dict(entree)
+        elif memo_prix.get(tk):
+            entree = dict(memo_prix[tk])
         prix_dict[tk] = entree
     return prix_dict
 
