@@ -101,6 +101,13 @@ def init_db():
                 );
             '''))
             session.execute(text('''
+                CREATE TABLE IF NOT EXISTS avis_correction (
+                    username TEXT PRIMARY KEY,
+                    sens TEXT,
+                    vu_le TEXT
+                );
+            '''))
+            session.execute(text('''
                 CREATE TABLE IF NOT EXISTS photos (
                     username TEXT PRIMARY KEY,
                     image TEXT,
@@ -178,6 +185,44 @@ def verifier_popup_regles(username):
         r = conn.query("SELECT version FROM regles_vues WHERE username=:u", params={"u": username}, ttl=0)
         if r.empty or int(r.iloc[0]['version']) < VERSION_REGLES:
             afficher_popup_regles(username)
+    except Exception:
+        pass
+
+# --- FENETRE D'AVIS DE CORRECTION (bogue de conversion, octobre 2026) ---
+# Avis rattaché au compte : seuls les élèves dont le nom est dans la table
+# avis_correction voient la fenêtre, une seule fois, à leur prochaine connexion.
+
+@st.dialog("Correction de ton compte")
+def afficher_popup_correction(username, sens):
+    if sens == "remboursement":
+        st.markdown(
+            "Un bogue de conversion (5 au 16 octobre) t'avait fait perdre de l'argent "
+            "sur des titres américains : ton compte a été recalculé aux bons prix "
+            "et le montant perdu t'a été remboursé."
+        )
+    else:
+        st.markdown(
+            "Un bogue de conversion (5 au 16 octobre) a faussé les prix des titres "
+            "américains : ton compte a été recalculé aux bons prix, comme si le "
+            "bogue n'était jamais arrivé."
+        )
+    lu = st.checkbox("J'ai compris.")
+    if st.button("Fermer", disabled=not lu, use_container_width=True):
+        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+        with conn.session as session:
+            session.execute(
+                text("UPDATE avis_correction SET vu_le=:d WHERE username=:u"),
+                {"u": username, "d": now_str})
+            session.commit()
+        st.rerun()
+
+
+def verifier_popup_correction(username):
+    """Affiche l'avis de correction si l'élève en a un qu'il n'a pas encore vu."""
+    try:
+        r = conn.query("SELECT sens, vu_le FROM avis_correction WHERE username=:u", params={"u": username}, ttl=0)
+        if not r.empty and (r.iloc[0]['vu_le'] is None or str(r.iloc[0]['vu_le']).strip() == ""):
+            afficher_popup_correction(username, str(r.iloc[0]['sens']))
     except Exception:
         pass
 
@@ -1994,6 +2039,7 @@ else:
         st.rerun()
 
     verifier_popup_regles(user)
+    verifier_popup_correction(user)
 
     cash_actuel = float(res_u.iloc[0]['cash'])
     groupe_actuel = res_u.iloc[0]['groupe']
