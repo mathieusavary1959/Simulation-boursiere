@@ -108,6 +108,16 @@ def init_db():
                 );
             '''))
             session.execute(text('''
+                CREATE TABLE IF NOT EXISTS frais (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT,
+                    type TEXT,
+                    montant DOUBLE PRECISION,
+                    details TEXT,
+                    timestamp TEXT
+                );
+            '''))
+            session.execute(text('''
                 CREATE TABLE IF NOT EXISTS photos (
                     username TEXT PRIMARY KEY,
                     image TEXT,
@@ -147,7 +157,7 @@ def init_db():
 init_db()
 
 # --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
-VERSION_REGLES = 3
+VERSION_REGLES = 4
 
 @st.dialog("Nouvelles règles du jeu")
 def afficher_popup_regles(username):
@@ -165,7 +175,23 @@ def afficher_popup_regles(username):
         "**5. Rappel : 4 titres différents minimum, 5 achats par mois.**\n"
         "*C'est une évaluation, pas juste un jeu.*\n\n"
         "**6. Les points perdus aux vérifications ne reviennent pas.**\n"
-        "*Tu connais les règles : c'est un risque que tu prends.*"
+        "*Tu connais les règles : c'est un risque que tu prends.*\n\n"
+        "---\n\n"
+        "**NOUVEAUTÉ : ON PASSE EN MODE « VRAIE BOURSE »**\n\n"
+        "Tu sais maintenant acheter, vendre et suivre un titre. La base est solide. "
+        "À partir de maintenant, on joue un peu plus comme les vrais joueurs. "
+        "Dans la vraie vie, investir coûte quelque chose et les marchés ont des règles de sécurité.\n\n"
+        "**7. Frais de transaction : 10 $ par achat et 10 $ par vente.**\n"
+        "*Chaque fois que tu achètes ou que tu vends, ton courtier garde 10 $. Réfléchis avant de cliquer : les petits achats impulsifs vont te coûter cher.*\n\n"
+        "**8. Frais de conversion : 1,5 % sur les titres américains.**\n"
+        "*Quand tu achètes ou vends un titre des États-Unis, changer tes dollars canadiens en dollars américains coûte 1,5 % du montant. C'est le frais caché que les vraies institutions prennent sur l'échange de devises.*\n\n"
+        "**9. Frais de gestion : 0,5 % par mois.**\n"
+        "*Le 1er de chaque mois, à compter du 1er novembre, des frais de gestion de 0,5 % de la valeur totale de ton compte sont prélevés. C'est ce que les vraies institutions chargent pour s'occuper de ton argent. Ton argent doit travailler plus fort que les frais.*\n\n"
+        "**10. Maximum 25 % sur un seul titre.**\n"
+        "*Quand tu achètes, tu ne peux pas mettre plus de 25 % de la valeur de ton compte sur une seule entreprise. Aucun vrai conseiller ne te laisserait miser la moitié de ton argent sur un seul titre.*\n\n"
+        "**11. Coupe-circuit sur les titres en feu.**\n"
+        "*Si un titre monte ou descend de plus de 30 % dans la même journée, les achats de ce titre sont suspendus jusqu'au prochain jour de bourse. Tu peux toujours vendre. Les vrais marchés font exactement ça pour calmer le jeu quand tout le monde s'emballe en même temps.*\n\n"
+        "**Et ce n'est pas fini : d'autres changements s'ajouteront en cours de route. Le but : que la simulation ressemble de plus en plus à la vraie bourse. Ceux qui s'adaptent vont bien s'en sortir.**"
     )
     lu = st.checkbox("J'ai lu et je comprends ces règles.")
     if st.button("Fermer", disabled=not lu, use_container_width=True):
@@ -200,6 +226,22 @@ def afficher_popup_correction(username, sens):
             "sur des titres américains : ton compte a été recalculé aux bons prix "
             "et le montant perdu t'a été remboursé."
         )
+    elif sens == "veea":
+        st.markdown(
+            "Le 12 octobre, une vente de 250 actions du titre VEEA a été créditée "
+            "à ton compte alors que tu ne possédais pas ce titre : c'est une erreur "
+            "du système, pas un gain. Le montant de 1 425,00 $ a été retiré de ton "
+            "comptant. Tout le reste de ton compte est inchangé."
+        )
+    elif sens == "crypto":
+        st.markdown(
+            "Avant le 17 octobre, l'application laissait passer des paires de "
+            "cryptomonnaies (par exemple SOL-GBP ou ETH-BTC). Ce ne sont pas des "
+            "actions en bourse : elles n'auraient jamais dû être permises, et la "
+            "porte est fermée depuis le 17 octobre. Les gains faits avec ces "
+            "paires, 533,62 $, ont été retirés de ton comptant. Tout le reste de "
+            "ton compte est inchangé."
+        )
     else:
         st.markdown(
             "Un bogue de conversion (5 au 16 octobre) a faussé les prix des titres "
@@ -223,6 +265,143 @@ def verifier_popup_correction(username):
         r = conn.query("SELECT sens, vu_le FROM avis_correction WHERE username=:u", params={"u": username}, ttl=0)
         if not r.empty and (r.iloc[0]['vu_le'] is None or str(r.iloc[0]['vu_le']).strip() == ""):
             afficher_popup_correction(username, str(r.iloc[0]['sens']))
+    except Exception:
+        pass
+
+# --- MODE « VRAIE BOURSE » : FRAIS, PLAFOND DE CONCENTRATION, COUPE-CIRCUIT ---
+# Décision de Mathieu (28 oct. 2026) : rapprocher la simulation de la réalité.
+# - Frais de transaction : 10 $ par achat et par vente (jamais rétroactifs).
+# - Frais de conversion : 1,5 % sur les titres américains (achat et vente).
+# - Frais de gestion : 0,5 % de la valeur totale du compte, prélevés le 1er
+#   de chaque mois à compter du 1er novembre 2026.
+# - Plafond : maximum 25 % de la valeur du compte sur un seul titre à l'achat.
+# - Coupe-circuit : achats suspendus si le titre bouge de plus de 30 % dans
+#   la journée (contre la clôture de la veille) ; les ventes restent permises.
+# Le compte de l'enseignant et ceux du groupe Enseignants sont exemptés.
+FRAIS_TRANSACTION = 10.00
+FRAIS_CONVERSION_PCT = 0.015
+FRAIS_GESTION_PCT = 0.005
+FRAIS_GESTION_DEBUT = (2026, 11)  # (année, mois) du premier prélèvement
+PLAFOND_TITRE_PCT = 25.0
+COUPE_CIRCUIT_PCT = 30.0
+
+
+def compte_exempte_frais(username):
+    """Vrai pour le compte de Mathieu et le groupe Enseignants."""
+    if username == "MathieuSavary":
+        return True
+    try:
+        r = conn.query("SELECT groupe FROM users WHERE username=:u",
+                       params={"u": username}, ttl=300)
+        if not r.empty:
+            return str(r.iloc[0]['groupe'] or "").strip().lower().startswith("enseignant")
+    except Exception:
+        pass
+    return False
+
+
+def frais_pour_ordre(devise, montant_cad):
+    """(frais fixes, frais de conversion) d'un ordre au mode vraie bourse."""
+    conv = round(FRAIS_CONVERSION_PCT * montant_cad, 2) if devise == "USD" else 0.0
+    return FRAIS_TRANSACTION, conv
+
+
+def enregistrer_frais(session, username, type_frais, montant, details=""):
+    """Consigne un frais dans la table frais (dans la session d'écriture ouverte)."""
+    if montant and float(montant) > 0:
+        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+        session.execute(
+            text("INSERT INTO frais (username, type, montant, details, timestamp) "
+                 "VALUES (:u, :ty, :m, :d, :ts)"),
+            {"u": username, "ty": type_frais, "m": round(float(montant), 2),
+             "d": details, "ts": now_str})
+
+
+def valeur_totale_compte(username):
+    """(comptant, valeur des positions, valeur totale) aux prix actuels.
+    Repli sur le prix moyen quand un prix est indisponible."""
+    c = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": username}, ttl=0)
+    cash = float(c.iloc[0]['cash']) if not c.empty else 0.0
+    pos = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u",
+                     params={"u": username}, ttl=0)
+    val = 0.0
+    if not pos.empty:
+        prix = obtenir_prix_groupes(pos['ticker'].unique().tolist())
+        for _, row in pos.iterrows():
+            tk = str(row['ticker']).strip().upper()
+            info = prix.get(tk)
+            px = info["cad"] if info else None
+            val += (px if px is not None else float(row['avg_price'] or 0.0)) * int(row['shares'] or 0)
+    return cash, val, cash + val
+
+
+def part_titre_apres_achat(username, ticker_symbol, prix_unitaire_cad, quantite):
+    """Part (%) qu'occuperait le titre dans le compte après un achat."""
+    _, _, total = valeur_totale_compte(username)
+    if total <= 0:
+        return 100.0
+    p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)",
+                   params={"u": username, "t": ticker_symbol}, ttl=0)
+    sh = int(p.iloc[0]['shares']) if not p.empty else 0
+    return (sh + quantite) * prix_unitaire_cad / total * 100.0
+
+
+def coupe_circuit_actif(ticker_symbol):
+    """(bloqué, variation %) : vrai si le titre a bougé de plus de 30 %
+    aujourd'hui contre la clôture de la veille. (False, None) si la
+    variation ne peut pas être mesurée."""
+    try:
+        cv = cloture_veille(ticker_symbol)
+        pa = obtenir_prix_actuel(ticker_symbol)
+        if not cv or not pa or float(cv) <= 0:
+            return False, None
+        var = (float(pa) - float(cv)) / float(cv) * 100.0
+        return abs(var) > COUPE_CIRCUIT_PCT, var
+    except Exception:
+        return False, None
+
+
+def appliquer_frais_gestion(username):
+    """Prélève les frais de gestion dus (0,5 % le 1er de chaque mois dès
+    le 1er novembre 2026). Vérification légère : au plus une fois par
+    session et par jour ; chaque prélèvement est consigné une seule fois
+    grâce à sa référence (la date du 1er) dans la table frais."""
+    try:
+        maintenant = datetime.now(ZoneInfo("America/Toronto"))
+        auj = maintenant.date()
+        if (auj.year, auj.month) < FRAIS_GESTION_DEBUT:
+            return
+        cle = f"fg_verifie_{auj.isoformat()}"
+        if st.session_state.get(cle):
+            return
+        st.session_state[cle] = True
+        if compte_exempte_frais(username):
+            return
+        dues = []
+        a, m = FRAIS_GESTION_DEBUT
+        while (a, m) <= (auj.year, auj.month):
+            dues.append(f"{a:04d}-{m:02d}-01")
+            m += 1
+            if m > 12:
+                a, m = a + 1, 1
+        faites = conn.query("SELECT details FROM frais WHERE username=:u AND type='gestion'",
+                            params={"u": username}, ttl=0)
+        deja = set(faites['details'].astype(str).tolist()) if not faites.empty else set()
+        for ref in dues:
+            if ref in deja:
+                continue
+            _, _, total = valeur_totale_compte(username)
+            frais_m = round(FRAIS_GESTION_PCT * total, 2) if total > 0 else 0.0
+            now_str = maintenant.strftime("%Y-%m-%d %H:%M:%S")
+            with conn.session as session:
+                if frais_m > 0:
+                    session.execute(text("UPDATE users SET cash = cash - :f WHERE username = :u"),
+                                    {"f": frais_m, "u": username})
+                session.execute(
+                    text("INSERT INTO frais (username, type, montant, details, timestamp) "
+                         "VALUES (:u, 'gestion', :m, :d, :ts)"),
+                    {"u": username, "m": frais_m, "d": ref, "ts": now_str})
+                session.commit()
     except Exception:
         pass
 
@@ -2124,6 +2303,7 @@ if st.session_state['user'] is None:
 
 else:
     user = st.session_state['user']
+    appliquer_frais_gestion(user)
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
 
     if res_u.empty:
@@ -2244,6 +2424,21 @@ else:
             st.caption("Pour respecter les règles : " + " et ".join(manques) + ".")
         else:
             st.caption("Règles respectées. Beau travail!")
+
+        # --- FRAIS PAYÉS (mode vraie bourse) : cumulatif visible par l'élève ---
+        try:
+            if not compte_exempte_frais(user):
+                fq = conn.query("SELECT type, SUM(montant) AS tot FROM frais WHERE username=:u GROUP BY type",
+                                params={"u": user}, ttl=30)
+                tf = {str(r['type']): float(r['tot'] or 0) for _, r in fq.iterrows()} if not fq.empty else {}
+                st.markdown(
+                    f"<div style='color:#9CA3AF;font-size:12.5px;margin-top:10px;'>"
+                    f"Frais payés depuis le mode vraie bourse : transactions <b style='color:#FFFFFF;'>{tf.get('transaction', 0.0):,.2f} $</b>"
+                    f" &nbsp;•&nbsp; conversion <b style='color:#FFFFFF;'>{tf.get('conversion', 0.0):,.2f} $</b>"
+                    f" &nbsp;•&nbsp; gestion <b style='color:#FFFFFF;'>{tf.get('gestion', 0.0):,.2f} $</b></div>",
+                    unsafe_allow_html=True)
+        except Exception:
+            pass
 
     afficher_metrics_live()
 
@@ -2475,6 +2670,11 @@ else:
                         st.write(f"Total estimé : **{fmt_prix(prix*qty_achat, 'USD')}** (≈ **${prix_cad*qty_achat:,.2f} CAD** débités)")
                     else:
                         st.write(f"Total estimé : **${prix*qty_achat:,.2f}**")
+                    if not compte_exempte_frais(user):
+                        _cout_est = prix_cad * qty_achat
+                        _fconv_est = round(FRAIS_CONVERSION_PCT * _cout_est, 2) if devise_titre == "USD" else 0.0
+                        _txt_conv = f" + conversion (1,5 %) **${_fconv_est:,.2f}**" if devise_titre == "USD" else ""
+                        st.write(f"Frais : transaction **$10.00**{_txt_conv} → total débité : **${_cout_est + FRAIS_TRANSACTION + _fconv_est:,.2f} CAD**")
                     qty_vente = qty_achat
                 else:
                     montant = st.number_input("Montant à investir ($ CAD)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
@@ -2484,6 +2684,11 @@ else:
                             st.write(f"Vous pouvez acheter **{qty_achat}** actions à **{fmt_prix(prix, 'USD')}** pour **${qty_achat*prix_cad:,.2f} CAD**")
                         else:
                             st.write(f"Vous pouvez acheter **{qty_achat}** actions pour **${qty_achat*prix_cad:,.2f}**")
+                        if not compte_exempte_frais(user):
+                            _cout_est2 = qty_achat * prix_cad
+                            _fconv_est2 = round(FRAIS_CONVERSION_PCT * _cout_est2, 2) if devise_titre == "USD" else 0.0
+                            _txt_conv2 = f" + conversion (1,5 %) **${_fconv_est2:,.2f}**" if devise_titre == "USD" else ""
+                            st.write(f"Frais : transaction **$10.00**{_txt_conv2} → total débité : **${_cout_est2 + FRAIS_TRANSACTION + _fconv_est2:,.2f} CAD**")
                     else:
                         st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
                     qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
@@ -2494,6 +2699,8 @@ else:
                         st.caption(f"Ajustement de change : 1 $ US = {_taux_jour:.4f} $ CAD aujourd'hui. Le montant débité ou crédité est toujours en dollars canadiens.")
 
                 st.caption("Règle : ta position sur un titre ne peut pas dépasser 5 % de son volume d'échange quotidien.")
+                if not compte_exempte_frais(user):
+                    st.caption("Mode vraie bourse : 10 $ de frais par transaction (aussi retenus sur les ventes), 1,5 % de conversion sur les titres américains, maximum 25 % de ton compte sur un seul titre, coupe-circuit si un titre bouge de plus de 30 % dans une journée.")
                 vol_jour_cap = obtenir_volume_quotidien_moyen(selected_ticker)
                 if vol_jour_cap and LIMITE_VOLUME_PCT * vol_jour_cap < 1000000:
                     st.caption(f"Position maximale sur {selected_ticker.upper()} : {LIMITE_VOLUME_PCT * vol_jour_cap:,.0f} $")
@@ -2523,12 +2730,21 @@ else:
                         cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
 
                         msg_limite = verifier_limite_volume(user, selected_ticker, prix_instantane, cost_real)
+                        exempte = compte_exempte_frais(user)
+                        frais_fixe, frais_conv = (0.0, 0.0) if exempte else frais_pour_ordre(devise_titre, cost_real)
+                        total_debit = cost_real + frais_fixe + frais_conv
+                        bloque_cc, var_cc = (False, None) if exempte else coupe_circuit_actif(selected_ticker)
+                        part_apres = 0.0 if exempte else part_titre_apres_achat(user, selected_ticker, prix_instantane, qty_achat)
                         if msg_limite:
                             st.error(msg_limite)
-                        elif cash_actuel_db >= cost_real:
+                        elif bloque_cc:
+                            st.error(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
+                        elif part_apres > PLAFOND_TITRE_PCT:
+                            st.error(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
+                        elif cash_actuel_db >= total_debit:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": cost_real, "u": user})
+                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": total_debit, "u": user})
                                 p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                                 if not p_res.empty:
                                     anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_instantane)
@@ -2539,14 +2755,18 @@ else:
                                     session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane})
                                 session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                 {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                enregistrer_frais(session, user, "transaction", frais_fixe, selected_ticker.upper())
+                                enregistrer_frais(session, user, "conversion", frais_conv, selected_ticker.upper())
                                 session.commit()
 
+                            _frais_tot = frais_fixe + frais_conv
+                            _note_frais = f" Frais : ${_frais_tot:,.2f}." if _frais_tot > 0 else ""
                             if devise_titre == "USD":
                                 _taux_fx = obtenir_taux_usdcad()
-                                _msg_fx = f" (débité : ${cost_real:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (débité : ${cost_real:,.2f} CAD)"
-                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectué !{_msg_fx}")
+                                _msg_fx = f" (débité : ${total_debit:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (débité : ${total_debit:,.2f} CAD)"
+                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectué !{_msg_fx}{_note_frais}")
                             else:
-                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !")
+                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !{_note_frais}")
                             st.rerun()
                         else: st.error("Fonds insuffisants.")
 
@@ -2564,9 +2784,12 @@ else:
                         shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
                         if shares_dispo >= qty_vente:
+                            exempte_s = compte_exempte_frais(user)
+                            frais_fixe_s, frais_conv_s = (0.0, 0.0) if exempte_s else frais_pour_ordre(devise_titre, cost_real)
+                            credit_net = cost_real - frais_fixe_s - frais_conv_s
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": cost_real, "u": user})
+                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net, "u": user})
                                 rem = shares_dispo - qty_vente
                                 if rem > 0:
                                     session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
@@ -2574,14 +2797,18 @@ else:
                                     session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
                                 session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                 {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                enregistrer_frais(session, user, "transaction", frais_fixe_s, selected_ticker.upper())
+                                enregistrer_frais(session, user, "conversion", frais_conv_s, selected_ticker.upper())
                                 session.commit()
 
+                            _frais_tot_s = frais_fixe_s + frais_conv_s
+                            _note_frais_s = f" Frais : ${_frais_tot_s:,.2f}." if _frais_tot_s > 0 else ""
                             if devise_titre == "USD":
                                 _taux_fx = obtenir_taux_usdcad()
-                                _msg_fx = f" (crédité : ${cost_real:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (crédité : ${cost_real:,.2f} CAD)"
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectuée !{_msg_fx}")
+                                _msg_fx = f" (crédité : ${credit_net:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (crédité : ${credit_net:,.2f} CAD)"
+                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectuée !{_msg_fx}{_note_frais_s}")
                             else:
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !")
+                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !{_note_frais_s}")
                             st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
@@ -2875,6 +3102,7 @@ else:
                 st.markdown("<hr>", unsafe_allow_html=True)
                 st.markdown("### Vendre rapidement mes positions")
 
+                exempte_vente_rapide = compte_exempte_frais(user)
                 cartes_vente = []
                 for _, r in p_all.iterrows():
                     tk2, sh2 = str(r['ticker']), int(r['shares'] or 0)
@@ -2910,8 +3138,16 @@ else:
                             else:
                                 qty_c = st.slider("J'en vends :", min_value=1, max_value=sh_s, value=qty_init, key=cle_slider)
                             tot_c = qty_c * pa
+                            if exempte_vente_rapide:
+                                tot_affiche, frais_carte = tot_c, 0.0
+                            else:
+                                _info_c = prix_dict_pos.get(tk.upper())
+                                _dv_carte = (_info_c["devise"] if _info_c and _info_c.get("devise") else devise_naturelle(tk))
+                                _ff_carte, _fc_carte = frais_pour_ordre(_dv_carte, tot_c)
+                                frais_carte = _ff_carte + _fc_carte
+                                tot_affiche = tot_c - frais_carte
                             st.markdown(
-                                f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_c:,.2f}</b></div>",
+                                f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_affiche:,.2f}</b>" + (f" <span style='color:#9CA3AF;font-size:12px;'>(après {frais_carte:,.2f} $ de frais)</span>" if frais_carte > 0 else "") + "</div>",
                                 unsafe_allow_html=True)
                             if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
                                 if vente_avant_delai_bloquee(user, tk):
@@ -2924,9 +3160,14 @@ else:
                                     if sh_real >= qty_c:
                                         prix_v_instantane = obtenir_prix_actuel(tk) or pa
                                         total_v_instantane = qty_c * prix_v_instantane
+                                        if exempte_vente_rapide:
+                                            frais_fixe_c, frais_conv_c = 0.0, 0.0
+                                        else:
+                                            frais_fixe_c, frais_conv_c = frais_pour_ordre(devise_naturelle(tk), total_v_instantane)
+                                        credit_net_c = total_v_instantane - frais_fixe_c - frais_conv_c
                                         now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                                         with conn.session as session:
-                                            session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": total_v_instantane, "u": user})
+                                            session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net_c, "u": user})
                                             rem = sh_real - qty_c
                                             if rem > 0:
                                                 session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk})
@@ -2934,11 +3175,15 @@ else:
                                                 session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
                                             session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
                                                             {"u": user, "t": tk, "s": -qty_c, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
+                                            enregistrer_frais(session, user, "transaction", frais_fixe_c, tk)
+                                            enregistrer_frais(session, user, "conversion", frais_conv_c, tk)
                                             session.commit()
+                                        _frais_c_tot = frais_fixe_c + frais_conv_c
+                                        _note_frais_c = f" Frais : ${_frais_c_tot:,.2f}." if _frais_c_tot > 0 else ""
                                         if devise_naturelle(tk) == "USD":
-                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à {fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD')} effectuée ! (crédité : ${total_v_instantane:,.2f} CAD)")
+                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à {fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD')} effectuée ! (crédité : ${credit_net_c:,.2f} CAD){_note_frais_c}")
                                         else:
-                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !")
+                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !{_note_frais_c}")
                                         st.rerun()
                                     else:
                                         st.error("Vous ne possédez plus ces actions.")
