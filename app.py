@@ -1135,11 +1135,81 @@ def obtenir_donnees_favoris(tickers_tuple):
     except Exception:
         return {}
 
+# --- GEL DES PRIX HORS HEURES ---
+# Règle de Mathieu : les achats et les ventes restent permis en tout
+# temps, mais entre la fermeture (16 h) et l'ouverture suivante
+# (9 h 30), le prix ne bouge plus : c'est la clôture officielle de la
+# dernière séance complétée. Sans ce gel, le « prix courant » de Yahoo
+# continuait de dériver en séance prolongée (jusqu'à 20 h) et un
+# aller-retour de soirée pouvait générer un profit à partir de rien
+# (vu le 27 oct. 2026 : DAVI acheté 4,2149 $ à 19 h 24 et revendu
+# 4,2177 $ à 23 h 36, alors que la clôture officielle était 3,00 $).
+
+def _marche_ouvert():
+    """Vrai pendant la séance régulière (lun-ven, 9 h 30 à 16 h,
+    heure de Toronto)."""
+    maintenant = datetime.now(ZoneInfo("America/Toronto"))
+    if maintenant.weekday() >= 5:
+        return False
+    minutes = maintenant.hour * 60 + maintenant.minute
+    return 9 * 60 + 30 <= minutes < 16 * 60
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cloture_officielle_figee(ticker_symbol):
+    """Clôture officielle (en CAD) de la dernière séance complétée,
+    lue dans les barres quotidiennes : avant l'ouverture, celle de la
+    veille ; après la fermeture, celle du jour ; le week-end, celle
+    de vendredi. Retourne None si les barres sont indisponibles."""
+    try:
+        t = yf.Ticker(ticker_symbol)
+        hist = t.history(period="5d")
+        if hist is None or hist.empty or 'Close' not in hist.columns:
+            return None
+        try:
+            devise = str(t.fast_info.get('currency') or 'CAD').upper()
+        except Exception:
+            devise = devise_naturelle(ticker_symbol)
+        maintenant = datetime.now(ZoneInfo("America/Toronto"))
+        aujourdhui = maintenant.date()
+        minutes = maintenant.hour * 60 + maintenant.minute
+        cloture = None
+        for idx, row in hist.iterrows():
+            try:
+                c = float(row['Close'])
+            except Exception:
+                continue
+            if c <= 0:
+                continue
+            d = idx.date()
+            if d < aujourdhui or (d == aujourdhui and minutes >= 16 * 60):
+                cloture = c
+        if cloture is None:
+            return None
+        return convertir_vers_cad(cloture, devise)
+    except Exception:
+        return None
+
+
+def _prix_gele_ou_none(ticker_symbol):
+    """Prix gelé à appliquer hors heures (en CAD), avec repli sur la
+    clôture de la veille si les barres sont muettes. Retourne None si
+    tout échoue : l'appelant garde alors son chemin habituel."""
+    gele = _cloture_officielle_figee(ticker_symbol)
+    if gele is None:
+        gele = cloture_veille(ticker_symbol)
+    return gele
+
+
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
     """Prix d'exécution d'un ordre. Yahoo d'abord ; si Yahoo ne répond
     pas depuis le nuage, repli sur le relais de prix (sonde multi-sources),
     pour qu'un hoquet de Yahoo ne bloque plus les achats et les ventes."""
+    if not _marche_ouvert():
+        gele = _prix_gele_ou_none(ticker_symbol)
+        if gele is not None:
+            return gele
     try:
         t = yf.Ticker(ticker_symbol)
         data = t.fast_info
@@ -1633,6 +1703,20 @@ def obtenir_prix_groupes(tickers_list):
             if entree_r is not None and entree_r.get("cad") is not None:
                 prix_dict[tk] = entree_r
                 _memo_derniers_prix()[tk] = dict(entree_r)
+    # Gel hors heures : mêmes prix que pour les ordres, la clôture
+    # officielle de la dernière séance complétée. Les copies gardées
+    # dans le filet « dernier prix connu » ne sont pas touchées.
+    if not _marche_ouvert():
+        for tk, entree in list(prix_dict.items()):
+            if entree is None or entree.get("cad") is None:
+                continue
+            gele = _prix_gele_ou_none(tk)
+            if gele is not None:
+                entree["cad"] = gele
+                natif = vers_natif(
+                    gele, entree.get("devise") or devise_naturelle(tk))
+                if natif is not None:
+                    entree["natif"] = natif
     return prix_dict
 
 def _details_voie_rapide(t, ticker_symbol):
@@ -1658,6 +1742,15 @@ def _details_voie_rapide(t, ticker_symbol):
             return None
     else:
         last = float(last)
+
+    # Gel hors heures : le prix affiché est la clôture officielle de
+    # la dernière séance complétée, comme pour les ordres.
+    if not _marche_ouvert():
+        gele = _prix_gele_ou_none(ticker_symbol)
+        if gele is not None:
+            natif_gele = vers_natif(gele, devise)
+            if natif_gele is not None:
+                last = float(natif_gele)
 
     open_p = info.get('open') or info.get('openPrice')
     if open_p is None or pd.isna(open_p):
