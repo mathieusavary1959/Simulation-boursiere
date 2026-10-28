@@ -3267,6 +3267,28 @@ else:
                 elif code_supabase:
                     st.error("Code incorrect.")
 
+            with st.expander("Frais du mode vraie bourse (par élève)"):
+                st.info("Frais prélevés depuis le passage au mode vraie bourse : 10 $ par transaction, 1,5 % de conversion sur les titres américains, 0,5 % de frais de gestion le 1er de chaque mois (dès le 1er novembre).")
+                frais_sup = conn.query(
+                    "SELECT f.username AS username, u.groupe AS groupe, f.type AS type, SUM(f.montant) AS tot "
+                    "FROM frais f JOIN users u ON u.username = f.username GROUP BY f.username, u.groupe, f.type",
+                    ttl=0)
+                if frais_sup.empty:
+                    st.write("Aucun frais prélevé pour le moment.")
+                else:
+                    piv = frais_sup.pivot_table(index=["username", "groupe"], columns="type", values="tot", aggfunc="sum", fill_value=0.0).reset_index()
+                    for col_f in ["transaction", "conversion", "gestion"]:
+                        if col_f not in piv.columns:
+                            piv[col_f] = 0.0
+                    piv["total"] = piv["transaction"] + piv["conversion"] + piv["gestion"]
+                    piv = piv.sort_values("total", ascending=False)
+                    tot_tx = float(piv["transaction"].sum())
+                    tot_cv = float(piv["conversion"].sum())
+                    tot_ge = float(piv["gestion"].sum())
+                    st.markdown(f"**Total de la classe : {tot_tx + tot_cv + tot_ge:,.2f} $** (transactions {tot_tx:,.2f} $ • conversion {tot_cv:,.2f} $ • gestion {tot_ge:,.2f} $)")
+                    aff = piv.rename(columns={"username": "Élève", "groupe": "Groupe", "transaction": "Transactions ($)", "conversion": "Conversion ($)", "gestion": "Gestion ($)", "total": "Total ($)"})
+                    st.dataframe(aff[["Élève", "Groupe", "Transactions ($)", "Conversion ($)", "Gestion ($)", "Total ($)"]], use_container_width=True, hide_index=True)
+
             with st.expander("Photos des meneurs (podium du classement)"):
                 st.info("Choisis un élève, dépose sa photo officielle : elle apparaîtra dans sa carte du podium s'il est dans les 3 premiers. Sans photo, la carte affiche ses initiales.")
                 _df_users_ph = conn.query("SELECT username FROM users ORDER BY username", ttl=0)
