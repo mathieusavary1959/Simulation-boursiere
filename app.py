@@ -298,6 +298,15 @@ def afficher_popup_correction(username, sens):
             "paires, 533,62 $, ont été retirés de ton comptant. Tout le reste de "
             "ton compte est inchangé."
         )
+    elif sens == "xp_prix":
+        st.markdown(
+            "Le 27 octobre, ton achat de 75 actions du titre XP est passé à "
+            "42,70 $ l'action à cause d'un bogue de prix chez notre "
+            "fournisseur de données : le vrai prix était de 22,44 $. Ton "
+            "achat a été recalculé au vrai prix et la différence, "
+            "1 519,36 $, t'a été remboursée. Ton comptant est maintenant "
+            "de 5 437,33 $. Tout le reste de ton compte est inchangé."
+        )
     else:
         st.markdown(
             "Un bogue de conversion (5 au 16 octobre) a faussé les prix des titres "
