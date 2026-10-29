@@ -356,6 +356,53 @@ def compte_exempte_frais(username):
     return False
 
 
+# Plafond d'achats par jour (décision de Mathieu, 29 oct. 2026) : après
+# LIMITE_ACHATS_JOUR achats dans la même journée civile (heure de
+# Toronto, de minuit à minuit), les achats sont en pause jusqu'au
+# lendemain ; les ventes restent toujours libres. Rien n'est annoncé
+# d'avance : le message n'apparaît qu'au moment où l'élève atteint la
+# limite, l'effet de surprise fait partie du dispositif.
+LIMITE_ACHATS_JOUR = 4
+
+
+def achats_du_jour(username):
+    """Nombre d'achats déjà faits aujourd'hui par le compte (jour
+    civil à Toronto). En cas d'erreur de lecture, on renvoie 0 : ce
+    garde-fou ne doit pas bloquer tout le monde pour un pépin."""
+    jour = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
+    try:
+        r = conn.query(
+            "SELECT shares FROM transactions WHERE username=:u "
+            "AND timestamp LIKE :p",
+            params={"u": username, "p": jour + "%"}, ttl=0)
+    except Exception:
+        return 0
+    if r.empty:
+        return 0
+    return int(sum(1 for s in r['shares'] if float(s) > 0))
+
+
+def plafond_achats_atteint(username):
+    """Vrai si le compte a épuisé ses achats du jour. Les comptes
+    exemptés (enseignant) n'ont pas de plafond."""
+    if compte_exempte_frais(username):
+        return False
+    return achats_du_jour(username) >= LIMITE_ACHATS_JOUR
+
+
+@st.dialog("Prends une pause de la bourse !")
+def dialogue_pause_bourse():
+    st.write("4 achats dans la même journée, c'est suffisant ;) "
+             "Rassure-toi : le marché sera encore là demain, il ne "
+             "part pas sans toi.")
+    st.write("Les bons investisseurs choisissent leurs moments au "
+             "lieu de courir après chaque mouvement. Tes achats sont "
+             "en pause jusqu'à demain ; tes ventes restent toujours "
+             "possibles.")
+    if st.button("J'ai compris"):
+        st.rerun()
+
+
 def frais_pour_ordre(devise, montant_cad):
     """(frais fixes, frais de conversion) d'un ordre au mode vraie bourse."""
     conv = round(FRAIS_CONVERSION_PCT * montant_cad, 2) if devise == "USD" else 0.0
@@ -3057,7 +3104,9 @@ else:
 
                 # ACHAT
                 if col_b.button("Acheter", use_container_width=True):
-                    if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
+                    if plafond_achats_atteint(user):
+                        dialogue_pause_bourse()
+                    elif not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
                         st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
                     elif titre_suspendu(selected_ticker):
                         st.error(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
