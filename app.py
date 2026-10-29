@@ -127,6 +127,13 @@ def init_db():
                 );
             '''))
             session.execute(text('''
+                CREATE TABLE IF NOT EXISTS titres_suspendus (
+                    ticker TEXT PRIMARY KEY,
+                    motif TEXT,
+                    depuis TEXT
+                );
+            '''))
+            session.execute(text('''
                 CREATE TABLE IF NOT EXISTS photos (
                     username TEXT PRIMARY KEY,
                     image TEXT,
@@ -262,6 +269,25 @@ def afficher_popup_correction(username, sens):
             "fermeture des marchés. Elles sont annulées : tes actions sont de "
             "retour dans ton portefeuille et ton comptant est recalculé à "
             "6 810,25 $. Tout le reste de ton compte est inchangé."
+        )
+    elif sens == "axg_achats":
+        st.markdown(
+            "Tes deux achats du titre AXG (100 000 actions le 27 octobre et "
+            "146 341 actions le 28 octobre) sont annulés et l'argent des deux "
+            "achats t'a été remboursé : 11 609,98 $. Les prix de ce titre chez "
+            "notre fournisseur de données étaient incohérents : le même titre "
+            "valait quelques sous à un endroit et plusieurs dollars à un autre, "
+            "donc ces achats n'auraient jamais dû passer à ce prix. Ton "
+            "comptant est maintenant de 12 263,29 $. Tout le reste de ton "
+            "compte est inchangé."
+        )
+    elif sens == "nan_lina":
+        st.markdown(
+            "Ce soir, une de tes ventes (4 actions AAPL) est passée à un prix "
+            "vide à cause d'un bogue de prix après la fermeture des marchés. "
+            "Elle est annulée : tes 4 actions sont de retour dans ton "
+            "portefeuille et ton comptant est recalculé à 6 461,24 $. Tout le "
+            "reste de ton compte est inchangé."
         )
     elif sens == "crypto":
         st.markdown(
@@ -1559,6 +1585,110 @@ def _prix_gele_ou_none(ticker_symbol):
         return _capturer_prix_gele(ticker_symbol, session_iso)
     except Exception:
         return None
+
+
+# --- BOUCLIERS (28 oct. 2026 au soir) ---
+# Directive de Mathieu après les bogues NaN et AXG : bloquer les
+# failles AVANT les dégâts plutôt que corriger après coup. Trois
+# garde-fous s'ajoutent aux portes d'exécution (panneau d'ordre et
+# vente rapide), en plus du vrai gel :
+# 1. Cohérence des prix : un prix d'exécution qui contredit la
+#    dernière clôture quotidienne (facteur > 3) signale des données
+#    incohérentes (cas AXG : exécution à 0,05 $ contre une clôture
+#    quotidienne de 8,00 $ chez le même fournisseur) ; refus net.
+# 2. Compte en vérification : un comptant devenu illisible (NaN)
+#    bloque les transactions de ce compte, sans toucher aux chiffres.
+# 3. Titres suspendus : un titre aux données incohérentes peut être
+#    suspendu par l'enseignant (table titres_suspendus) ; ni achat
+#    ni vente tant qu'il est suspendu.
+
+SEUIL_COHERENCE_PRIX = 3.0
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _titres_suspendus():
+    try:
+        r = conn.query("SELECT ticker FROM titres_suspendus", ttl=0)
+        return {str(t).strip().upper() for t in r['ticker'].tolist()}
+    except Exception:
+        return set()
+
+
+def titre_suspendu(ticker_symbol):
+    try:
+        return str(ticker_symbol).strip().upper() in _titres_suspendus()
+    except Exception:
+        return False
+
+
+def compte_en_verification(username):
+    """Vrai si le comptant du compte est illisible (NaN). Les comptes
+    exemptés (enseignant) ne sont jamais bloqués par ce garde-fou."""
+    try:
+        if compte_exempte_frais(username):
+            return False
+        r = conn.query("SELECT cash FROM users WHERE username=:u",
+                       params={"u": username}, ttl=0)
+        if r.empty:
+            return False
+        return bool(pd.isna(float(r.iloc[0]['cash'])))
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _reference_coherence_cad(ticker_symbol):
+    """Référence de cohérence (en CAD) : dernière clôture quotidienne
+    valide STRICTEMENT avant aujourd'hui, NaN ignorés. C'est le prix
+    « normal » contre lequel un prix d'exécution aberrant se repère."""
+    try:
+        auj = datetime.now(ZoneInfo("America/Toronto")).date()
+        t = yf.Ticker(ticker_symbol)
+        hist = t.history(period="10d")
+        if hist is None or hist.empty or 'Close' not in hist.columns:
+            return None
+        try:
+            devise = str(t.fast_info.get('currency') or 'CAD').upper()
+        except Exception:
+            devise = devise_naturelle(ticker_symbol)
+        ref = None
+        for idx, row in hist.iterrows():
+            if idx.date() >= auj:
+                continue
+            try:
+                c = float(row['Close'])
+            except Exception:
+                continue
+            if pd.isna(c) or c <= 0:
+                continue
+            ref = c
+        if ref is None:
+            return None
+        return convertir_vers_cad(ref, devise)
+    except Exception:
+        return None
+
+
+def prix_incoherent(ticker_symbol, prix_execution_cad):
+    """(bloqué, référence) : bloqué si le prix d'exécution est
+    illisible (NaN, nul ou négatif) ou s'il diverge de la référence
+    par un facteur supérieur au seuil, dans un sens ou l'autre.
+    Sans prix ou sans référence mesurable, on laisse passer (fail
+    open, comme le coupe-circuit) : ce garde-fou vise les données
+    incohérentes, pas les vrais mouvements de marché."""
+    try:
+        if prix_execution_cad is None:
+            return False, None
+        p = float(prix_execution_cad)
+        if pd.isna(p) or p <= 0:
+            return True, None
+        ref = _reference_coherence_cad(ticker_symbol)
+        if ref is None or ref <= 0:
+            return False, None
+        ratio = p / ref
+        return (ratio > SEUIL_COHERENCE_PRIX or ratio < 1.0 / SEUIL_COHERENCE_PRIX), ref
+    except Exception:
+        return False, None
 
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -2929,6 +3059,12 @@ else:
                 if col_b.button("Acheter", use_container_width=True):
                     if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
                         st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                    elif titre_suspendu(selected_ticker):
+                        st.error(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                    elif compte_en_verification(user):
+                        st.error("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                    elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
+                        st.error(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
                     elif achat_penny_stock_bloque(selected_ticker):
                         st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
                     elif qty_achat < 1:
@@ -2987,6 +3123,12 @@ else:
                 if col_s.button("Vendre", use_container_width=True):
                     if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
                         st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                    elif titre_suspendu(selected_ticker):
+                        st.error(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                    elif compte_en_verification(user):
+                        st.error("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                    elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
+                        st.error(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
                     elif vente_avant_delai_bloquee(user, selected_ticker):
                         st.warning(message_delai_detention(selected_ticker))
                     elif not verifier_cooldown(user, delai_secondes=3):
@@ -3367,6 +3509,12 @@ else:
                             if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
                                 if not _marche_ouvert() and _prix_gele_ou_none(tk) is None:
                                     st.error(f"Marché fermé : le prix de clôture de {tk} n'a pas pu être figé pour cette séance. Vente refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                                elif titre_suspendu(tk):
+                                    st.error(f"{tk} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                                elif compte_en_verification(user):
+                                    st.error("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                                elif prix_incoherent(tk, obtenir_prix_actuel(tk))[0]:
+                                    st.error(f"Transaction refusée : le prix de {tk} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
                                 elif vente_avant_delai_bloquee(user, tk):
                                     st.warning(message_delai_detention(tk))
                                 elif not verifier_cooldown(user, delai_secondes=3):
