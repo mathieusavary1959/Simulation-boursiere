@@ -233,6 +233,27 @@ def afficher_popup_correction(username, sens):
             "du système, pas un gain. Le montant de 1 425,00 $ a été retiré de ton "
             "comptant. Tout le reste de ton compte est inchangé."
         )
+    elif sens == "nan_axg":
+        st.markdown(
+            "Deux corrections sur ton compte ce soir. La première : une vente de "
+            "4 actions GOOGL est passée à un prix vide à cause d'un bogue de prix "
+            "après la fermeture des marchés. Elle est annulée et tes 4 actions "
+            "sont de retour. La deuxième : ton achat de 125 944 actions AXG à "
+            "0,0397 $ et ta vente de ces actions à 7,9426 $ sont annulés. Les prix "
+            "de ce titre chez notre fournisseur de données étaient incohérents "
+            "(deux séries de prix différentes pour le même titre dans la même "
+            "journée) : le gain de 995 322,81 $ était un gain de bogue, pas un "
+            "gain de marché. Ton comptant est maintenant de 6 125,51 $. Tout le "
+            "reste de ton compte est inchangé."
+        )
+    elif sens == "nan":
+        st.markdown(
+            "Ce soir, trois de tes ventes (1 action KO, 5 actions TPL et 6 actions "
+            "AAPL) sont passées à un prix vide à cause d'un bogue de prix après la "
+            "fermeture des marchés. Elles sont annulées : tes actions sont de "
+            "retour dans ton portefeuille et ton comptant est recalculé à "
+            "6 810,25 $. Tout le reste de ton compte est inchangé."
+        )
     elif sens == "crypto":
         st.markdown(
             "Avant le 17 octobre, l'application laissait passer des paires de "
