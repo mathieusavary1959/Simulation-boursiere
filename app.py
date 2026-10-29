@@ -502,6 +502,8 @@ def convertir_vers_cad(prix, devise):
         p = float(prix)
     except (TypeError, ValueError):
         return None
+    if pd.isna(p):
+        return None
     if str(devise or '').upper() == 'USD':
         taux = obtenir_taux_usdcad()
         if taux:
@@ -530,6 +532,8 @@ def vers_natif(prix_cad, devise):
     try:
         p = float(prix_cad)
     except (TypeError, ValueError):
+        return None
+    if pd.isna(p):
         return None
     if str(devise or '').upper() == 'USD':
         taux = obtenir_taux_usdcad()
@@ -1358,7 +1362,11 @@ def _cloture_officielle_figee(ticker_symbol):
                 c = float(row['Close'])
             except Exception:
                 continue
-            if c <= 0:
+            # Yahoo renvoie parfois la barre du jour avec une clôture
+            # NaN le soir, avant de la consolider (vu le 28 oct. 2026
+            # sur tous les titres américains) : un NaN n'est pas un
+            # prix, on l'ignore comme une barre muette.
+            if pd.isna(c) or c <= 0:
                 continue
             d = idx.date()
             if d < aujourdhui or (d == aujourdhui and minutes >= 16 * 60):
@@ -1783,7 +1791,7 @@ def _entree_depuis_ligne_relais(ligne, ticker_symbol):
         return None
     try:
         px = float(ligne['prix_natif'])
-        if px <= 0:
+        if pd.isna(px) or px <= 0:
             return None
     except Exception:
         return None
@@ -1815,12 +1823,22 @@ def _prix_depuis_historique(ticker_symbol):
         if hist is None or hist.empty or 'Close' not in hist.columns:
             return vide
         devise = devise_naturelle(ticker_symbol)
-        px = float(hist['Close'].iloc[-1])
-        if px <= 0:
+        # Dernière clôture VALIDE : la barre la plus récente peut être
+        # NaN chez Yahoo (barre du jour pas encore consolidée).
+        valides = []
+        for v in hist['Close']:
+            try:
+                fv = float(v)
+            except Exception:
+                continue
+            if not pd.isna(fv) and fv > 0:
+                valides.append(fv)
+        if not valides:
             return vide
+        px = valides[-1]
         prev_cad = None
-        if len(hist) >= 2:
-            prev_cad = convertir_vers_cad(float(hist['Close'].iloc[-2]), devise)
+        if len(valides) >= 2:
+            prev_cad = convertir_vers_cad(valides[-2], devise)
         return {"cad": convertir_vers_cad(px, devise), "natif": round(px, 4),
                 "devise": devise, "prev_cad": prev_cad}
     except Exception:
@@ -2020,7 +2038,7 @@ def _details_depuis_relais(ticker_symbol):
         return None
     try:
         px = float(ligne['prix_natif'])
-        if px <= 0:
+        if pd.isna(px) or px <= 0:
             return None
     except Exception:
         return None
