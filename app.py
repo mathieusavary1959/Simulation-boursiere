@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import requests
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
 import streamlit.components.v1 as components
@@ -115,6 +115,15 @@ def init_db():
                     montant DOUBLE PRECISION,
                     details TEXT,
                     timestamp TEXT
+                );
+            '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS prix_geles (
+                    ticker TEXT NOT NULL,
+                    session TEXT NOT NULL,
+                    prix_cad DOUBLE PRECISION NOT NULL,
+                    capture_le TEXT,
+                    PRIMARY KEY (ticker, session)
                 );
             '''))
             session.execute(text('''
@@ -1399,14 +1408,157 @@ def _cloture_officielle_figee(ticker_symbol):
         return None
 
 
+# --- VRAI GEL : PRIX FIGÉ ÉCRIT UNE FOIS PAR SÉANCE (28 oct. 2026 au soir) ---
+# Le premier gel ne tenait pas sa promesse : le prix « figé » était
+# recalculé à chaque transaction depuis les barres Yahoo, qui bougent
+# encore en après-séance avant d'être consolidées, et quand Yahoo se
+# taisait, le code retombait en silence sur le prix en direct. Deux
+# transactions la même soirée pouvaient donc passer à deux prix
+# différents (ventes AAPL du 28 oct. à 19 h 41, au prix d'après-séance).
+# Maintenant : la clôture est capturée UNE fois par titre et par
+# séance, écrite dans la table prix_geles, puis relue telle quelle
+# jusqu'à l'ouverture suivante. Sans prix figé, la transaction hors
+# heures est refusée (fail closed), jamais exécutée au prix en direct.
+
+def _session_reference():
+    """Date de la dernière séance complétée : celle dont la clôture
+    sert de prix gelé. Après la fermeture d'un jour de semaine, la
+    séance du jour ; sinon, le dernier jour de semaine écoulé."""
+    maintenant = datetime.now(ZoneInfo("America/Toronto"))
+    minutes = maintenant.hour * 60 + maintenant.minute
+    if maintenant.weekday() < 5 and minutes >= 16 * 60:
+        candidat = maintenant.date()
+    else:
+        candidat = maintenant.date() - timedelta(days=1)
+    while candidat.weekday() >= 5:
+        candidat -= timedelta(days=1)
+    return candidat
+
+
+def _lire_un_prix_gele(ticker_symbol, session_iso):
+    """Prix figé déjà écrit pour ce titre et cette séance, ou None."""
+    try:
+        r = conn.query(
+            "SELECT prix_cad FROM prix_geles WHERE ticker=:t AND session=:s",
+            params={"t": str(ticker_symbol).strip().upper(), "s": session_iso}, ttl=0)
+        if r.empty:
+            return None
+        v = float(r.iloc[0]['prix_cad'])
+        if pd.isna(v) or v <= 0:
+            return None
+        return v
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _prix_geles_lire(session_iso, tickers_tuple):
+    """Lecture en lot des prix figés (affichage) : une seule requête
+    pour tous les titres demandés."""
+    if not tickers_tuple:
+        return {}
+    try:
+        params = {"s": session_iso}
+        marques = []
+        for i, tk in enumerate(tickers_tuple):
+            cle = f"t{i}"
+            marques.append(f":{cle}")
+            params[cle] = tk
+        sql = ("SELECT ticker, prix_cad FROM prix_geles WHERE session=:s "
+               f"AND ticker IN ({', '.join(marques)})")
+        r = conn.query(sql, params=params, ttl=0)
+        sortie = {}
+        for _, ligne in r.iterrows():
+            try:
+                v = float(ligne['prix_cad'])
+            except Exception:
+                continue
+            if not pd.isna(v) and v > 0:
+                sortie[str(ligne['ticker']).strip().upper()] = v
+        return sortie
+    except Exception:
+        return {}
+
+
+def _ecrire_prix_gele(ticker_symbol, session_iso, prix_cad):
+    """Écrit le prix figé. Le premier écrit gagne : des captures
+    simultanées ne s'écrasent pas (ON CONFLICT DO NOTHING)."""
+    try:
+        now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+        with conn.session as session:
+            session.execute(
+                text("INSERT INTO prix_geles (ticker, session, prix_cad, capture_le) "
+                     "VALUES (:t, :s, :p, :c) ON CONFLICT (ticker, session) DO NOTHING"),
+                {"t": str(ticker_symbol).strip().upper(), "s": session_iso,
+                 "p": float(prix_cad), "c": now_str})
+            session.commit()
+        return True
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cloture_pour_session(ticker_symbol, session_iso):
+    """Clôture officielle (en CAD) de la séance demandée, lue dans les
+    barres quotidiennes : la dernière barre valide dont la date est au
+    plus celle de la séance (si la barre de la séance est encore NaN
+    ou absente, c'est la séance précédente qui sert). None si rien."""
+    try:
+        cible = datetime.strptime(session_iso, "%Y-%m-%d").date()
+        t = yf.Ticker(ticker_symbol)
+        hist = t.history(period="10d")
+        if hist is None or hist.empty or 'Close' not in hist.columns:
+            return None
+        try:
+            devise = str(t.fast_info.get('currency') or 'CAD').upper()
+        except Exception:
+            devise = devise_naturelle(ticker_symbol)
+        retenue = None
+        for idx, row in hist.iterrows():
+            try:
+                c = float(row['Close'])
+            except Exception:
+                continue
+            if pd.isna(c) or c <= 0:
+                continue
+            if idx.date() <= cible:
+                retenue = c
+        if retenue is None:
+            return None
+        return convertir_vers_cad(retenue, devise)
+    except Exception:
+        return None
+
+
+def _capturer_prix_gele(ticker_symbol, session_iso):
+    """Capture la clôture de la séance et l'écrit une fois pour toutes.
+    Retourne le prix figé en vigueur après la capture (celui qui est
+    écrit, même si une autre session a écrit le sien en premier)."""
+    cad = _cloture_pour_session(ticker_symbol, session_iso)
+    if cad is None:
+        cad = cloture_veille(ticker_symbol)
+    if cad is None or pd.isna(cad) or float(cad) <= 0:
+        return None
+    _ecrire_prix_gele(ticker_symbol, session_iso, float(cad))
+    # Le prix ne vaut que s'il est vraiment écrit et relu : sans prix
+    # figé établi dans la table, on refuse plutôt que d'exécuter à un
+    # prix calculé localement qu'une autre session ne reverrait pas.
+    return _lire_un_prix_gele(ticker_symbol, session_iso)
+
+
 def _prix_gele_ou_none(ticker_symbol):
-    """Prix gelé à appliquer hors heures (en CAD), avec repli sur la
-    clôture de la veille si les barres sont muettes. Retourne None si
-    tout échoue : l'appelant garde alors son chemin habituel."""
-    gele = _cloture_officielle_figee(ticker_symbol)
-    if gele is None:
-        gele = cloture_veille(ticker_symbol)
-    return gele
+    """Prix gelé de la séance (en CAD) : celui écrit dans prix_geles,
+    capturé au besoin. None si aucun prix ne peut être figé : hors
+    heures, l'appelant doit alors refuser la transaction, jamais
+    retomber sur le prix en direct."""
+    try:
+        session_iso = _session_reference().isoformat()
+        lu = _lire_un_prix_gele(ticker_symbol, session_iso)
+        if lu is not None:
+            return lu
+        return _capturer_prix_gele(ticker_symbol, session_iso)
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -1415,9 +1567,11 @@ def obtenir_prix_actuel(ticker_symbol):
     pas depuis le nuage, repli sur le relais de prix (sonde multi-sources),
     pour qu'un hoquet de Yahoo ne bloque plus les achats et les ventes."""
     if not _marche_ouvert():
-        gele = _prix_gele_ou_none(ticker_symbol)
-        if gele is not None:
-            return gele
+        # Fail closed : hors heures, seul le prix figé écrit peut
+        # exécuter un ordre. Sans prix figé, None (la transaction est
+        # refusée par l'appelant), jamais le prix en direct qui
+        # continue de bouger en après-séance.
+        return _prix_gele_ou_none(ticker_symbol)
     try:
         t = yf.Ticker(ticker_symbol)
         data = t.fast_info
@@ -1921,20 +2075,38 @@ def obtenir_prix_groupes(tickers_list):
             if entree_r is not None and entree_r.get("cad") is not None:
                 prix_dict[tk] = entree_r
                 _memo_derniers_prix()[tk] = dict(entree_r)
-    # Gel hors heures : mêmes prix que pour les ordres, la clôture
-    # officielle de la dernière séance complétée. Les copies gardées
-    # dans le filet « dernier prix connu » ne sont pas touchées.
+    # Vrai gel hors heures : les prix figés écrits dans prix_geles,
+    # capturés au besoin (au plus 25 par appel, pour ne pas ralentir
+    # l'affichage ; les autres suivront aux prochains affichages).
+    # Un titre sans prix figé garde son prix d'affichage habituel,
+    # mais aucun ordre ne peut l'utiliser : l'exécution exige le prix
+    # figé (voir obtenir_prix_actuel et les portes des panneaux).
     if not _marche_ouvert():
-        for tk, entree in list(prix_dict.items()):
-            if entree is None or entree.get("cad") is None:
-                continue
-            gele = _prix_gele_ou_none(tk)
-            if gele is not None:
-                entree["cad"] = gele
+        try:
+            session_iso = _session_reference().isoformat()
+            cles = tuple(sorted(prix_dict.keys()))
+            lus = _prix_geles_lire(session_iso, cles)
+            captures = 0
+            for tk in cles:
+                if captures >= 25:
+                    break
+                entree0 = prix_dict.get(tk)
+                if tk in lus or entree0 is None or entree0.get("cad") is None:
+                    continue
+                cap = _capturer_prix_gele(tk, session_iso)
+                captures += 1
+                if cap is not None:
+                    lus[tk] = cap
+            for tk, entree in prix_dict.items():
+                if entree is None or entree.get("cad") is None or tk not in lus:
+                    continue
+                entree["cad"] = lus[tk]
                 natif = vers_natif(
-                    gele, entree.get("devise") or devise_naturelle(tk))
+                    lus[tk], entree.get("devise") or devise_naturelle(tk))
                 if natif is not None:
                     entree["natif"] = natif
+        except Exception:
+            pass
     return prix_dict
 
 def _details_voie_rapide(t, ticker_symbol):
@@ -2755,7 +2927,9 @@ else:
 
                 # ACHAT
                 if col_b.button("Acheter", use_container_width=True):
-                    if achat_penny_stock_bloque(selected_ticker):
+                    if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
+                        st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                    elif achat_penny_stock_bloque(selected_ticker):
                         st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
                     elif qty_achat < 1:
                         st.warning("Augmentez le montant pour acheter au moins une action.")
@@ -2811,7 +2985,9 @@ else:
 
                 # VENTE
                 if col_s.button("Vendre", use_container_width=True):
-                    if vente_avant_delai_bloquee(user, selected_ticker):
+                    if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
+                        st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                    elif vente_avant_delai_bloquee(user, selected_ticker):
                         st.warning(message_delai_detention(selected_ticker))
                     elif not verifier_cooldown(user, delai_secondes=3):
                         st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
@@ -3189,7 +3365,9 @@ else:
                                 f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_affiche:,.2f}</b>" + (f" <span style='color:#9CA3AF;font-size:12px;'>(après {frais_carte:,.2f} $ de frais)</span>" if frais_carte > 0 else "") + "</div>",
                                 unsafe_allow_html=True)
                             if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
-                                if vente_avant_delai_bloquee(user, tk):
+                                if not _marche_ouvert() and _prix_gele_ou_none(tk) is None:
+                                    st.error(f"Marché fermé : le prix de clôture de {tk} n'a pas pu être figé pour cette séance. Vente refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                                elif vente_avant_delai_bloquee(user, tk):
                                     st.warning(message_delai_detention(tk))
                                 elif not verifier_cooldown(user, delai_secondes=3):
                                     st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
