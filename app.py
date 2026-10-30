@@ -399,6 +399,44 @@ def plafond_achats_atteint(username):
     return achats_du_jour(username) >= LIMITE_ACHATS_JOUR
 
 
+# Plafond caché par achat hors heures (décision de Mathieu, 30 oct.
+# 2026) : en dehors de la séance régulière (lun-ven, 9 h 30 à 16 h,
+# heure de Toronto), un achat ne peut pas dépasser
+# LIMITE_ACHAT_HORS_HEURES en dollars canadiens. La grande fenêtre au
+# prix gelé (16 h à 9 h 30) servait à placer de très gros paris sur
+# l'après-séance la veille pour le lendemain (vu le 29 oct. : trois
+# achats d'environ 16 000 $ entre 16 h 28 et 16 h 31). Le plafond
+# s'applique le soir ET le matin avant l'ouverture, donc la même
+# règle couvre les deux bouts de la fenêtre. Rien n'est annoncé
+# d'avance et aucun message en fenêtre ne s'ajoute : au dépassement,
+# une seule ligne de refus dans le panneau d'ordre. Les ventes
+# restent toujours libres et les achats en séance ne changent pas.
+# Comptes exemptés : enseignant, comme les frais et le plafond
+# d'achats par jour. Avec la limite de 4 achats par jour, le maximum
+# déployable hors heures est de 2 000 $ par journée civile.
+LIMITE_ACHAT_HORS_HEURES = 500.00
+
+
+def achat_hors_heures_bloque(username, montant_cad, moment=None):
+    """Vrai si cet achat dépasse le plafond hors heures. moment est
+    injectable pour les tests ; par défaut, l'heure de Toronto."""
+    if compte_exempte_frais(username):
+        return False
+    if moment is None:
+        moment = datetime.now(ZoneInfo("America/Toronto"))
+    if moment.weekday() < 5:
+        minutes = moment.hour * 60 + moment.minute
+        if 9 * 60 + 30 <= minutes < 16 * 60:
+            return False
+    try:
+        montant = float(montant_cad)
+    except (TypeError, ValueError):
+        return True
+    if montant != montant:  # NaN : montant illisible, on refuse.
+        return True
+    return montant > LIMITE_ACHAT_HORS_HEURES
+
+
 @st.dialog("Prends une pause de la bourse !")
 def dialogue_pause_bourse():
     st.write("4 achats dans la même journée, c'est suffisant ;) "
@@ -3142,8 +3180,11 @@ else:
                         total_debit = cost_real + frais_fixe + frais_conv
                         bloque_cc, var_cc = (False, None) if exempte else coupe_circuit_actif(selected_ticker)
                         part_apres = 0.0 if exempte else part_titre_apres_achat(user, selected_ticker, prix_instantane, qty_achat)
+                        bloque_hh = achat_hors_heures_bloque(user, cost_real)
                         if msg_limite:
                             st.error(msg_limite)
+                        elif bloque_hh:
+                            st.error("Marché fermé : hors des heures de marché (9 h 30 à 16 h), un achat est limité à 500 $. Réduis la quantité, ou attends l'ouverture pour investir davantage. Tes ventes restent toujours possibles.")
                         elif bloque_cc:
                             st.error(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
                         elif part_apres > PLAFOND_TITRE_PCT:
