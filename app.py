@@ -11,8 +11,17 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 import streamlit.components.v1 as components
 
+# --- LOGO DE LA SIMULATION (chandeliers rouges, choix de Mathieu, 31 oct. 2026) ---
+try:
+    import base64 as _b64_logo, io as _io_logo
+    from PIL import Image as _ImageLogo
+    from fond_data import LOGO_BOURSE_PNG_B64 as _LOGO_B64
+    _ICONE_PAGE = _ImageLogo.open(_io_logo.BytesIO(_b64_logo.b64decode(_LOGO_B64)))
+except Exception:
+    _ICONE_PAGE = None
+
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layout="wide")
+st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layout="wide", page_icon=_ICONE_PAGE)
 
 # --- MODE MAINTENANCE (activé le 21 oct. 2026 : problèmes techniques en classe) ---
 # Pour rouvrir le site : passer à False et redéployer.
