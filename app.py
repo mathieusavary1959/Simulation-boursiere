@@ -715,6 +715,19 @@ def verifier_cooldown(username, delai_secondes=3):
             pass
     return True
 
+# --- FOND ILLUSTRÉ : LA COURBE NÉON (choix de Mathieu, 31 oct. 2026) ---
+# Image transportée en base64 dans fond_data.py, posée en couche très sombre
+# sous le halo rouge habituel. Si le module est absent, ancien fond conservé.
+try:
+    from fond_data import FOND_COURBE_JPG_B64
+    FOND_COURBE_CSS = (
+        "radial-gradient(1200px 520px at 50% -8%, rgba(229, 9, 20, 0.16), rgba(20, 20, 20, 0) 62%), "
+        "linear-gradient(rgba(10, 10, 12, 0.88), rgba(10, 10, 12, 0.95)), "
+        "url(\"data:image/jpeg;base64," + FOND_COURBE_JPG_B64 + "\") center top / cover no-repeat fixed"
+    )
+except Exception:
+    FOND_COURBE_CSS = "radial-gradient(1200px 520px at 50% -8%, rgba(229, 9, 20, 0.16), rgba(20, 20, 20, 0) 62%), #141414"
+
 # --- DESIGN STYLE NETFLIX PREMIUM PLUS (COUCHE VISUELLE SEULEMENT) ---
 st.markdown("""
     <style>
@@ -725,7 +738,7 @@ st.markdown("""
     }
 
     .stApp {
-        background: radial-gradient(1200px 520px at 50% -8%, rgba(229, 9, 20, 0.16), rgba(20, 20, 20, 0) 62%), #141414 !important;
+        background: __FOND_COURBE_CSS__ !important;
         background-color: #141414 !important;
         color: #FFFFFF !important;
     }
@@ -1389,7 +1402,7 @@ st.markdown("""
 
     hr { border-color: rgba(255, 255, 255, 0.14) !important; margin: 28px 0 !important; }
     </style>
-""", unsafe_allow_html=True)
+""".replace("__FOND_COURBE_CSS__", FOND_COURBE_CSS), unsafe_allow_html=True)
 
 # --- CACHE DES DONNÉES FINANCIÈRES EN TEMPS RÉEL SÉCURISÉ (TTL = 10s) ---
 @st.cache_data(ttl=3600)
