@@ -934,12 +934,16 @@ def creer_ordre_en_attente(username, ticker_symbol, montant_cad, devise, session
 
 
 def _regler_ordre_annule(session, ordre, statut, note):
-    """Rembourse le montant réservé et marque l'ordre annulé."""
+    """Rembourse le montant réservé et marque l'ordre annulé.
+    execute_le reçoit le moment du règlement (comme pour un ordre
+    exécuté) : c'est lui qui fait partir le délai d'affichage de
+    2 minutes de la carte de résultat."""
+    regle_le = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
     session.execute(text("UPDATE users SET cash = cash + :m WHERE username = :u"),
                     {"m": float(ordre['montant_cad']), "u": ordre['username']})
     session.execute(
-        text("UPDATE ordres_en_attente SET statut=:st, note=:n WHERE id=:i"),
-        {"st": statut, "n": note, "i": int(ordre['id'])})
+        text("UPDATE ordres_en_attente SET statut=:st, note=:n, execute_le=:e WHERE id=:i"),
+        {"st": statut, "n": note, "e": regle_le, "i": int(ordre['id'])})
 
 
 def annuler_ordre_en_attente(username, ordre_id):
@@ -1080,22 +1084,45 @@ def _date_fr_courte(date_iso):
         return str(date_iso)
 
 
+DELAI_AFFICHAGE_ORDRE_REGLE_S = 120
+
+
+def _ordre_regle_visible(execute_le, maintenant):
+    """Vrai si la carte de résultat d'un ordre réglé (exécuté ou
+    annulé) doit encore paraître : seulement pendant les 2 minutes
+    qui suivent son règlement (règle de Mathieu, 3 nov. 2026).
+    Sans heure de règlement lisible, la carte ne paraît pas.
+    Fonction pure, testable."""
+    try:
+        regle_le = datetime.strptime(str(execute_le)[:19], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return False
+    ecart = (maintenant.replace(tzinfo=None) - regle_le).total_seconds()
+    return 0 <= ecart <= DELAI_AFFICHAGE_ORDRE_REGLE_S
+
+
 def afficher_ordres_en_attente(username):
     """Bloc « Mes ordres en attente », en haut de page : une carte par
     ordre, dans la famille des cartes KPI avec un accent cyan réservé
     aux ordres en attente. Bouton d'annulation sous chaque carte en
-    cours ; cartes de résultat pour les ordres réglés depuis hier.
+    cours ; cartes de résultat pendant 2 minutes après le règlement
+    de l'ordre, puis elles disparaissent.
     Le bloc ne paraît que s'il y a quelque chose à montrer."""
     en_attente = ordres_en_attente_pour(username)
-    hier = (datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=1)).strftime("%Y-%m-%d")
+    maintenant = datetime.now(ZoneInfo("America/Toronto"))
     try:
-        regles = conn.query(
-            "SELECT ticker, montant_cad, statut, prix_execution, shares, note, session_execution "
+        tous_regles = conn.query(
+            "SELECT ticker, montant_cad, statut, prix_execution, shares, note, session_execution, execute_le "
             "FROM ordres_en_attente WHERE username=:u AND statut <> 'en_attente' "
-            "AND session_execution >= :h ORDER BY id DESC",
-            params={"u": username, "h": hier}, ttl=0)
+            "ORDER BY id DESC",
+            params={"u": username}, ttl=0)
     except Exception:
-        regles = pd.DataFrame()
+        tous_regles = pd.DataFrame()
+    if not tous_regles.empty:
+        regles = tous_regles[tous_regles['execute_le'].apply(
+            lambda e: _ordre_regle_visible(e, maintenant))]
+    else:
+        regles = tous_regles
     if en_attente.empty and regles.empty:
         return
     st.markdown(
@@ -3405,7 +3432,19 @@ else:
         st.query_params.clear()
         st.rerun()
 
-    afficher_ordres_en_attente(user)
+    # Bandeaux des ordres : fragment rafraîchi aux 30 s, pour que les
+    # cartes de résultat disparaissent d'elles-mêmes 2 minutes après
+    # le règlement de l'ordre, même si personne ne touche à la page.
+    try:
+        fragment_ordres = st.fragment(run_every=30)
+    except TypeError:
+        fragment_ordres = st.fragment
+
+    @fragment_ordres
+    def _bloc_ordres():
+        afficher_ordres_en_attente(user)
+
+    _bloc_ordres()
 
     # --- MÉTRIQUES DE HAUT DE PAGE ---
     # Rafraîchissement automatique des 4 carrés toutes les 30 s (fragment seul, sans refresh de page).
