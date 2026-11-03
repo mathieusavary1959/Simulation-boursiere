@@ -2551,12 +2551,29 @@ def verifier_limite_volume(username, ticker_symbol, prix_unitaire_cad, cout_ordr
 DELAI_DETENTION_UNIVERSEL_H = 1
 DELAI_DETENTION_ETF_H = 24
 
+_MOTS_NOM_FONDS = ('ETF', 'FUND', 'TRUST', 'INDEX', 'FONDS', 'SHARES')
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def est_etf(ticker_symbol):
-    """Vrai si le titre est un ETF (quoteType). Type quasi fixe : cache 24 h."""
+    """Vrai si le titre est un FNB. Yahoo donne quoteType « ETF »,
+    mais il classe aussi dans les ETF les certificats de dépôt (CDR)
+    d'entreprises américaines cotés au Canada (VISA.TO, NKE.TO,
+    PEP.TO, UPS.TO, WMT.TO, LMT.TO), qui sont des actions ordinaires :
+    la détention de 24 h ne doit pas s'y appliquer (balayage des
+    618 titres détenus, 3 nov. 2026 : 6 CDR pris à tort). Un vrai FNB
+    se confirme par sa catégorie, sa famille de fonds ou son nom
+    (ETF, Fund, Trust, Index...). En cas de doute ou d'échec de
+    lecture, ce n'est pas un FNB : le délai léger de 1 h s'applique.
+    Type quasi fixe : cache 24 h."""
     try:
         t = yf.Ticker(ticker_symbol)
-        return str(t.fast_info.get('quoteType') or '').upper() == 'ETF'
+        if str(t.fast_info.get('quoteType') or '').upper() != 'ETF':
+            return False
+        info = t.info
+        nom = str(info.get('longName') or '').upper()
+        return bool(info.get('category') or info.get('fundFamily')
+                    or any(m in nom for m in _MOTS_NOM_FONDS))
     except Exception:
         return False
 
