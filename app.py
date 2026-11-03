@@ -580,14 +580,21 @@ def appliquer_frais_gestion(username):
     except Exception:
         pass
 
-# --- TEST : ORDRES EN ATTENTE EXÉCUTÉS AU PRIX D'OUVERTURE ---
-# Demande de Mathieu (2 nov. 2026 au soir) : tester la mécanique qui
-# fermerait la porte exploitée par les achats hors heures au prix gelé
-# (voir l'audit de timofeybussiere du même jour : ULBI, INO, SLGB achetés
-# marché fermé à la clôture de la veille, revendus après le saut de
-# l'ouverture). En mode test, SEUL le compte de Mathieu est touché :
-# pour les autres comptes, rien ne change, l'achat hors heures continue
-# de s'exécuter tout de suite au prix gelé.
+# --- ORDRES EN ATTENTE EXÉCUTÉS AU PRIX D'OUVERTURE ---
+# Mécanique testée le 2 nov. 2026 au soir sur le seul compte de Mathieu,
+# puis MISE EN LIGNE POUR TOUS LE MÊME SOIR, sur sa décision expresse,
+# SANS annonce et SANS monter VERSION_REGLES : les élèves qui se
+# plaignent que « ce n'est plus de la vraie bourse » ont tort dans l'autre
+# sens, car c'est l'exécution au prix gelé qui n'existe pas sur un vrai
+# marché ; un ordre passé marché fermé s'y exécute à l'ouverture. La
+# direction de Mathieu : rapprocher tranquillement la simulation de la
+# bourse réelle, surtout après le krach du 12 novembre. La mécanique
+# ferme la porte exploitée par les achats hors heures au prix gelé
+# (audit de timofeybussiere du 2 nov. : ULBI, INO, SLGB achetés marché
+# fermé à la clôture de la veille, revendus après le saut de l'ouverture).
+# Interrupteur d'urgence : ORDRES_OUVERTURE_ACTIFS = False redonne
+# l'exécution immédiate au prix gelé pour les NOUVEAUX achats ; les
+# ordres déjà en attente continuent d'être réglés normalement.
 # Mécanique : hors heures, l'achat du compte test devient un ordre en
 # attente. Le montant total (prix gelé estimé + frais) est réservé dans
 # le comptant au moment de l'ordre. À la première connexion après
@@ -600,13 +607,15 @@ def appliquer_frais_gestion(username):
 # plafond de 25 % bloque, ou si le prix d'ouverture dépasse le montant,
 # l'ordre est annulé et le montant est remboursé au complet.
 # L'ordre peut être annulé par l'élève tant qu'il est en attente.
-COMPTES_TEST_ORDRES_OUVERTURE = {"MathieuSavary"}
+ORDRES_OUVERTURE_ACTIFS = True
 LIMITE_ORDRES_EN_ATTENTE = 4
 
 
-def test_ordres_ouverture(username):
-    """Vrai si le compte participe au test des ordres en attente."""
-    return username in COMPTES_TEST_ORDRES_OUVERTURE
+def ordres_ouverture_actif(username):
+    """Vrai si les nouveaux achats hors heures deviennent des ordres en
+    attente. Le nom d'utilisateur est accepté pour garder la porte
+    ouverte à un périmètre par compte si un jour il le faut."""
+    return ORDRES_OUVERTURE_ACTIFS
 
 
 def _prochaine_seance_execution(moment):
@@ -730,9 +739,9 @@ def executer_ordres_en_attente(username):
     la séance commencée, donc l'exécution reste exacte même si elle a
     lieu plus tard dans la journée. Chaque ordre est réglé dans sa
     propre transaction ; un ordre qui échoue reste en attente et sera
-    réessayé, sauf annulation franche (remboursement immédiat)."""
-    if not test_ordres_ouverture(username):
-        return
+    réessayé, sauf annulation franche (remboursement immédiat).
+    Volontairement SANS garde sur ORDRES_OUVERTURE_ACTIFS : même si
+    l'interrupteur est fermé, les ordres déjà placés doivent être réglés."""
     try:
         maintenant = datetime.now(ZoneInfo("America/Toronto"))
         auj = maintenant.date().isoformat()
@@ -849,13 +858,11 @@ def _date_fr_courte(date_iso):
 
 
 def afficher_ordres_en_attente(username):
-    """Bloc « Mes ordres en attente » (mode test seulement), en haut de
-    page : une carte par ordre, dans la famille des cartes KPI avec un
-    accent cyan réservé aux ordres en attente. Bouton d'annulation sous
-    chaque carte en cours ; cartes de résultat pour les ordres réglés
-    depuis hier."""
-    if not test_ordres_ouverture(username):
-        return
+    """Bloc « Mes ordres en attente », en haut de page : une carte par
+    ordre, dans la famille des cartes KPI avec un accent cyan réservé
+    aux ordres en attente. Bouton d'annulation sous chaque carte en
+    cours ; cartes de résultat pour les ordres réglés depuis hier.
+    Le bloc ne paraît que s'il y a quelque chose à montrer."""
     en_attente = ordres_en_attente_pour(username)
     hier = (datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=1)).strftime("%Y-%m-%d")
     try:
@@ -870,7 +877,7 @@ def afficher_ordres_en_attente(username):
         return
     st.markdown(
         "<div style='color:#22D3EE;font-size:0.8rem;font-weight:800;letter-spacing:0.1em;"
-        "text-transform:uppercase;margin:6px 0 8px;'>Mes ordres en attente · exécution au prix d'ouverture (test)</div>",
+        "text-transform:uppercase;margin:6px 0 8px;'>Mes ordres en attente · exécution au prix d'ouverture</div>",
         unsafe_allow_html=True)
     if not en_attente.empty:
         boutons_css = "<style>"
@@ -1234,7 +1241,7 @@ st.markdown("""
         box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 32px -6px rgba(229, 9, 20, 0.7);
     }
 
-    /* --- CARTES ORDRES EN ATTENTE (test prix d'ouverture) ---
+    /* --- CARTES ORDRES EN ATTENTE (prix d'ouverture) ---
        Même famille que les cartes KPI, accent cyan : une couleur
        réservée aux ordres en attente sur la plateforme. */
     .ordre-card {
@@ -3596,10 +3603,10 @@ else:
                             st.error(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
                         elif part_apres > PLAFOND_TITRE_PCT:
                             st.error(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
-                        elif test_ordres_ouverture(user) and not _marche_ouvert():
-                            # Mode test (compte de Mathieu seulement) : hors
-                            # heures, l'achat devient un ordre en attente
-                            # exécuté au prix d'ouverture, pas au prix gelé.
+                        elif ordres_ouverture_actif(user) and not _marche_ouvert():
+                            # Hors heures, l'achat devient un ordre en
+                            # attente exécuté au prix d'ouverture de la
+                            # prochaine séance, pas au prix gelé.
                             if prix_instantane is None or prix_instantane <= 0:
                                 st.error("Prix indisponible pour le moment : impossible de placer l'ordre. Réessaie plus tard.")
                             elif cash_actuel_db < total_debit:
