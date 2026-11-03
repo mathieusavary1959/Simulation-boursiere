@@ -210,22 +210,21 @@ init_db()
 # --- TRACEUR DE SECURITE (faux comptes) : journal des inscriptions et connexions ---
 def _entetes_connexion():
     """IP relaiee et navigateur de la requete courante, si l'hebergeur les transmet.
-    Ne leve jamais d'exception."""
+    Ne leve jamais d'exception. La colonne ip garde la chaine complete des en-tetes
+    d'adresse (xff, cf, tci, fwd, real) : le premier maillon xff vu en production
+    etait une adresse interne de la plateforme (10.x), le diagnostic complet
+    permet de reperer ou se trouve la vraie adresse du visiteur."""
     try:
         h = st.context.headers
-        ip = ""
-        for cle in ("X-Forwarded-For", "x-forwarded-for", "X-Real-Ip", "x-real-ip"):
-            val = h.get(cle)
+        morceaux = []
+        for etiquette, cle in (("xff", "X-Forwarded-For"), ("cf", "Cf-Connecting-Ip"),
+                               ("tci", "True-Client-Ip"), ("fwd", "Forwarded"),
+                               ("real", "X-Real-Ip")):
+            val = h.get(cle) or h.get(cle.lower())
             if val:
-                ip = str(val).split(",")[0].strip()
-                break
-        ua = ""
-        for cle in ("User-Agent", "user-agent"):
-            val = h.get(cle)
-            if val:
-                ua = str(val)
-                break
-        return ip, ua
+                morceaux.append(f"{etiquette}={str(val)[:220]}")
+        ua = h.get("User-Agent") or h.get("user-agent") or ""
+        return " | ".join(morceaux), str(ua)
     except Exception:
         return "", ""
 
