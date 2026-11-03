@@ -209,22 +209,25 @@ init_db()
 
 # --- TRACEUR DE SECURITE (faux comptes) : journal des inscriptions et connexions ---
 def _entetes_connexion():
-    """IP relaiee et navigateur de la requete courante, si l'hebergeur les transmet.
-    Ne leve jamais d'exception. La colonne ip garde la chaine complete des en-tetes
-    d'adresse (xff, cf, tci, fwd, real) : le premier maillon xff vu en production
-    etait une adresse interne de la plateforme (10.x), le diagnostic complet
-    permet de reperer ou se trouve la vraie adresse du visiteur."""
+    """Adresse relaiee et navigateur de la requete courante. Ne leve jamais
+    d'exception. CONCLUSION MESUREE le 2 nov. 2026 : Streamlit Cloud ne transmet
+    a l'application que des adresses INTERNES (chaine xff du type
+    10.12.129.5, 10.20.70.2 ; aucun en-tete cf/tci/fwd/real). La vraie adresse
+    du visiteur n'est donc PAS accessible ici ; la valeur stockee dans la
+    colonne ip est l'adresse interne de la plateforme, conservee au cas ou
+    l'hebergeur changerait son comportement. Ce qui identifie utilement une
+    connexion : l'heure exacte et le navigateur (Chrome OS = chariot de
+    Chromebooks, Windows = tour de laboratoire)."""
     try:
         h = st.context.headers
-        morceaux = []
-        for etiquette, cle in (("xff", "X-Forwarded-For"), ("cf", "Cf-Connecting-Ip"),
-                               ("tci", "True-Client-Ip"), ("fwd", "Forwarded"),
-                               ("real", "X-Real-Ip")):
-            val = h.get(cle) or h.get(cle.lower())
+        ip = ""
+        for cle in ("X-Forwarded-For", "x-forwarded-for", "X-Real-Ip", "x-real-ip"):
+            val = h.get(cle)
             if val:
-                morceaux.append(f"{etiquette}={str(val)[:220]}")
+                ip = str(val).split(",")[0].strip()
+                break
         ua = h.get("User-Agent") or h.get("user-agent") or ""
-        return " | ".join(morceaux), str(ua)
+        return ip, str(ua)
     except Exception:
         return "", ""
 
