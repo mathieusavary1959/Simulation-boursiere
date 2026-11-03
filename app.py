@@ -833,9 +833,26 @@ def executer_ordres_en_attente(username):
         pass
 
 
+_JOURS_FR = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."]
+_MOIS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.",
+            "août", "sept.", "oct.", "nov.", "déc."]
+
+
+def _date_fr_courte(date_iso):
+    """« 2026-11-03 » devient « mar. 3 nov. ». Chaîne inchangée si le
+    format est inattendu."""
+    try:
+        d = datetime.strptime(str(date_iso), "%Y-%m-%d").date()
+        return f"{_JOURS_FR[d.weekday()]} {d.day} {_MOIS_FR[d.month - 1]}"
+    except Exception:
+        return str(date_iso)
+
+
 def afficher_ordres_en_attente(username):
-    """Bloc « Mes ordres en attente » (mode test seulement) : ordres en
-    cours avec bouton d'annulation, et résultat des ordres réglés
+    """Bloc « Mes ordres en attente » (mode test seulement), en haut de
+    page : une carte par ordre, dans la famille des cartes KPI avec un
+    accent cyan réservé aux ordres en attente. Bouton d'annulation sous
+    chaque carte en cours ; cartes de résultat pour les ordres réglés
     depuis hier."""
     if not test_ordres_ouverture(username):
         return
@@ -851,25 +868,63 @@ def afficher_ordres_en_attente(username):
         regles = pd.DataFrame()
     if en_attente.empty and regles.empty:
         return
-    st.markdown("### Mes ordres en attente (test : exécution au prix d'ouverture)")
+    st.markdown(
+        "<div style='color:#22D3EE;font-size:0.8rem;font-weight:800;letter-spacing:0.1em;"
+        "text-transform:uppercase;margin:6px 0 8px;'>Mes ordres en attente · exécution au prix d'ouverture (test)</div>",
+        unsafe_allow_html=True)
     if not en_attente.empty:
-        for _, o in en_attente.iterrows():
-            c1, c2 = st.columns([4, 1])
-            c1.write(f"**{str(o['ticker']).upper()}** : {float(o['montant_cad']):,.2f} $ réservés. "
-                     f"Exécution à l'ouverture du {o['session_execution']}, au prix d'ouverture.")
-            if c2.button("Annuler l'ordre", key=f"annuler_ordre_{int(o['id'])}", use_container_width=True):
-                if annuler_ordre_en_attente(username, int(o['id'])):
-                    st.session_state['flash_msg'] = ("success", "Ordre annulé : le montant réservé est de retour dans ton comptant.")
-                    st.rerun()
+        boutons_css = "<style>"
+        cols = st.columns(len(en_attente))
+        for i, (_, o) in enumerate(en_attente.iterrows()):
+            oid = int(o['id'])
+            tk = str(o['ticker']).upper()
+            with cols[i]:
+                st.markdown(
+                    f"<div class='ordre-card'>"
+                    f"<div class='ordre-ticker'>{tk}</div>"
+                    f"<div class='ordre-montant'>${float(o['montant_cad']):,.2f} réservés</div>"
+                    f"<div class='ordre-detail'>S'exécute à l'ouverture, au prix d'ouverture<br>"
+                    f"({_date_fr_courte(o['session_execution'])} · 9 h 30)</div>"
+                    f"<span class='ordre-badge'><span class='ordre-point'></span>En attente</span>"
+                    f"</div>",
+                    unsafe_allow_html=True)
+                boutons_css += (
+                    f'div[class~="st-key-annuler_ordre_{oid}"] button {{'
+                    "background: #101418 !important;"
+                    "border: 1px solid rgba(34, 211, 238, 0.6) !important;"
+                    "}"
+                    f'div[class~="st-key-annuler_ordre_{oid}"] button p {{'
+                    "color: #22D3EE !important; font-weight: 700 !important;"
+                    "}")
+                if st.button("Annuler l'ordre", key=f"annuler_ordre_{oid}", use_container_width=True):
+                    if annuler_ordre_en_attente(username, oid):
+                        st.session_state['flash_msg'] = ("success", "Ordre annulé : le montant réservé est de retour dans ton comptant.")
+                        st.rerun()
+        boutons_css += "</style>"
+        st.markdown(boutons_css, unsafe_allow_html=True)
     for _, o in regles.iterrows():
         tk = str(o['ticker']).upper()
         if o['statut'] == 'execute':
-            st.success(f"{tk} : ordre exécuté à l'ouverture du {o['session_execution']} : "
-                       f"{int(o['shares'])} actions à ${float(o['prix_execution']):,.2f}.")
-        elif o['statut'] == 'annule_eleve':
-            st.info(f"{tk} : ordre annulé par toi, {float(o['montant_cad']):,.2f} $ remboursés.")
+            st.markdown(
+                f"<div class='ordre-card exec'>"
+                f"<div class='ordre-ticker'>{tk}</div>"
+                f"<div class='ordre-montant'>{int(o['shares'])} actions à ${float(o['prix_execution']):,.2f}</div>"
+                f"<div class='ordre-detail'>Acheté au prix d'ouverture du {_date_fr_courte(o['session_execution'])} "
+                f"(ordre de ${float(o['montant_cad']):,.2f})</div>"
+                f"<span class='ordre-badge exec'>Exécuté</span>"
+                f"</div>",
+                unsafe_allow_html=True)
         else:
-            st.warning(f"{tk} : ordre annulé. {o['note'] or ''}")
+            libelle = "Annulé par toi" if o['statut'] == 'annule_eleve' else "Annulé"
+            note = str(o['note'] or "Montant remboursé au complet.")
+            st.markdown(
+                f"<div class='ordre-card annule'>"
+                f"<div class='ordre-ticker'>{tk}</div>"
+                f"<div class='ordre-montant'>${float(o['montant_cad']):,.2f} remboursés</div>"
+                f"<div class='ordre-detail'>{note}</div>"
+                f"<span class='ordre-badge annule'>{libelle}</span>"
+                f"</div>",
+                unsafe_allow_html=True)
 
 
 # --- VALIDATION STRICTE DES INSTRUMENTS AUTORISÉS ---
@@ -1152,7 +1207,7 @@ st.markdown("""
     }
     @media (prefers-reduced-motion: reduce) {
         .brand-banner, .brand-banner::after, .kpi-card, .podium-card,
-        .custom-table, .mon-rang, .kpi-up, .kpi-down { animation: none !important; }
+        .custom-table, .mon-rang, .kpi-up, .kpi-down, .ordre-card, .ordre-point { animation: none !important; }
         .kpi-card { transition: none !important; }
     }
 
@@ -1178,6 +1233,38 @@ st.markdown("""
         border-top-color: #E50914;
         box-shadow: 0 26px 44px -14px rgba(0, 0, 0, 0.95), 0 0 32px -6px rgba(229, 9, 20, 0.7);
     }
+
+    /* --- CARTES ORDRES EN ATTENTE (test prix d'ouverture) ---
+       Même famille que les cartes KPI, accent cyan : une couleur
+       réservée aux ordres en attente sur la plateforme. */
+    .ordre-card {
+        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
+        border: 1px solid rgba(34, 211, 238, 0.35);
+        border-top: 3px solid #22D3EE;
+        border-radius: 14px;
+        padding: 14px 18px 12px 18px;
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 24px -8px rgba(34, 211, 238, 0.45);
+        animation: fadeUp 0.5s ease both;
+        margin-bottom: 8px;
+    }
+    .ordre-card.exec { border-color: rgba(52, 211, 153, 0.4); border-top-color: #34D399; box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 24px -8px rgba(52, 211, 153, 0.4); }
+    .ordre-card.annule { border-color: rgba(255, 255, 255, 0.14); border-top-color: #6B7280; box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9); opacity: 0.8; }
+    .ordre-ticker {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 1.9rem; line-height: 1; color: #FFFFFF; letter-spacing: 0.04em;
+    }
+    .ordre-montant { font-size: 1.05rem; font-weight: 800; color: #FFFFFF; font-variant-numeric: tabular-nums; margin-top: 4px; }
+    .ordre-detail { color: #9CA3AF; font-size: 0.85rem; margin-top: 3px; line-height: 1.45; }
+    .ordre-badge {
+        display: inline-flex; align-items: center; gap: 7px;
+        margin-top: 9px; padding: 3px 12px; border-radius: 999px;
+        font-size: 0.78rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+        background: rgba(34, 211, 238, 0.14); color: #22D3EE; border: 1px solid rgba(34, 211, 238, 0.55);
+    }
+    .ordre-badge.exec { background: rgba(16, 185, 129, 0.16); color: #34D399; border-color: rgba(16, 185, 129, 0.55); }
+    .ordre-badge.annule { background: rgba(107, 114, 128, 0.16); color: #9CA3AF; border-color: rgba(107, 114, 128, 0.55); }
+    .ordre-point { width: 8px; height: 8px; border-radius: 50%; background: #22D3EE; animation: ordrePulse 1.6s ease-in-out infinite; }
+    @keyframes ordrePulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5); } 50% { opacity: 0.55; box-shadow: 0 0 0 5px rgba(34, 211, 238, 0); } }
 
     /* Cartes de vente rapide */
     div[data-testid="stVerticalBlockBorderWrapper"] {
