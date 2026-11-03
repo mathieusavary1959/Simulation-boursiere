@@ -143,6 +143,22 @@ def init_db():
                 );
             '''))
             session.execute(text('''
+                CREATE TABLE IF NOT EXISTS ordres_en_attente (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT,
+                    ticker TEXT,
+                    montant_cad DOUBLE PRECISION,
+                    devise TEXT,
+                    place_le TEXT,
+                    session_execution TEXT,
+                    statut TEXT,
+                    prix_execution DOUBLE PRECISION,
+                    shares INT,
+                    execute_le TEXT,
+                    note TEXT
+                );
+            '''))
+            session.execute(text('''
                 CREATE TABLE IF NOT EXISTS photos (
                     username TEXT PRIMARY KEY,
                     image TEXT,
@@ -563,6 +579,298 @@ def appliquer_frais_gestion(username):
                 session.commit()
     except Exception:
         pass
+
+# --- TEST : ORDRES EN ATTENTE EXÉCUTÉS AU PRIX D'OUVERTURE ---
+# Demande de Mathieu (2 nov. 2026 au soir) : tester la mécanique qui
+# fermerait la porte exploitée par les achats hors heures au prix gelé
+# (voir l'audit de timofeybussiere du même jour : ULBI, INO, SLGB achetés
+# marché fermé à la clôture de la veille, revendus après le saut de
+# l'ouverture). En mode test, SEUL le compte de Mathieu est touché :
+# pour les autres comptes, rien ne change, l'achat hors heures continue
+# de s'exécuter tout de suite au prix gelé.
+# Mécanique : hors heures, l'achat du compte test devient un ordre en
+# attente. Le montant total (prix gelé estimé + frais) est réservé dans
+# le comptant au moment de l'ordre. À la première connexion après
+# l'ouverture de la séance visée, l'ordre s'exécute au prix d'ouverture
+# officiel de cette séance (barre quotidienne Yahoo, qui ne change plus
+# une fois la séance commencée) : le montant se convertit en actions à
+# ce prix, les frais du mode vraie bourse s'appliquent, le reste est
+# remboursé. Si le titre a bougé de plus de 30 % à l'ouverture contre
+# la clôture de la veille (coupe-circuit), si la limite de volume ou le
+# plafond de 25 % bloque, ou si le prix d'ouverture dépasse le montant,
+# l'ordre est annulé et le montant est remboursé au complet.
+# L'ordre peut être annulé par l'élève tant qu'il est en attente.
+COMPTES_TEST_ORDRES_OUVERTURE = {"MathieuSavary"}
+LIMITE_ORDRES_EN_ATTENTE = 4
+
+
+def test_ordres_ouverture(username):
+    """Vrai si le compte participe au test des ordres en attente."""
+    return username in COMPTES_TEST_ORDRES_OUVERTURE
+
+
+def _prochaine_seance_execution(moment):
+    """Date (ISO) de la séance où un ordre placé à ce moment s'exécute :
+    aujourd'hui si c'est un jour de semaine avant 9 h 30, sinon le
+    prochain jour de semaine. Fonction pure, testable."""
+    d = moment.date()
+    minutes = moment.hour * 60 + moment.minute
+    if moment.weekday() < 5 and minutes < 9 * 60 + 30:
+        return d.isoformat()
+    d = d + timedelta(days=1)
+    while d.weekday() >= 5:
+        d = d + timedelta(days=1)
+    return d.isoformat()
+
+
+def _prix_ouverture_session(ticker_symbol, date_iso):
+    """Prix d'ouverture officiel (en CAD) du titre pour la séance
+    date_iso, lu dans la barre quotidienne Yahoo de ce jour-là.
+    Retourne None si la barre n'existe pas encore (séance pas commencée,
+    jour férié ou données pas consolidées)."""
+    try:
+        debut = datetime.strptime(date_iso, "%Y-%m-%d").date()
+        fin = debut + timedelta(days=1)
+        t = yf.Ticker(ticker_symbol)
+        hist = t.history(start=debut.isoformat(), end=fin.isoformat())
+        if hist is None or hist.empty or 'Open' not in hist.columns:
+            return None
+        try:
+            devise = str(t.fast_info.get('currency') or 'CAD').upper()
+        except Exception:
+            devise = devise_naturelle(ticker_symbol)
+        for idx, row in hist.iterrows():
+            if idx.date() != debut:
+                continue
+            o = float(row['Open'])
+            if pd.isna(o) or o <= 0:
+                return None
+            return convertir_vers_cad(o, devise)
+        return None
+    except Exception:
+        return None
+
+
+def _actions_abordables(montant_cad, prix_cad, devise, exempte):
+    """(actions, coût, frais fixe, frais de conversion) achetables avec
+    montant_cad au prix prix_cad, frais du mode vraie bourse déduits du
+    montant. Fonction pure, testable."""
+    frais_fixe = 0.0 if exempte else FRAIS_TRANSACTION
+    budget = float(montant_cad) - frais_fixe
+    if budget <= 0 or not prix_cad or float(prix_cad) <= 0:
+        return 0, 0.0, frais_fixe, 0.0
+    if devise == "USD" and not exempte:
+        unitaire = float(prix_cad) * (1.0 + FRAIS_CONVERSION_PCT)
+    else:
+        unitaire = float(prix_cad)
+    shares = int(budget // unitaire)
+    if shares < 1:
+        return 0, 0.0, frais_fixe, 0.0
+    cout = round(shares * float(prix_cad), 2)
+    frais_conv = round(FRAIS_CONVERSION_PCT * cout, 2) if (devise == "USD" and not exempte) else 0.0
+    return shares, cout, frais_fixe, frais_conv
+
+
+def ordres_en_attente_pour(username):
+    """Ordres en attente du compte, du plus récent au plus ancien."""
+    try:
+        return conn.query(
+            "SELECT id, ticker, montant_cad, devise, place_le, session_execution "
+            "FROM ordres_en_attente WHERE username=:u AND statut='en_attente' "
+            "ORDER BY id DESC",
+            params={"u": username}, ttl=0)
+    except Exception:
+        return pd.DataFrame()
+
+
+def creer_ordre_en_attente(username, ticker_symbol, montant_cad, devise):
+    """Réserve le montant dans le comptant et inscrit l'ordre en
+    attente. À appeler seulement après les vérifications d'usage."""
+    moment = datetime.now(ZoneInfo("America/Toronto"))
+    now_str = moment.strftime("%Y-%m-%d %H:%M:%S")
+    session_exec = _prochaine_seance_execution(moment)
+    with conn.session as session:
+        session.execute(text("UPDATE users SET cash = cash - :m WHERE username = :u"),
+                        {"m": round(float(montant_cad), 2), "u": username})
+        session.execute(
+            text("INSERT INTO ordres_en_attente (username, ticker, montant_cad, devise, "
+                 "place_le, session_execution, statut) VALUES (:u, :t, :m, :d, :p, :s, 'en_attente')"),
+            {"u": username, "t": ticker_symbol.upper(), "m": round(float(montant_cad), 2),
+             "d": devise, "p": now_str, "s": session_exec})
+        session.commit()
+    return session_exec
+
+
+def _regler_ordre_annule(session, ordre, statut, note):
+    """Rembourse le montant réservé et marque l'ordre annulé."""
+    session.execute(text("UPDATE users SET cash = cash + :m WHERE username = :u"),
+                    {"m": float(ordre['montant_cad']), "u": ordre['username']})
+    session.execute(
+        text("UPDATE ordres_en_attente SET statut=:st, note=:n WHERE id=:i"),
+        {"st": statut, "n": note, "i": int(ordre['id'])})
+
+
+def annuler_ordre_en_attente(username, ordre_id):
+    """Annulation par l'élève : remboursement intégral du montant réservé."""
+    r = conn.query("SELECT id, username, montant_cad FROM ordres_en_attente "
+                   "WHERE id=:i AND username=:u AND statut='en_attente'",
+                   params={"i": int(ordre_id), "u": username}, ttl=0)
+    if r.empty:
+        return False
+    with conn.session as session:
+        _regler_ordre_annule(session, r.iloc[0], "annule_eleve", "Annulé par l'élève avant l'ouverture.")
+        session.commit()
+    return True
+
+
+def executer_ordres_en_attente(username):
+    """Exécute les ordres en attente arrivés à échéance, au prix
+    d'ouverture officiel de leur séance. Appelée à la connexion, comme
+    les frais de gestion : le prix d'ouverture ne change plus une fois
+    la séance commencée, donc l'exécution reste exacte même si elle a
+    lieu plus tard dans la journée. Chaque ordre est réglé dans sa
+    propre transaction ; un ordre qui échoue reste en attente et sera
+    réessayé, sauf annulation franche (remboursement immédiat)."""
+    if not test_ordres_ouverture(username):
+        return
+    try:
+        maintenant = datetime.now(ZoneInfo("America/Toronto"))
+        auj = maintenant.date().isoformat()
+        minutes = maintenant.hour * 60 + maintenant.minute
+        dus = conn.query(
+            "SELECT id, username, ticker, montant_cad, devise, session_execution "
+            "FROM ordres_en_attente WHERE username=:u AND statut='en_attente' "
+            "AND session_execution <= :a ORDER BY id",
+            params={"u": username, "a": auj}, ttl=0)
+        if dus.empty:
+            return
+        exempte = compte_exempte_frais(username)
+        for _, ordre in dus.iterrows():
+            date_exec = str(ordre['session_execution'])
+            if date_exec == auj and minutes < 9 * 60 + 30:
+                continue  # l'ouverture de cette séance n'a pas encore eu lieu
+            ticker_o = str(ordre['ticker']).upper()
+            montant = float(ordre['montant_cad'])
+            devise_o = str(ordre['devise'] or devise_naturelle(ticker_o)).upper()
+            prix_ouv = _prix_ouverture_session(ticker_o, date_exec)
+            if prix_ouv is None:
+                # Pas de barre pour la séance visée : jour férié ou
+                # données pas encore consolidées. On réessaie à la
+                # prochaine connexion ; après 4 jours, on rembourse.
+                try:
+                    retard = (maintenant.date() - datetime.strptime(date_exec, "%Y-%m-%d").date()).days
+                except Exception:
+                    retard = 0
+                if retard > 4:
+                    with conn.session as session:
+                        _regler_ordre_annule(session, ordre, "echec",
+                                             "Aucun prix d'ouverture trouvé pour la séance visée. Montant remboursé.")
+                        session.commit()
+                continue
+            now_str = maintenant.strftime("%Y-%m-%d %H:%M:%S")
+            # Coupe-circuit mesuré à l'ouverture : variation du prix
+            # d'ouverture contre la clôture de la séance précédente.
+            clot_prec = cloture_avant_date(ticker_o, date_exec)
+            var_ouv = None
+            if clot_prec and float(clot_prec) > 0:
+                var_ouv = (prix_ouv - float(clot_prec)) / float(clot_prec) * 100.0
+            if var_ouv is not None and abs(var_ouv) > COUPE_CIRCUIT_PCT:
+                with conn.session as session:
+                    _regler_ordre_annule(session, ordre, "annule_circuit",
+                                         f"Coupe-circuit : le titre a ouvert à {var_ouv:+.1f} % contre la clôture de la veille. Montant remboursé.")
+                    session.commit()
+                continue
+            shares, cout, frais_fixe_o, frais_conv_o = _actions_abordables(montant, prix_ouv, devise_o, exempte)
+            if shares < 1:
+                with conn.session as session:
+                    _regler_ordre_annule(session, ordre, "echec",
+                                         "Le prix d'ouverture dépassait le montant de l'ordre. Montant remboursé.")
+                    session.commit()
+                continue
+            msg_vol = verifier_limite_volume(username, ticker_o, prix_ouv, cout)
+            if msg_vol:
+                with conn.session as session:
+                    _regler_ordre_annule(session, ordre, "annule_volume",
+                                         "Limite de volume quotidien atteinte à l'exécution. Montant remboursé.")
+                    session.commit()
+                continue
+            if not exempte and part_titre_apres_achat(username, ticker_o, prix_ouv, shares) > PLAFOND_TITRE_PCT:
+                with conn.session as session:
+                    _regler_ordre_annule(session, ordre, "annule_concentration",
+                                         "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé.")
+                    session.commit()
+                continue
+            total_o = cout + frais_fixe_o + frais_conv_o
+            reste = round(montant - total_o, 2)
+            with conn.session as session:
+                if reste > 0:
+                    session.execute(text("UPDATE users SET cash = cash + :m WHERE username = :u"),
+                                    {"m": reste, "u": username})
+                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)",
+                                   params={"u": username, "t": ticker_o}, ttl=0)
+                if not p_res.empty:
+                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_ouv)
+                    n_s = anc_s + shares
+                    n_p = ((anc_s * anc_p) + (shares * prix_ouv)) / n_s
+                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                                    {"s": n_s, "p": n_p, "u": username, "t": ticker_o})
+                else:
+                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"),
+                                    {"u": username, "t": ticker_o, "s": shares, "p": prix_ouv})
+                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) "
+                                     "VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                {"u": username, "t": ticker_o, "s": shares, "p": prix_ouv,
+                                 "tot": cout, "time": now_str})
+                enregistrer_frais(session, username, "transaction", frais_fixe_o, ticker_o)
+                enregistrer_frais(session, username, "conversion", frais_conv_o, ticker_o)
+                session.execute(
+                    text("UPDATE ordres_en_attente SET statut='execute', prix_execution=:p, "
+                         "shares=:s, execute_le=:e, note=:n WHERE id=:i"),
+                    {"p": prix_ouv, "s": shares, "e": now_str,
+                     "n": f"Exécuté à l'ouverture du {date_exec}.", "i": int(ordre['id'])})
+                session.commit()
+    except Exception:
+        pass
+
+
+def afficher_ordres_en_attente(username):
+    """Bloc « Mes ordres en attente » (mode test seulement) : ordres en
+    cours avec bouton d'annulation, et résultat des ordres réglés
+    depuis hier."""
+    if not test_ordres_ouverture(username):
+        return
+    en_attente = ordres_en_attente_pour(username)
+    hier = (datetime.now(ZoneInfo("America/Toronto")) - timedelta(days=1)).strftime("%Y-%m-%d")
+    try:
+        regles = conn.query(
+            "SELECT ticker, montant_cad, statut, prix_execution, shares, note, session_execution "
+            "FROM ordres_en_attente WHERE username=:u AND statut <> 'en_attente' "
+            "AND session_execution >= :h ORDER BY id DESC",
+            params={"u": username, "h": hier}, ttl=0)
+    except Exception:
+        regles = pd.DataFrame()
+    if en_attente.empty and regles.empty:
+        return
+    st.markdown("### Mes ordres en attente (test : exécution au prix d'ouverture)")
+    if not en_attente.empty:
+        for _, o in en_attente.iterrows():
+            c1, c2 = st.columns([4, 1])
+            c1.write(f"**{str(o['ticker']).upper()}** : {float(o['montant_cad']):,.2f} $ réservés. "
+                     f"Exécution à l'ouverture du {o['session_execution']}, au prix d'ouverture.")
+            if c2.button("Annuler l'ordre", key=f"annuler_ordre_{int(o['id'])}", use_container_width=True):
+                if annuler_ordre_en_attente(username, int(o['id'])):
+                    st.session_state['flash_msg'] = ("success", "Ordre annulé : le montant réservé est de retour dans ton comptant.")
+                    st.rerun()
+    for _, o in regles.iterrows():
+        tk = str(o['ticker']).upper()
+        if o['statut'] == 'execute':
+            st.success(f"{tk} : ordre exécuté à l'ouverture du {o['session_execution']} : "
+                       f"{int(o['shares'])} actions à ${float(o['prix_execution']):,.2f}.")
+        elif o['statut'] == 'annule_eleve':
+            st.info(f"{tk} : ordre annulé par toi, {float(o['montant_cad']):,.2f} $ remboursés.")
+        else:
+            st.warning(f"{tk} : ordre annulé. {o['note'] or ''}")
+
 
 # --- VALIDATION STRICTE DES INSTRUMENTS AUTORISÉS ---
 # Règle de Mathieu (17 oct. 2026) : actions et FNB seulement, cotés uniquement
@@ -2748,6 +3056,7 @@ if st.session_state['user'] is None:
 else:
     user = st.session_state['user']
     appliquer_frais_gestion(user)
+    executer_ordres_en_attente(user)
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
 
     if res_u.empty:
@@ -2773,6 +3082,8 @@ else:
         st.session_state['user'] = None
         st.query_params.clear()
         st.rerun()
+
+    afficher_ordres_en_attente(user)
 
     # --- MÉTRIQUES DE HAUT DE PAGE ---
     # Rafraîchissement automatique des 4 carrés toutes les 30 s (fragment seul, sans refresh de page).
@@ -3198,6 +3509,20 @@ else:
                             st.error(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
                         elif part_apres > PLAFOND_TITRE_PCT:
                             st.error(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
+                        elif test_ordres_ouverture(user) and not _marche_ouvert():
+                            # Mode test (compte de Mathieu seulement) : hors
+                            # heures, l'achat devient un ordre en attente
+                            # exécuté au prix d'ouverture, pas au prix gelé.
+                            if prix_instantane is None or prix_instantane <= 0:
+                                st.error("Prix indisponible pour le moment : impossible de placer l'ordre. Réessaie plus tard.")
+                            elif cash_actuel_db < total_debit:
+                                st.error("Fonds insuffisants.")
+                            elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
+                                st.error(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                            else:
+                                session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
+                                st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier). Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
+                                st.rerun()
                         elif cash_actuel_db >= total_debit:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
                             with conn.session as session:
