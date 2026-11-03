@@ -692,12 +692,58 @@ def ordres_en_attente_pour(username):
         return pd.DataFrame()
 
 
-def creer_ordre_en_attente(username, ticker_symbol, montant_cad, devise):
+def _ordre_compte_pour_le_jour(statut, place_le, session_execution, auj_iso, nouvelle_session):
+    """Vrai si un ordre existant compte comme « l'achat du jour » pour
+    son titre : encore en attente (peu importe sa date), exécuté à la
+    séance d'aujourd'hui, visant la même séance que le nouvel ordre,
+    ou placé aujourd'hui. Fonction pure, testable."""
+    if statut == "en_attente":
+        return True
+    if str(session_execution) == auj_iso:
+        return True
+    if str(session_execution) == nouvelle_session:
+        return True
+    if str(place_le)[:10] == auj_iso:
+        return True
+    return False
+
+
+def achat_hors_heures_deja_fait(username, ticker_symbol, nouvelle_session):
+    """Vrai si le compte a déjà fait son achat hors heures de ce titre
+    aujourd'hui (règle « un achat par entreprise par jour » hors heures,
+    décision de Mathieu, 2 nov. 2026 au soir, après les 4 achats
+    identiques de MERC à 499,88 $ d'Éloi Lévesque : le plafond de 500 $
+    par achat ne doit pas se contourner en répétant le même achat).
+    Un ordre annulé par l'élève avant l'ouverture ne compte pas : il
+    n'a jamais été un achat. Les comptes exemptés ne sont pas touchés.
+    Rien n'est annoncé d'avance ; le refus paraît en une ligne dans le
+    panneau d'ordre, comme le plafond de 500 $."""
+    if compte_exempte_frais(username):
+        return False
+    auj = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
+    try:
+        r = conn.query(
+            "SELECT statut, place_le, session_execution FROM ordres_en_attente "
+            "WHERE username=:u AND LOWER(ticker)=LOWER(:t) AND statut <> 'annule_eleve'",
+            params={"u": username, "t": ticker_symbol}, ttl=0)
+    except Exception:
+        return False
+    if r.empty:
+        return False
+    for _, row in r.iterrows():
+        if _ordre_compte_pour_le_jour(row['statut'], row['place_le'],
+                                       row['session_execution'], auj, nouvelle_session):
+            return True
+    return False
+
+
+def creer_ordre_en_attente(username, ticker_symbol, montant_cad, devise, session_exec=None):
     """Réserve le montant dans le comptant et inscrit l'ordre en
     attente. À appeler seulement après les vérifications d'usage."""
     moment = datetime.now(ZoneInfo("America/Toronto"))
     now_str = moment.strftime("%Y-%m-%d %H:%M:%S")
-    session_exec = _prochaine_seance_execution(moment)
+    if session_exec is None:
+        session_exec = _prochaine_seance_execution(moment)
     with conn.session as session:
         session.execute(text("UPDATE users SET cash = cash - :m WHERE username = :u"),
                         {"m": round(float(montant_cad), 2), "u": username})
@@ -3613,6 +3659,8 @@ else:
                                 st.error("Fonds insuffisants.")
                             elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
                                 st.error(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                            elif achat_hors_heures_deja_fait(user, selected_ticker, _prochaine_seance_execution(datetime.now(ZoneInfo("America/Toronto")))):
+                                st.error(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
                             else:
                                 session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
                                 st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier). Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
