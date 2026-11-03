@@ -191,11 +191,56 @@ def init_db():
                     PRIMARY KEY (ticker, jour)
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS journal_connexions (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT,
+                    evenement TEXT,
+                    ip TEXT,
+                    agent TEXT,
+                    cree_le TEXT
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
 
 init_db()
+
+# --- TRACEUR DE SECURITE (faux comptes) : journal des inscriptions et connexions ---
+def _entetes_connexion():
+    """IP relaiee et navigateur de la requete courante, si l'hebergeur les transmet.
+    Ne leve jamais d'exception."""
+    try:
+        h = st.context.headers
+        ip = ""
+        for cle in ("X-Forwarded-For", "x-forwarded-for", "X-Real-Ip", "x-real-ip"):
+            val = h.get(cle)
+            if val:
+                ip = str(val).split(",")[0].strip()
+                break
+        ua = ""
+        for cle in ("User-Agent", "user-agent"):
+            val = h.get(cle)
+            if val:
+                ua = str(val)
+                break
+        return ip, ua
+    except Exception:
+        return "", ""
+
+def journaliser_connexion(nom_utilisateur, evenement):
+    """Inscrit une inscription ou une connexion dans journal_connexions (IP + appareil).
+    Silencieux : un echec de journalisation ne bloque jamais l'acces."""
+    try:
+        ip, ua = _entetes_connexion()
+        heure = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+        with conn.session as s:
+            s.execute(text("INSERT INTO journal_connexions (username, evenement, ip, agent, cree_le) VALUES (:u, :e, :ip, :a, :t)"),
+                      {"u": nom_utilisateur, "e": evenement, "ip": ip, "a": ua[:500], "t": heure})
+            s.commit()
+    except Exception:
+        pass
 
 # --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
 VERSION_REGLES = 4
@@ -3157,6 +3202,7 @@ if st.session_state['user'] is None:
                                             {"t": new_token, "u": u_login.strip(), "time": now_str})
                             session.commit()
 
+                        journaliser_connexion(u_login.strip(), "connexion")
                         st.session_state['user'] = u_login.strip()
                         st.query_params["session"] = new_token
                         st.session_state['flash_msg'] = ("success", f"Bienvenue {u_login.strip()} !")
@@ -3189,6 +3235,7 @@ if st.session_state['user'] is None:
                                 with conn.session as session:
                                     session.execute(text("INSERT INTO users VALUES (:u, :p, 10000.00, :g)"), {"u": u_new.strip(), "p": p_new, "g": g_new})
                                     session.commit()
+                                journaliser_connexion(u_new.strip(), "inscription")
                                 st.success("Compte créé ! Connectez-vous.")
                             else: st.error("Ce nom d'utilisateur existe déjà.")
                     else: st.error("Veuillez remplir tous les champs.")
