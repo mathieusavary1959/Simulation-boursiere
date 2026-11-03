@@ -20,6 +20,12 @@ try:
 except Exception:
     _ICONE_PAGE = None
 
+# --- PAGE DU JOURNAL DU KRACH (module genere depuis journal-krach-v7.html) ---
+try:
+    from krach_data import PAGE_KRACH_HTML
+except Exception:
+    PAGE_KRACH_HTML = ""
+
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Monde & Finance — Simulation Boursière", layout="wide", page_icon=_ICONE_PAGE)
 
@@ -201,6 +207,23 @@ def init_db():
                     cree_le TEXT
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS krach_etat (
+                    id INT PRIMARY KEY,
+                    actif BOOLEAN,
+                    declenche_le TEXT,
+                    expire_le TEXT
+                );
+            '''))
+            session.execute(text("INSERT INTO krach_etat (id, actif, declenche_le, expire_le) VALUES (1, FALSE, NULL, NULL) ON CONFLICT (id) DO NOTHING"))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS sauvegarde_krach (
+                    lot TEXT,
+                    table_nom TEXT,
+                    username TEXT,
+                    donnees TEXT
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
@@ -243,6 +266,113 @@ def journaliser_connexion(nom_utilisateur, evenement):
             s.commit()
     except Exception:
         pass
+
+# --- KRACH BOURSIER (12 novembre 2026) : reset complet + page du journal ---
+KRACH_EXEMPT_UTILISATEUR = "MathieuSavary"
+KRACH_EXEMPT_GROUPE = "Enseignants"
+
+def krach_fin_fenetre(declenche):
+    """La page du journal reste en place jusqu'au minuit (Toronto) suivant le declenchement."""
+    lendemain = declenche.date() + timedelta(days=1)
+    return datetime(lendemain.year, lendemain.month, lendemain.day, tzinfo=ZoneInfo("America/Toronto"))
+
+@st.cache_data(ttl=20)
+def _krach_etat_lu():
+    try:
+        df = conn.query("SELECT actif, declenche_le, expire_le FROM krach_etat WHERE id=1", ttl=0)
+        if df.empty:
+            return None
+        r = df.iloc[0]
+        return {"actif": bool(r["actif"]), "declenche_le": r["declenche_le"], "expire_le": r["expire_le"]}
+    except Exception:
+        return None
+
+def krach_est_actif():
+    etat = _krach_etat_lu()
+    if not etat or not etat["actif"]:
+        return False
+    try:
+        expire = datetime.strptime(etat["expire_le"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("America/Toronto"))
+    except Exception:
+        return False
+    if datetime.now(ZoneInfo("America/Toronto")) >= expire:
+        try:
+            with conn.session as s:
+                s.execute(text("UPDATE krach_etat SET actif=FALSE WHERE id=1"))
+                s.commit()
+            _krach_etat_lu.clear()
+        except Exception:
+            pass
+        return False
+    return True
+
+def apercu_krach():
+    """Volumes touches par le reset (comptes non exemptes seulement)."""
+    p = {"prof": KRACH_EXEMPT_UTILISATEUR, "grp": KRACH_EXEMPT_GROUPE}
+    cond = "u.username <> :prof AND u.groupe <> :grp"
+    def _n(q):
+        df = conn.query(q, params=p, ttl=0)
+        return int(df.iloc[0]["n"]) if not df.empty else 0
+    return {
+        "comptes": _n(f"SELECT COUNT(*) AS n FROM users u WHERE {cond}"),
+        "positions": _n(f"SELECT COUNT(*) AS n FROM portfolio x JOIN users u ON u.username = x.username WHERE {cond}"),
+        "transactions": _n(f"SELECT COUNT(*) AS n FROM transactions x JOIN users u ON u.username = x.username WHERE {cond}"),
+        "ordres": _n(f"SELECT COUNT(*) AS n FROM ordres_en_attente x JOIN users u ON u.username = x.username WHERE {cond} AND x.statut = 'en_attente'"),
+    }
+
+def executer_krach():
+    """Sauvegarde complete des comptes touches (table sauvegarde_krach), puis reset a
+    10 000 $ et activation de la page du journal jusqu'a minuit. Exemptes : le compte
+    de Mathieu et le groupe Enseignants (donc le compte du robot de surveillance)."""
+    import json as _json
+    tz = ZoneInfo("America/Toronto")
+    maintenant = datetime.now(tz)
+    lot = maintenant.strftime("krach-%Y%m%d-%H%M%S")
+    expire = krach_fin_fenetre(maintenant).strftime("%Y-%m-%d %H:%M:%S")
+    p = {"prof": KRACH_EXEMPT_UTILISATEUR, "grp": KRACH_EXEMPT_GROUPE}
+    cond = "u.username <> :prof AND u.groupe <> :grp"
+    with conn.session as s:
+        requetes = {
+            "users": f"SELECT u.* FROM users u WHERE {cond}",
+            "portfolio": f"SELECT x.* FROM portfolio x JOIN users u ON u.username = x.username WHERE {cond}",
+            "transactions": f"SELECT x.* FROM transactions x JOIN users u ON u.username = x.username WHERE {cond}",
+            "frais": f"SELECT x.* FROM frais x JOIN users u ON u.username = x.username WHERE {cond}",
+            "ordres_en_attente": f"SELECT x.* FROM ordres_en_attente x JOIN users u ON u.username = x.username WHERE {cond}",
+            "avis_correction": f"SELECT x.* FROM avis_correction x JOIN users u ON u.username = x.username WHERE {cond}",
+        }
+        total_lignes = 0
+        for table_nom, q in requetes.items():
+            for lig in s.execute(text(q), p).mappings().all():
+                d = dict(lig)
+                s.execute(text("INSERT INTO sauvegarde_krach (lot, table_nom, username, donnees) VALUES (:lot, :t, :u, :d)"),
+                          {"lot": lot, "t": table_nom, "u": d.get("username"), "d": _json.dumps(d, default=str)})
+                total_lignes += 1
+        for table_nom in ("portfolio", "transactions", "frais", "ordres_en_attente", "avis_correction", "sessions"):
+            s.execute(text(f"DELETE FROM {table_nom} WHERE username IN (SELECT username FROM users WHERE username <> :prof AND groupe <> :grp)"), p)
+        s.execute(text("UPDATE users SET cash = 10000.0 WHERE username <> :prof AND groupe <> :grp"), p)
+        s.execute(text("UPDATE krach_etat SET actif=TRUE, declenche_le=:d, expire_le=:e WHERE id=1"),
+                  {"d": maintenant.strftime("%Y-%m-%d %H:%M:%S"), "e": expire})
+        s.commit()
+    _krach_etat_lu.clear()
+    return lot, total_lignes, expire
+
+def terminer_krach():
+    with conn.session as s:
+        s.execute(text("UPDATE krach_etat SET actif=FALSE WHERE id=1"))
+        s.commit()
+    _krach_etat_lu.clear()
+
+def afficher_page_krach():
+    st.markdown("""
+    <style>
+      #MainMenu, header, footer, section[data-testid="stSidebar"] { display: none !important; }
+      .block-container { padding-top: 0 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    if PAGE_KRACH_HTML:
+        st.markdown(PAGE_KRACH_HTML, unsafe_allow_html=True)
+    else:
+        st.markdown("## Krash boursier\nLa Bourse est fermée pour la soirée. Tout recommence vendredi 13 novembre à 0 h 00 : chaque compte repart à 10 000 $.")
 
 # --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
 VERSION_REGLES = 4
@@ -3244,6 +3374,9 @@ if st.session_state['user'] is None:
 
 else:
     user = st.session_state['user']
+    if user != KRACH_EXEMPT_UTILISATEUR and krach_est_actif():
+        afficher_page_krach()
+        st.stop()
     appliquer_frais_gestion(user)
     executer_ordres_en_attente(user)
     res_u = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": user}, ttl=0)
@@ -3698,6 +3831,12 @@ else:
                             st.error(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
                         elif part_apres > PLAFOND_TITRE_PCT:
                             st.error(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
+                        elif ordres_ouverture_actif(user) and not _marche_ouvert() and mode_ordre == "Par quantité":
+                            # Décision de Mathieu (3 nov. 2026) : le soir, un ordre en
+                            # attente se place par montant seulement. En quantité, le
+                            # nombre d'actions choisi au prix gelé ne peut pas être
+                            # garanti à l'ouverture ; le montant, lui, l'est toujours.
+                            st.error("Marché fermé : le soir, un ordre en attente se place par montant seulement. Passe en mode « Par montant ($) » ci-dessus : le montant que tu choisis est réservé, et le nombre d'actions sera fixé à l'ouverture, au prix d'ouverture.")
                         elif ordres_ouverture_actif(user) and not _marche_ouvert():
                             # Hors heures, l'achat devient un ordre en
                             # attente exécuté au prix d'ouverture de la
@@ -3712,7 +3851,7 @@ else:
                                 st.error(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
                             else:
                                 session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
-                                st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier). Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
+                                st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier), et le nombre d'actions sera fixé à ce moment-là, selon ce prix. Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
                                 st.rerun()
                         elif cash_actuel_db >= total_debit:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
@@ -4514,3 +4653,51 @@ else:
                         st.info("Aucune transaction enregistrée.")
             else:
                 st.info("Aucun élève trouvé dans ce groupe.")
+
+            with st.expander("KRACH BOURSIER (12 novembre, à ne pas ouvrir avant le jour J)"):
+                st.markdown("""
+                <style>
+                  @keyframes krachPulse {
+                    0%, 100% { box-shadow: 0 0 10px 2px rgba(255, 230, 0, 0.55), 0 0 26px 6px rgba(255, 230, 0, 0.25); filter: brightness(1.0); }
+                    50% { box-shadow: 0 0 22px 6px rgba(255, 230, 0, 0.95), 0 0 48px 14px rgba(255, 230, 0, 0.45); filter: brightness(1.18); }
+                  }
+                  div[class~="st-key-btn_krach_prep"] button, div[class~="st-key-btn_krach_go"] button {
+                    background: #FFE600 !important;
+                    border: 2px solid #FFF59D !important;
+                    animation: krachPulse 1.1s ease-in-out infinite !important;
+                  }
+                  div[class~="st-key-btn_krach_prep"] button p, div[class~="st-key-btn_krach_go"] button p {
+                    color: #111111 !important;
+                    font-weight: 800 !important;
+                    letter-spacing: 0.04em !important;
+                  }
+                  div[class~="st-key-btn_krach_go"] button {
+                    border-color: #FFFFFF !important;
+                  }
+                </style>
+                """, unsafe_allow_html=True)
+                st.error("BOUTON DU 12 NOVEMBRE. Le déclenchement sauvegarde d'abord TOUS les comptes touchés dans la table sauvegarde_krach (récupérable ligne par ligne), puis repart chaque élève à 10 000 $ : positions, transactions, frais, ordres en attente et avis effacés. La page du journal remplace ensuite l'interface des élèves jusqu'à minuit. Ton compte et le groupe Enseignants ne sont PAS touchés, donc le compte du robot de surveillance non plus.")
+                if krach_est_actif():
+                    st.warning("Le krach est EN COURS : les élèves voient la page du journal jusqu'à minuit.")
+                    if st.button("Éteindre la page du krach maintenant", key="btn_krach_off"):
+                        terminer_krach()
+                        st.success("Page du krach éteinte. L'interface normale est de retour pour les élèves.")
+                        st.rerun()
+                else:
+                    ap_k = apercu_krach()
+                    st.write(f"Comptes touchés : **{ap_k['comptes']}** · positions : **{ap_k['positions']}** · transactions : **{ap_k['transactions']}** · ordres en attente : **{ap_k['ordres']}**")
+                    if not st.session_state.get("krach_confirme"):
+                        if st.button("Préparer le krach (étape 1 de 2)", key="btn_krach_prep"):
+                            st.session_state["krach_confirme"] = True
+                            st.rerun()
+                    else:
+                        st.warning("Dernière chance de reculer. La sauvegarde complète part AVANT le premier effacement, dans la même opération.")
+                        col_k1, col_k2 = st.columns(2)
+                        if col_k1.button("DÉCLENCHER LE KRACH", key="btn_krach_go"):
+                            lot_k, lignes_k, expire_k = executer_krach()
+                            st.session_state["krach_confirme"] = False
+                            st.success(f"Krach déclenché. Sauvegarde « {lot_k} » : {lignes_k} lignes archivées. Page du journal active jusqu'au {expire_k}.")
+                            st.rerun()
+                        if col_k2.button("Annuler", key="btn_krach_non"):
+                            st.session_state["krach_confirme"] = False
+                            st.rerun()
