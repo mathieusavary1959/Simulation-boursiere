@@ -4387,6 +4387,88 @@ else:
     elif tab_choisi == "Supervision Prof":
         pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off") if user.lower() not in ['prof', 'admin'] else "1959"
         if pin == "1959":
+            # --- KRACH BOURSIER : panneau en haut de la Supervision (refonte du 3 nov. :
+            # enseigne néon jaune pulsante, visible dès l'ouverture de l'onglet) ---
+            st.markdown("""
+            <style>
+              @keyframes krachNeon {
+                0%, 100% { box-shadow: 0 0 12px rgba(255, 230, 0, 0.35), inset 0 0 10px rgba(255, 230, 0, 0.05); }
+                50% { box-shadow: 0 0 34px rgba(255, 230, 0, 0.65), inset 0 0 22px rgba(255, 230, 0, 0.13); }
+              }
+              @keyframes krachBtn {
+                0%, 100% { box-shadow: 0 0 8px rgba(255, 230, 0, 0.5), inset 0 0 6px rgba(255, 230, 0, 0.25); }
+                50% { box-shadow: 0 0 22px rgba(255, 230, 0, 0.95), inset 0 0 12px rgba(255, 230, 0, 0.45); }
+              }
+              .krach-panel {
+                background: #070707;
+                border: 2px solid #FFE600;
+                border-radius: 12px;
+                padding: 20px 22px 14px;
+                text-align: center;
+                margin: 4px 0 14px;
+                animation: krachNeon 2.2s ease-in-out infinite;
+              }
+              .krach-titre {
+                font-family: 'Bebas Neue', 'Arial Narrow', sans-serif;
+                font-size: 52px;
+                letter-spacing: 0.16em;
+                line-height: 1;
+                color: #FFE600;
+                text-shadow: 0 0 6px rgba(255, 230, 0, 0.9), 0 0 20px rgba(255, 230, 0, 0.6), 0 0 46px rgba(255, 230, 0, 0.35);
+              }
+              .krach-sous {
+                font-family: 'Work Sans', sans-serif;
+                color: #EDEDED;
+                font-size: 15px;
+                margin-top: 9px;
+                line-height: 1.5;
+              }
+              div[class~="st-key-btn_krach_prep"] button, div[class~="st-key-btn_krach_go"] button {
+                background: #0A0A0A !important;
+                border: 2px solid #FFE600 !important;
+                border-radius: 10px !important;
+                animation: krachBtn 1.1s ease-in-out infinite !important;
+              }
+              div[class~="st-key-btn_krach_prep"] button p, div[class~="st-key-btn_krach_go"] button p {
+                color: #FFE600 !important;
+                font-weight: 800 !important;
+                letter-spacing: 0.08em !important;
+                text-shadow: 0 0 8px rgba(255, 230, 0, 0.8) !important;
+              }
+              div[class~="st-key-btn_krach_go"] button {
+                border-width: 3px !important;
+              }
+            </style>
+            <div class="krach-panel">
+              <div class="krach-titre">KRACH BOURSIER</div>
+              <div class="krach-sous">Zone du jeudi 12 novembre, 16 h 00. Au déclenchement : sauvegarde complète de tous les comptes, retour de chaque élève à 10 000 $, et la page du journal remplace l'interface jusqu'à minuit. Ton compte et le groupe Enseignants ne sont pas touchés.</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if krach_est_actif():
+                st.warning("Le krach est EN COURS : les élèves voient la page du journal jusqu'à minuit.")
+                if st.button("Éteindre la page du krach maintenant", key="btn_krach_off"):
+                    terminer_krach()
+                    st.success("Page du krach éteinte. L'interface normale est de retour pour les élèves.")
+                    st.rerun()
+            else:
+                ap_k = apercu_krach()
+                st.caption(f"Portée du reset : {ap_k['comptes']} comptes · {ap_k['positions']} positions · {ap_k['transactions']} transactions · {ap_k['ordres']} ordres en attente. La sauvegarde complète part AVANT le premier effacement, dans la même opération.")
+                if not st.session_state.get("krach_confirme"):
+                    if st.button("PRÉPARER LE KRACH", key="btn_krach_prep", use_container_width=True):
+                        st.session_state["krach_confirme"] = True
+                        st.rerun()
+                else:
+                    st.warning("Dernière chance de reculer : l'étape suivante est le déclenchement réel.")
+                    col_k1, col_k2 = st.columns(2)
+                    if col_k1.button("DÉCLENCHER LE KRACH", key="btn_krach_go", use_container_width=True):
+                        lot_k, lignes_k, expire_k = executer_krach()
+                        st.session_state["krach_confirme"] = False
+                        st.success(f"Krach déclenché. Sauvegarde « {lot_k} » : {lignes_k} lignes archivées. Page du journal active jusqu'au {expire_k}.")
+                        st.rerun()
+                    if col_k2.button("Annuler", key="btn_krach_non", use_container_width=True):
+                        st.session_state["krach_confirme"] = False
+                        st.rerun()
+
             with st.expander("Gestion des mots de passe (Supabase)"):
                 st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
                 code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase", autocomplete="off")
@@ -4654,50 +4736,3 @@ else:
             else:
                 st.info("Aucun élève trouvé dans ce groupe.")
 
-            with st.expander("KRACH BOURSIER (12 novembre, à ne pas ouvrir avant le jour J)"):
-                st.markdown("""
-                <style>
-                  @keyframes krachPulse {
-                    0%, 100% { box-shadow: 0 0 10px 2px rgba(255, 230, 0, 0.55), 0 0 26px 6px rgba(255, 230, 0, 0.25); filter: brightness(1.0); }
-                    50% { box-shadow: 0 0 22px 6px rgba(255, 230, 0, 0.95), 0 0 48px 14px rgba(255, 230, 0, 0.45); filter: brightness(1.18); }
-                  }
-                  div[class~="st-key-btn_krach_prep"] button, div[class~="st-key-btn_krach_go"] button {
-                    background: #FFE600 !important;
-                    border: 2px solid #FFF59D !important;
-                    animation: krachPulse 1.1s ease-in-out infinite !important;
-                  }
-                  div[class~="st-key-btn_krach_prep"] button p, div[class~="st-key-btn_krach_go"] button p {
-                    color: #111111 !important;
-                    font-weight: 800 !important;
-                    letter-spacing: 0.04em !important;
-                  }
-                  div[class~="st-key-btn_krach_go"] button {
-                    border-color: #FFFFFF !important;
-                  }
-                </style>
-                """, unsafe_allow_html=True)
-                st.error("BOUTON DU 12 NOVEMBRE. Le déclenchement sauvegarde d'abord TOUS les comptes touchés dans la table sauvegarde_krach (récupérable ligne par ligne), puis repart chaque élève à 10 000 $ : positions, transactions, frais, ordres en attente et avis effacés. La page du journal remplace ensuite l'interface des élèves jusqu'à minuit. Ton compte et le groupe Enseignants ne sont PAS touchés, donc le compte du robot de surveillance non plus.")
-                if krach_est_actif():
-                    st.warning("Le krach est EN COURS : les élèves voient la page du journal jusqu'à minuit.")
-                    if st.button("Éteindre la page du krach maintenant", key="btn_krach_off"):
-                        terminer_krach()
-                        st.success("Page du krach éteinte. L'interface normale est de retour pour les élèves.")
-                        st.rerun()
-                else:
-                    ap_k = apercu_krach()
-                    st.write(f"Comptes touchés : **{ap_k['comptes']}** · positions : **{ap_k['positions']}** · transactions : **{ap_k['transactions']}** · ordres en attente : **{ap_k['ordres']}**")
-                    if not st.session_state.get("krach_confirme"):
-                        if st.button("Préparer le krach (étape 1 de 2)", key="btn_krach_prep"):
-                            st.session_state["krach_confirme"] = True
-                            st.rerun()
-                    else:
-                        st.warning("Dernière chance de reculer. La sauvegarde complète part AVANT le premier effacement, dans la même opération.")
-                        col_k1, col_k2 = st.columns(2)
-                        if col_k1.button("DÉCLENCHER LE KRACH", key="btn_krach_go"):
-                            lot_k, lignes_k, expire_k = executer_krach()
-                            st.session_state["krach_confirme"] = False
-                            st.success(f"Krach déclenché. Sauvegarde « {lot_k} » : {lignes_k} lignes archivées. Page du journal active jusqu'au {expire_k}.")
-                            st.rerun()
-                        if col_k2.button("Annuler", key="btn_krach_non"):
-                            st.session_state["krach_confirme"] = False
-                            st.rerun()
