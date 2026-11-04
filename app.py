@@ -2426,6 +2426,31 @@ def lever_suspension_joueur(username):
     _joueurs_suspendus.clear()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def jumeau_to(symbole):
+    """Garde-fou anti-piège des symboles jumeaux. Si le symbole nu a un
+    jumeau coté à Toronto (même symbole + .TO), retourne les noms
+    complets des deux titres ; sinon None. Exemple vécu : DOL est un
+    FNB américain de WisdomTree, alors que DOL.TO est Dollarama.
+    Le panneau d'ordre s'en sert pour faire confirmer le bon titre
+    avant l'achat, sans jamais bloquer l'élève."""
+    s = str(symbole).strip().upper()
+    if not s or '.' in s:
+        return None
+    try:
+        t_to = yf.Ticker(s + ".TO")
+        prix_to = t_to.fast_info["last_price"]
+        if prix_to is None or float(prix_to) <= 0:
+            return None
+        info_to = t_to.info or {}
+        nom_to = info_to.get("longName") or info_to.get("shortName") or (s + ".TO")
+        info_base = yf.Ticker(s).info or {}
+        nom_base = info_base.get("longName") or info_base.get("shortName") or s
+        return {"nom_base": str(nom_base), "nom_to": str(nom_to)}
+    except Exception:
+        return None
+
+
 def compte_en_verification(username):
     """Vrai si le comptant du compte est illisible (NaN). Les comptes
     exemptés (enseignant) ne sont jamais bloqués par ce garde-fou."""
@@ -3718,6 +3743,13 @@ else:
             else:
                 selected_ticker = query_clean.upper()
 
+        # Redirection du garde-fou jumeau .TO : dans le panneau d'ordre,
+        # l'élève a choisi la version de Toronto d'un symbole nu.
+        _redir_jumeau = st.session_state.get('jumeau_redirige')
+        if _redir_jumeau and _redir_jumeau.endswith('.TO') and _redir_jumeau[:-3] == selected_ticker:
+            selected_ticker = _redir_jumeau
+            st.session_state['jumeau_redirige'] = None
+
         details = obtenir_details_financiers(selected_ticker)
 
         if details == {"erreur": "non_na"}:
@@ -3938,10 +3970,45 @@ else:
                 if achat_penny_stock_bloque(selected_ticker):
                     st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
 
+                # --- GARDE-FOU JUMEAU .TO ---
+                # Si le symbole nu a un jumeau à Toronto (DOL le FNB
+                # américain contre DOL.TO Dollarama), l'élève confirme
+                # lequel des deux il veut avant de pouvoir acheter.
+                # Aucun blocage définitif : un choix, puis l'achat continue.
+                jumeau = jumeau_to(selected_ticker) if '.' not in selected_ticker else None
+                jumeau_ok = bool(st.session_state.get(f"jumeau_ok_{selected_ticker}"))
+                achat_bloque_jumeau = bool(jumeau and not jumeau_ok)
+                if achat_bloque_jumeau:
+                    jb1, jb2 = st.columns(2)
+                    if jumeau['nom_base'] == jumeau['nom_to']:
+                        # Même entreprise des deux côtés (double cotation ou
+                        # certificat canadien) : le choix est la devise.
+                        st.warning(
+                            f"**Ce titre existe aussi à Toronto, en dollars canadiens.**\n\n"
+                            f"Tu regardes **{selected_ticker}** : {jumeau['nom_base']}, le titre américain, en dollars US.\n\n"
+                            f"La même entreprise se vend aussi sous **{selected_ticker}.TO** à la Bourse de Toronto, en dollars canadiens.\n\n"
+                            f"Lequel préfères-tu ?")
+                        lib_jb1 = f"{selected_ticker}, en dollars US"
+                        lib_jb2 = f"{selected_ticker}.TO, en dollars canadiens"
+                    else:
+                        st.warning(
+                            f"**Attention : deux titres se ressemblent.**\n\n"
+                            f"Tu regardes **{selected_ticker}** : {jumeau['nom_base']}, un titre américain, en dollars US.\n\n"
+                            f"Il existe aussi **{selected_ticker}.TO** : {jumeau['nom_to']}, à la Bourse de Toronto, en dollars canadiens.\n\n"
+                            f"Lequel veux-tu acheter ?")
+                        lib_jb1 = f"{selected_ticker}, le titre américain"
+                        lib_jb2 = f"{selected_ticker}.TO, le titre de Toronto"
+                    if jb1.button(lib_jb1, key=f"jb_us_{selected_ticker}", use_container_width=True):
+                        st.session_state[f"jumeau_ok_{selected_ticker}"] = True
+                        st.rerun()
+                    if jb2.button(lib_jb2, key=f"jb_to_{selected_ticker}", use_container_width=True):
+                        st.session_state['jumeau_redirige'] = selected_ticker + ".TO"
+                        st.rerun()
+
                 col_b, col_s = st.columns(2)
 
                 # ACHAT
-                if col_b.button("Acheter", use_container_width=True):
+                if col_b.button("Acheter", use_container_width=True, disabled=achat_bloque_jumeau):
                     if plafond_achats_atteint(user):
                         dialogue_pause_bourse()
                     elif not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
