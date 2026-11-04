@@ -4699,7 +4699,9 @@ else:
             else:
                 st.caption("Aucun joueur suspendu en ce moment.")
             users_susp = conn.query("SELECT username, groupe FROM users ORDER BY groupe, username", ttl=0)
-            choix_susp = [u for u in users_susp['username'].tolist() if not compte_exempte_frais(u)]
+            choix_susp = [r['username'] for _, r in users_susp.iterrows()
+                          if r['username'] != "MathieuSavary"
+                          and not str(r['groupe'] or "").strip().lower().startswith("enseignant")]
             sel_susp = st.selectbox("Joueur :", choix_susp, key="sel_suspension")
             if sel_susp in susp_noms:
                 st.warning(f"{sel_susp} est suspendu en ce moment.")
