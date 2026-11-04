@@ -665,6 +665,18 @@ def frais_pour_ordre(devise, montant_cad):
     return FRAIS_TRANSACTION, conv
 
 
+def _verrou_transaction(session, username):
+    """Verrou consultatif Postgres par utilisateur, tenu jusqu'à la fin de
+    la transaction SQL en cours. Il sérialise les opérations d'argent d'un
+    même compte entre sessions simultanées : sans lui, six sessions
+    ouvertes en même temps lisent le même solde ou la même position avant
+    qu'aucune écrive, et la même position peut être vendue plusieurs fois
+    (faille dévoilée par un élève le 4 novembre 2026). À prendre EN
+    PREMIER dans la session d'écriture, puis relire l'état (comptant,
+    positions) DANS la même session avant de valider."""
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:u))"), {"u": username})
+
+
 def enregistrer_frais(session, username, type_frais, montant, details=""):
     """Consigne un frais dans la table frais (dans la session d'écriture ouverte)."""
     if montant and float(montant) > 0:
@@ -923,18 +935,33 @@ def achat_hors_heures_deja_fait(username, ticker_symbol, nouvelle_session):
 
 def creer_ordre_en_attente(username, ticker_symbol, montant_cad, devise, session_exec=None):
     """Réserve le montant dans le comptant et inscrit l'ordre en
-    attente. À appeler seulement après les vérifications d'usage."""
+    attente. À appeler seulement après les vérifications d'usage.
+    Le solde et le nombre d'ordres en attente sont REVÉRIFIÉS sous le
+    verrou par utilisateur, dans la transaction d'écriture : des
+    sessions simultanées du même compte ne peuvent pas réserver deux
+    fois le même argent. Retourne None si la réservation est refusée
+    à cette relecture."""
     moment = datetime.now(ZoneInfo("America/Toronto"))
     now_str = moment.strftime("%Y-%m-%d %H:%M:%S")
     if session_exec is None:
         session_exec = _prochaine_seance_execution(moment)
+    montant_r = round(float(montant_cad), 2)
     with conn.session as session:
+        _verrou_transaction(session, username)
+        cash_rel = session.execute(text("SELECT cash FROM users WHERE username=:u"),
+                                   {"u": username}).scalar()
+        nb_att = session.execute(
+            text("SELECT COUNT(*) FROM ordres_en_attente WHERE username=:u AND statut='en_attente'"),
+            {"u": username}).scalar()
+        if cash_rel is None or float(cash_rel) < montant_r or int(nb_att or 0) >= LIMITE_ORDRES_EN_ATTENTE:
+            session.rollback()
+            return None
         session.execute(text("UPDATE users SET cash = cash - :m WHERE username = :u"),
-                        {"m": round(float(montant_cad), 2), "u": username})
+                        {"m": montant_r, "u": username})
         session.execute(
             text("INSERT INTO ordres_en_attente (username, ticker, montant_cad, devise, "
                  "place_le, session_execution, statut) VALUES (:u, :t, :m, :d, :p, :s, 'en_attente')"),
-            {"u": username, "t": ticker_symbol.upper(), "m": round(float(montant_cad), 2),
+            {"u": username, "t": ticker_symbol.upper(), "m": montant_r,
              "d": devise, "p": now_str, "s": session_exec})
         session.commit()
     return session_exec
@@ -961,6 +988,16 @@ def annuler_ordre_en_attente(username, ordre_id):
     if r.empty:
         return False
     with conn.session as session:
+        _verrou_transaction(session, username)
+        # Relecture du statut sous le verrou : si une exécution à
+        # l'ouverture vient de régler cet ordre dans une autre session,
+        # il ne faut surtout pas rembourser une deuxième fois.
+        statut_rel = session.execute(
+            text("SELECT statut FROM ordres_en_attente WHERE id=:i"),
+            {"i": int(ordre_id)}).scalar()
+        if statut_rel != 'en_attente':
+            session.rollback()
+            return False
         _regler_ordre_annule(session, r.iloc[0], "annule_eleve", "Annulé par l'élève avant l'ouverture.")
         session.commit()
     return True
@@ -975,106 +1012,116 @@ def executer_ordres_en_attente(username):
     propre transaction ; un ordre qui échoue reste en attente et sera
     réessayé, sauf annulation franche (remboursement immédiat).
     Volontairement SANS garde sur ORDRES_OUVERTURE_ACTIFS : même si
-    l'interrupteur est fermé, les ordres déjà placés doivent être réglés."""
+    l'interrupteur est fermé, les ordres déjà placés doivent être réglés.
+    Verrou par utilisateur tenu pendant tout le règlement : deux
+    sessions simultanées du même compte ne peuvent pas exécuter
+    (ni rembourser) deux fois le même ordre.
+    """
     try:
-        maintenant = datetime.now(ZoneInfo("America/Toronto"))
-        auj = maintenant.date().isoformat()
-        minutes = maintenant.hour * 60 + maintenant.minute
-        dus = conn.query(
-            "SELECT id, username, ticker, montant_cad, devise, session_execution "
-            "FROM ordres_en_attente WHERE username=:u AND statut='en_attente' "
-            "AND session_execution <= :a ORDER BY id",
-            params={"u": username, "a": auj}, ttl=0)
-        if dus.empty:
-            return
-        exempte = compte_exempte_frais(username)
-        for _, ordre in dus.iterrows():
-            date_exec = str(ordre['session_execution'])
-            if date_exec == auj and minutes < 9 * 60 + 30:
-                continue  # l'ouverture de cette séance n'a pas encore eu lieu
-            ticker_o = str(ordre['ticker']).upper()
-            montant = float(ordre['montant_cad'])
-            devise_o = str(ordre['devise'] or devise_naturelle(ticker_o)).upper()
-            prix_ouv = _prix_ouverture_session(ticker_o, date_exec)
-            if prix_ouv is None:
-                # Pas de barre pour la séance visée : jour férié ou
-                # données pas encore consolidées. On réessaie à la
-                # prochaine connexion ; après 4 jours, on rembourse.
-                try:
-                    retard = (maintenant.date() - datetime.strptime(date_exec, "%Y-%m-%d").date()).days
-                except Exception:
-                    retard = 0
-                if retard > 4:
-                    with conn.session as session:
-                        _regler_ordre_annule(session, ordre, "echec",
-                                             "Aucun prix d'ouverture trouvé pour la séance visée. Montant remboursé.")
-                        session.commit()
-                continue
-            now_str = maintenant.strftime("%Y-%m-%d %H:%M:%S")
-            # Coupe-circuit mesuré à l'ouverture : variation du prix
-            # d'ouverture contre la clôture de la séance précédente.
-            clot_prec = cloture_avant_date(ticker_o, date_exec)
-            var_ouv = None
-            if clot_prec and float(clot_prec) > 0:
-                var_ouv = (prix_ouv - float(clot_prec)) / float(clot_prec) * 100.0
-            if var_ouv is not None and abs(var_ouv) > COUPE_CIRCUIT_PCT:
-                with conn.session as session:
-                    _regler_ordre_annule(session, ordre, "annule_circuit",
-                                         f"Coupe-circuit : le titre a ouvert à {var_ouv:+.1f} % contre la clôture de la veille. Montant remboursé.")
-                    session.commit()
-                continue
-            shares, cout, frais_fixe_o, frais_conv_o = _actions_abordables(montant, prix_ouv, devise_o, exempte)
-            if shares < 1:
-                with conn.session as session:
-                    _regler_ordre_annule(session, ordre, "echec",
-                                         "Le prix d'ouverture dépassait le montant de l'ordre. Montant remboursé.")
-                    session.commit()
-                continue
-            msg_vol = verifier_limite_volume(username, ticker_o, prix_ouv, cout)
-            if msg_vol:
-                with conn.session as session:
-                    _regler_ordre_annule(session, ordre, "annule_volume",
-                                         "Limite de volume quotidien atteinte à l'exécution. Montant remboursé.")
-                    session.commit()
-                continue
-            if not exempte and part_titre_apres_achat(username, ticker_o, prix_ouv, shares) > PLAFOND_TITRE_PCT:
-                with conn.session as session:
-                    _regler_ordre_annule(session, ordre, "annule_concentration",
-                                         "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé.")
-                    session.commit()
-                continue
-            total_o = cout + frais_fixe_o + frais_conv_o
-            reste = round(montant - total_o, 2)
-            with conn.session as session:
-                if reste > 0:
-                    session.execute(text("UPDATE users SET cash = cash + :m WHERE username = :u"),
-                                    {"m": reste, "u": username})
-                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)",
-                                   params={"u": username, "t": ticker_o}, ttl=0)
-                if not p_res.empty:
-                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_ouv)
-                    n_s = anc_s + shares
-                    n_p = ((anc_s * anc_p) + (shares * prix_ouv)) / n_s
-                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
-                                    {"s": n_s, "p": n_p, "u": username, "t": ticker_o})
-                else:
-                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"),
-                                    {"u": username, "t": ticker_o, "s": shares, "p": prix_ouv})
-                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) "
-                                     "VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                {"u": username, "t": ticker_o, "s": shares, "p": prix_ouv,
-                                 "tot": cout, "time": now_str})
-                enregistrer_frais(session, username, "transaction", frais_fixe_o, ticker_o)
-                enregistrer_frais(session, username, "conversion", frais_conv_o, ticker_o)
-                session.execute(
-                    text("UPDATE ordres_en_attente SET statut='execute', prix_execution=:p, "
-                         "shares=:s, execute_le=:e, note=:n WHERE id=:i"),
-                    {"p": prix_ouv, "s": shares, "e": now_str,
-                     "n": f"Exécuté à l'ouverture du {date_exec}.", "i": int(ordre['id'])})
-                session.commit()
+        with conn.session as verrou:
+            _verrou_transaction(verrou, username)
+            _executer_ordres_en_attente_sous_verrou(username)
+            verrou.commit()
     except Exception:
         pass
 
+
+def _executer_ordres_en_attente_sous_verrou(username):
+    maintenant = datetime.now(ZoneInfo("America/Toronto"))
+    auj = maintenant.date().isoformat()
+    minutes = maintenant.hour * 60 + maintenant.minute
+    dus = conn.query(
+        "SELECT id, username, ticker, montant_cad, devise, session_execution "
+        "FROM ordres_en_attente WHERE username=:u AND statut='en_attente' "
+        "AND session_execution <= :a ORDER BY id",
+        params={"u": username, "a": auj}, ttl=0)
+    if dus.empty:
+        return
+    exempte = compte_exempte_frais(username)
+    for _, ordre in dus.iterrows():
+        date_exec = str(ordre['session_execution'])
+        if date_exec == auj and minutes < 9 * 60 + 30:
+            continue  # l'ouverture de cette séance n'a pas encore eu lieu
+        ticker_o = str(ordre['ticker']).upper()
+        montant = float(ordre['montant_cad'])
+        devise_o = str(ordre['devise'] or devise_naturelle(ticker_o)).upper()
+        prix_ouv = _prix_ouverture_session(ticker_o, date_exec)
+        if prix_ouv is None:
+            # Pas de barre pour la séance visée : jour férié ou
+            # données pas encore consolidées. On réessaie à la
+            # prochaine connexion ; après 4 jours, on rembourse.
+            try:
+                retard = (maintenant.date() - datetime.strptime(date_exec, "%Y-%m-%d").date()).days
+            except Exception:
+                retard = 0
+            if retard > 4:
+                with conn.session as session:
+                    _regler_ordre_annule(session, ordre, "echec",
+                                         "Aucun prix d'ouverture trouvé pour la séance visée. Montant remboursé.")
+                    session.commit()
+            continue
+        now_str = maintenant.strftime("%Y-%m-%d %H:%M:%S")
+        # Coupe-circuit mesuré à l'ouverture : variation du prix
+        # d'ouverture contre la clôture de la séance précédente.
+        clot_prec = cloture_avant_date(ticker_o, date_exec)
+        var_ouv = None
+        if clot_prec and float(clot_prec) > 0:
+            var_ouv = (prix_ouv - float(clot_prec)) / float(clot_prec) * 100.0
+        if var_ouv is not None and abs(var_ouv) > COUPE_CIRCUIT_PCT:
+            with conn.session as session:
+                _regler_ordre_annule(session, ordre, "annule_circuit",
+                                     f"Coupe-circuit : le titre a ouvert à {var_ouv:+.1f} % contre la clôture de la veille. Montant remboursé.")
+                session.commit()
+            continue
+        shares, cout, frais_fixe_o, frais_conv_o = _actions_abordables(montant, prix_ouv, devise_o, exempte)
+        if shares < 1:
+            with conn.session as session:
+                _regler_ordre_annule(session, ordre, "echec",
+                                     "Le prix d'ouverture dépassait le montant de l'ordre. Montant remboursé.")
+                session.commit()
+            continue
+        msg_vol = verifier_limite_volume(username, ticker_o, prix_ouv, cout)
+        if msg_vol:
+            with conn.session as session:
+                _regler_ordre_annule(session, ordre, "annule_volume",
+                                     "Limite de volume quotidien atteinte à l'exécution. Montant remboursé.")
+                session.commit()
+            continue
+        if not exempte and part_titre_apres_achat(username, ticker_o, prix_ouv, shares) > PLAFOND_TITRE_PCT:
+            with conn.session as session:
+                _regler_ordre_annule(session, ordre, "annule_concentration",
+                                     "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé.")
+                session.commit()
+            continue
+        total_o = cout + frais_fixe_o + frais_conv_o
+        reste = round(montant - total_o, 2)
+        with conn.session as session:
+            if reste > 0:
+                session.execute(text("UPDATE users SET cash = cash + :m WHERE username = :u"),
+                                {"m": reste, "u": username})
+            p_row = session.execute(text("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                                    {"u": username, "t": ticker_o}).fetchone()
+            if p_row is not None:
+                anc_s, anc_p = int(p_row[0]), float(p_row[1] or prix_ouv)
+                n_s = anc_s + shares
+                n_p = ((anc_s * anc_p) + (shares * prix_ouv)) / n_s
+                session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                                {"s": n_s, "p": n_p, "u": username, "t": ticker_o})
+            else:
+                session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"),
+                                {"u": username, "t": ticker_o, "s": shares, "p": prix_ouv})
+            session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) "
+                                 "VALUES (:u, :t, :s, :p, :tot, :time)"),
+                            {"u": username, "t": ticker_o, "s": shares, "p": prix_ouv,
+                             "tot": cout, "time": now_str})
+            enregistrer_frais(session, username, "transaction", frais_fixe_o, ticker_o)
+            enregistrer_frais(session, username, "conversion", frais_conv_o, ticker_o)
+            session.execute(
+                text("UPDATE ordres_en_attente SET statut='execute', prix_execution=:p, "
+                     "shares=:s, execute_le=:e, note=:n WHERE id=:i"),
+                {"p": prix_ouv, "s": shares, "e": now_str,
+                 "n": f"Exécuté à l'ouverture du {date_exec}.", "i": int(ordre['id'])})
+            session.commit()
 
 _JOURS_FR = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."]
 _MOIS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.",
@@ -4080,35 +4127,50 @@ else:
                                 st.error(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
                             else:
                                 session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
-                                st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier), et le nombre d'actions sera fixé à ce moment-là, selon ce prix. Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
-                                st.rerun()
+                                if session_exec is None:
+                                    st.error("Fonds insuffisants.")
+                                else:
+                                    st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier), et le nombre d'actions sera fixé à ce moment-là, selon ce prix. Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
+                                    st.rerun()
                         elif cash_actuel_db >= total_debit:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                            # Verrou par utilisateur + solde relu DANS la transaction :
+                            # des sessions simultanées du même compte ne peuvent pas
+                            # dépenser deux fois le même argent.
+                            achat_ok = False
                             with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": total_debit, "u": user})
-                                p_res = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
-                                if not p_res.empty:
-                                    anc_s, anc_p = int(p_res.iloc[0]['shares']), float(p_res.iloc[0]['avg_price'] or prix_instantane)
-                                    n_s = anc_s + qty_achat
-                                    n_p = ((anc_s * anc_p) + (qty_achat * prix_instantane)) / n_s
-                                    session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
+                                _verrou_transaction(session, user)
+                                cash_rel = session.execute(text("SELECT cash FROM users WHERE username=:u"), {"u": user}).scalar()
+                                if cash_rel is not None and float(cash_rel) >= total_debit:
+                                    session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": total_debit, "u": user})
+                                    p_row = session.execute(text("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker}).fetchone()
+                                    if p_row is not None:
+                                        anc_s, anc_p = int(p_row[0]), float(p_row[1] or prix_instantane)
+                                        n_s = anc_s + qty_achat
+                                        n_p = ((anc_s * anc_p) + (qty_achat * prix_instantane)) / n_s
+                                        session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
+                                    else:
+                                        session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane})
+                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                    {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                    enregistrer_frais(session, user, "transaction", frais_fixe, selected_ticker.upper())
+                                    enregistrer_frais(session, user, "conversion", frais_conv, selected_ticker.upper())
+                                    session.commit()
+                                    achat_ok = True
                                 else:
-                                    session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane})
-                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
-                                enregistrer_frais(session, user, "transaction", frais_fixe, selected_ticker.upper())
-                                enregistrer_frais(session, user, "conversion", frais_conv, selected_ticker.upper())
-                                session.commit()
-
-                            _frais_tot = frais_fixe + frais_conv
-                            _note_frais = f" Frais : ${_frais_tot:,.2f}." if _frais_tot > 0 else ""
-                            if devise_titre == "USD":
-                                _taux_fx = obtenir_taux_usdcad()
-                                _msg_fx = f" (débité : ${total_debit:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (débité : ${total_debit:,.2f} CAD)"
-                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectué !{_msg_fx}{_note_frais}")
+                                    session.rollback()
+                            if not achat_ok:
+                                st.error("Fonds insuffisants.")
                             else:
-                                st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !{_note_frais}")
-                            st.rerun()
+                                _frais_tot = frais_fixe + frais_conv
+                                _note_frais = f" Frais : ${_frais_tot:,.2f}." if _frais_tot > 0 else ""
+                                if devise_titre == "USD":
+                                    _taux_fx = obtenir_taux_usdcad()
+                                    _msg_fx = f" (débité : ${total_debit:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (débité : ${total_debit:,.2f} CAD)"
+                                    st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectué !{_msg_fx}{_note_frais}")
+                                else:
+                                    st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !{_note_frais}")
+                                st.rerun()
                         else: st.error("Fonds insuffisants.")
 
                 # VENTE
@@ -4137,28 +4199,41 @@ else:
                             frais_fixe_s, frais_conv_s = (0.0, 0.0) if exempte_s else frais_pour_ordre(devise_titre, cost_real)
                             credit_net = cost_real - frais_fixe_s - frais_conv_s
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                            # Verrou par utilisateur + position relue DANS la
+                            # transaction : la faille des sessions simultanées
+                            # (vendre 6 fois la même position) est fermée ici.
+                            vente_ok = False
                             with conn.session as session:
-                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net, "u": user})
-                                rem = shares_dispo - qty_vente
-                                if rem > 0:
-                                    session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
+                                _verrou_transaction(session, user)
+                                sh_row = session.execute(text("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker}).fetchone()
+                                sh_rel = int(sh_row[0]) if sh_row is not None else 0
+                                if sh_rel >= qty_vente:
+                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net, "u": user})
+                                    rem = sh_rel - qty_vente
+                                    if rem > 0:
+                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
+                                    else:
+                                        session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
+                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                    {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                    enregistrer_frais(session, user, "transaction", frais_fixe_s, selected_ticker.upper())
+                                    enregistrer_frais(session, user, "conversion", frais_conv_s, selected_ticker.upper())
+                                    session.commit()
+                                    vente_ok = True
                                 else:
-                                    session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
-                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
-                                enregistrer_frais(session, user, "transaction", frais_fixe_s, selected_ticker.upper())
-                                enregistrer_frais(session, user, "conversion", frais_conv_s, selected_ticker.upper())
-                                session.commit()
-
-                            _frais_tot_s = frais_fixe_s + frais_conv_s
-                            _note_frais_s = f" Frais : ${_frais_tot_s:,.2f}." if _frais_tot_s > 0 else ""
-                            if devise_titre == "USD":
-                                _taux_fx = obtenir_taux_usdcad()
-                                _msg_fx = f" (crédité : ${credit_net:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (crédité : ${credit_net:,.2f} CAD)"
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectuée !{_msg_fx}{_note_frais_s}")
+                                    session.rollback()
+                            if not vente_ok:
+                                st.error("Vous ne possédez pas cette quantité d'actions.")
                             else:
-                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !{_note_frais_s}")
-                            st.rerun()
+                                _frais_tot_s = frais_fixe_s + frais_conv_s
+                                _note_frais_s = f" Frais : ${_frais_tot_s:,.2f}." if _frais_tot_s > 0 else ""
+                                if devise_titre == "USD":
+                                    _taux_fx = obtenir_taux_usdcad()
+                                    _msg_fx = f" (crédité : ${credit_net:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (crédité : ${credit_net:,.2f} CAD)"
+                                    st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectuée !{_msg_fx}{_note_frais_s}")
+                                else:
+                                    st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !{_note_frais_s}")
+                                st.rerun()
                         else: st.error("Vous ne possédez pas cette quantité d'actions.")
 
                 # FAVORIS (bouton jaune via type="primary")
@@ -4523,25 +4598,39 @@ else:
                                             frais_fixe_c, frais_conv_c = frais_pour_ordre(devise_naturelle(tk), total_v_instantane)
                                         credit_net_c = total_v_instantane - frais_fixe_c - frais_conv_c
                                         now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                                        # Verrou par utilisateur + position relue DANS
+                                        # la transaction (même faille multi-sessions
+                                        # que la vente principale).
+                                        vente_c_ok = False
                                         with conn.session as session:
-                                            session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net_c, "u": user})
-                                            rem = sh_real - qty_c
-                                            if rem > 0:
-                                                session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk})
+                                            _verrou_transaction(session, user)
+                                            sh_row_c = session.execute(text("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk}).fetchone()
+                                            sh_rel_c = int(sh_row_c[0]) if sh_row_c is not None else 0
+                                            if sh_rel_c >= qty_c:
+                                                session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net_c, "u": user})
+                                                rem = sh_rel_c - qty_c
+                                                if rem > 0:
+                                                    session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND ticker=:t"), {"s": rem, "u": user, "t": tk})
+                                                else:
+                                                    session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
+                                                session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                                {"u": user, "t": tk, "s": -qty_c, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
+                                                enregistrer_frais(session, user, "transaction", frais_fixe_c, tk)
+                                                enregistrer_frais(session, user, "conversion", frais_conv_c, tk)
+                                                session.commit()
+                                                vente_c_ok = True
                                             else:
-                                                session.execute(text("DELETE FROM portfolio WHERE username=:u AND ticker=:t"), {"u": user, "t": tk})
-                                            session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                            {"u": user, "t": tk, "s": -qty_c, "p": prix_v_instantane, "tot": total_v_instantane, "time": now_str})
-                                            enregistrer_frais(session, user, "transaction", frais_fixe_c, tk)
-                                            enregistrer_frais(session, user, "conversion", frais_conv_c, tk)
-                                            session.commit()
-                                        _frais_c_tot = frais_fixe_c + frais_conv_c
-                                        _note_frais_c = f" Frais : ${_frais_c_tot:,.2f}." if _frais_c_tot > 0 else ""
-                                        if devise_naturelle(tk) == "USD":
-                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à {fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD')} effectuée ! (crédité : ${credit_net_c:,.2f} CAD){_note_frais_c}")
+                                                session.rollback()
+                                        if not vente_c_ok:
+                                            st.error("Vous ne possédez plus ces actions.")
                                         else:
-                                            st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !{_note_frais_c}")
-                                        st.rerun()
+                                            _frais_c_tot = frais_fixe_c + frais_conv_c
+                                            _note_frais_c = f" Frais : ${_frais_c_tot:,.2f}." if _frais_c_tot > 0 else ""
+                                            if devise_naturelle(tk) == "USD":
+                                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à {fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD')} effectuée ! (crédité : ${credit_net_c:,.2f} CAD){_note_frais_c}")
+                                            else:
+                                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !{_note_frais_c}")
+                                            st.rerun()
                                     else:
                                         st.error("Vous ne possédez plus ces actions.")
             else: st.info("Vous n'avez aucune position ouverte actuellement.")
