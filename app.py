@@ -149,6 +149,13 @@ def init_db():
                 );
             '''))
             session.execute(text('''
+                CREATE TABLE IF NOT EXISTS joueurs_suspendus (
+                    username TEXT PRIMARY KEY,
+                    depuis TEXT,
+                    motif TEXT
+                );
+            '''))
+            session.execute(text('''
                 CREATE TABLE IF NOT EXISTS ordres_en_attente (
                     id SERIAL PRIMARY KEY,
                     username TEXT,
@@ -2376,6 +2383,49 @@ def titre_suspendu(ticker_symbol):
         return False
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _joueurs_suspendus():
+    try:
+        r = conn.query("SELECT username FROM joueurs_suspendus", ttl=0)
+        return {str(u) for u in r['username'].tolist()}
+    except Exception:
+        return set()
+
+
+def joueur_suspendu(username):
+    """Vrai si le joueur est suspendu par l'enseignant : il peut se
+    connecter et voir son portefeuille, mais aucun bouton ne fonctionne
+    sur sa page sauf Déconnexion. Les comptes exemptés (enseignant) ne
+    sont jamais suspendus."""
+    try:
+        if compte_exempte_frais(username):
+            return False
+        return username in _joueurs_suspendus()
+    except Exception:
+        return False
+
+
+def suspendre_joueur(username):
+    if compte_exempte_frais(username):
+        return
+    with conn.session as session:
+        session.execute(text(
+            "INSERT INTO joueurs_suspendus (username, depuis) VALUES (:u, :d) "
+            "ON CONFLICT (username) DO NOTHING"),
+            {"u": username,
+             "d": datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")})
+        session.commit()
+    _joueurs_suspendus.clear()
+
+
+def lever_suspension_joueur(username):
+    with conn.session as session:
+        session.execute(text("DELETE FROM joueurs_suspendus WHERE username = :u"),
+                        {"u": username})
+        session.commit()
+    _joueurs_suspendus.clear()
+
+
 def compte_en_verification(username):
     """Vrai si le comptant du compte est illisible (NaN). Les comptes
     exemptés (enseignant) ne sont jamais bloqués par ce garde-fou."""
@@ -3430,8 +3480,9 @@ else:
         st.query_params.clear()
         st.rerun()
 
-    verifier_popup_regles(user)
-    verifier_popup_correction(user)
+    if not joueur_suspendu(user):
+        verifier_popup_regles(user)
+        verifier_popup_correction(user)
 
     cash_actuel = float(res_u.iloc[0]['cash'])
     groupe_actuel = res_u.iloc[0]['groupe']
@@ -3448,6 +3499,48 @@ else:
         st.session_state['user'] = None
         st.query_params.clear()
         st.rerun()
+
+    # --- COMPTE SUSPENDU : LECTURE SEULE ---
+    # Un joueur suspendu par l'enseignant (table joueurs_suspendus) voit
+    # son portefeuille, mais l'interface s'arrête ici : le seul bouton
+    # fonctionnel de sa page est Déconnexion, rendu juste au-dessus.
+    if joueur_suspendu(user):
+        st.markdown("""
+        <div style="background:#1A0505;border:2px solid #E50914;border-radius:12px;padding:18px 20px;margin:10px 0 16px;text-align:center;">
+          <div style="font-family:'Bebas Neue','Arial Narrow',sans-serif;font-size:34px;letter-spacing:0.12em;color:#E50914;line-height:1;">COMPTE SUSPENDU</div>
+          <div style="color:#EDEDED;font-size:15px;margin-top:8px;line-height:1.5;">Ton enseignant a suspendu ton compte temporairement. Tu peux regarder ton portefeuille, mais tu ne peux rien acheter, rien vendre et rien modifier. Si tu as des questions, parles-en à ton enseignant.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        pos_s = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u", params={"u": user}, ttl=0)
+        valeur_actions_s = 0.0
+        lignes_s = []
+        if not pos_s.empty:
+            prix_s = obtenir_prix_groupes(pos_s['ticker'].unique().tolist())
+            for _, row_s in pos_s.iterrows():
+                tk_s = str(row_s['ticker']).strip().upper()
+                info_s = prix_s.get(tk_s)
+                px_s = info_s["cad"] if info_s else None
+                px_fin_s = px_s if px_s is not None else float(row_s['avg_price'] or 0.0)
+                val_s = px_fin_s * float(row_s['shares'])
+                valeur_actions_s += val_s
+                lignes_s.append({"Titre": tk_s, "Actions": float(row_s['shares']),
+                                 "Prix moyen ($)": round(float(row_s['avg_price'] or 0.0), 4),
+                                 "Prix actuel ($)": round(px_fin_s, 4),
+                                 "Valeur ($)": round(val_s, 2)})
+        valeur_totale_s = cash_actuel + valeur_actions_s
+        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1.markdown(f"<div class='kpi-card'><div class='kpi-label'>Disponible</div><div class='kpi-value'>${cash_actuel:,.2f}</div></div>", unsafe_allow_html=True)
+        col_s2.markdown(f"<div class='kpi-card'><div class='kpi-label'>Actions</div><div class='kpi-value'>${valeur_actions_s:,.2f}</div></div>", unsafe_allow_html=True)
+        col_s3.markdown(f"<div class='kpi-card'><div class='kpi-label'>Valeur Totale</div><div class='kpi-value'>${valeur_totale_s:,.2f}</div></div>", unsafe_allow_html=True)
+        if lignes_s:
+            st.dataframe(pd.DataFrame(lignes_s), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Aucune position pour le moment.")
+        ordres_s = conn.query("SELECT ticker, montant_cad FROM ordres_en_attente WHERE username=:u AND statut='en attente' ORDER BY id", params={"u": user}, ttl=0)
+        if not ordres_s.empty:
+            st.caption("Ordres en attente (lecture seule) : " + " · ".join(
+                f"{str(o['ticker']).upper()} {float(o['montant_cad']):,.2f} $" for _, o in ordres_s.iterrows()))
+        st.stop()
 
     # Bandeaux des ordres : fragment rafraîchi aux 30 s, pour que les
     # cartes de résultat disparaissent d'elles-mêmes 2 minutes après
@@ -4524,6 +4617,33 @@ else:
                     if col_k2.button("Annuler", key="btn_krach_non", use_container_width=True):
                         st.session_state["krach_confirme"] = False
                         st.rerun()
+
+            # --- SUSPENSION D'UN JOUEUR ---
+            st.subheader("Suspension d'un joueur")
+            st.caption("Un joueur suspendu peut se connecter et voir son portefeuille, mais aucun bouton ne fonctionne sur sa page, sauf Déconnexion. La suspension dure jusqu'à ce que tu la lèves ici.")
+            try:
+                susp_df = conn.query("SELECT username, depuis FROM joueurs_suspendus ORDER BY depuis", ttl=0)
+            except Exception:
+                susp_df = pd.DataFrame(columns=["username", "depuis"])
+            susp_noms = set(susp_df['username'].tolist()) if not susp_df.empty else set()
+            if susp_noms:
+                st.markdown("**Suspendus en ce moment :** " + " · ".join(
+                    f"{r['username']} (depuis le {r['depuis']})" for _, r in susp_df.iterrows()))
+            else:
+                st.caption("Aucun joueur suspendu en ce moment.")
+            users_susp = conn.query("SELECT username, groupe FROM users ORDER BY groupe, username", ttl=0)
+            choix_susp = [u for u in users_susp['username'].tolist() if not compte_exempte_frais(u)]
+            sel_susp = st.selectbox("Joueur :", choix_susp, key="sel_suspension")
+            if sel_susp in susp_noms:
+                st.warning(f"{sel_susp} est suspendu en ce moment.")
+                if st.button("Lever la suspension", key="btn_lever_suspension", use_container_width=True):
+                    lever_suspension_joueur(sel_susp)
+                    st.success(f"Suspension levée pour {sel_susp}.")
+                    st.rerun()
+            elif st.button("Suspendre ce joueur", key="btn_suspendre", use_container_width=True):
+                suspendre_joueur(sel_susp)
+                st.success(f"{sel_susp} est suspendu. Il peut se connecter et voir son portefeuille, mais ne peut plus rien faire sauf se déconnecter.")
+                st.rerun()
 
             with st.expander("Gestion des mots de passe (Supabase)"):
                 st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
