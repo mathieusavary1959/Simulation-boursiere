@@ -1716,6 +1716,17 @@ st.markdown("""
         color: #FFFFFF;
         margin-top: 4px;
     }
+    .podium-suspendu {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 2px 12px;
+        background: #E50914;
+        color: #FFFFFF;
+        font-weight: 800;
+        font-size: 0.8rem;
+        letter-spacing: 0.14em;
+        border-radius: 4px;
+    }
     .podium-val {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
         font-size: 1.55rem;
@@ -3360,6 +3371,7 @@ def obtenir_donnees_classement(grp_filter):
     if users_df.empty:
         return pd.DataFrame()
 
+    susp_classement = _joueurs_suspendus()
     all_positions_df = conn.query("SELECT username, ticker, shares, avg_price FROM portfolio", ttl=0)
     unique_tickers = list(all_positions_df['ticker'].unique()) if not all_positions_df.empty else []
     prix_dict = obtenir_prix_groupes(unique_tickers)
@@ -3390,7 +3402,8 @@ def obtenir_donnees_classement(grp_filter):
         perf = ((tot - 10000.00) / 10000.00) * 100
         gain_jour_pct = (u_gain_jour / u_base_jour * 100) if u_base_jour > 0 else 0.0
         lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf,
-                   "GainJour": u_gain_jour, "GainJourPct": gain_jour_pct})
+                   "GainJour": u_gain_jour, "GainJourPct": gain_jour_pct,
+                   "Statut": "SUSPENDU" if u_name in susp_classement else ""})
 
     if lb:
         df_lb = pd.DataFrame(lb).sort_values(by="Portefeuille", ascending=False).reset_index(drop=True)
@@ -3398,7 +3411,7 @@ def obtenir_donnees_classement(grp_filter):
         df_lb['Rang'] = df_lb.index
         df_lb["Portefeuille"] = df_lb["Portefeuille"].map("${:,.2f}".format)
         df_lb["Performance"] = df_lb["Performance"].map("{:+.2f}%".format)
-        return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance', 'GainJour', 'GainJourPct']]
+        return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance', 'Statut', 'GainJour', 'GainJourPct']]
     return pd.DataFrame()
 
 # --- SÉCURITÉ ET PERSISTENCE PAR JETON DE SESSION ---
@@ -4579,7 +4592,8 @@ else:
                     _avatar = (f"<div class='podium-photo-wrap'>"
                                f"<div class='podium-initiales'>{initiales_de(_nom_pod)}</div>"
                                f"<span class='podium-badge'>{int(r_pod['Rang'])}</span></div>")
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div><div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
+                _susp_html = "<div><span class='podium-suspendu'>SUSPENDU</span></div>" if str(r_pod.get('Statut', '')) == 'SUSPENDU' else ""
+                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div>{_susp_html}<div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
 
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
@@ -4592,17 +4606,27 @@ else:
                     styles = ['background-color: rgba(229, 9, 20, 0.30); color: #FFFFFF; font-weight: 700;'] * len(row)
                 if search_user_rank and search_user_rank.strip() and search_user_rank.strip().lower() in str(row['Élève']).lower():
                     styles = ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
+                if str(row.get('Statut', '')) == 'SUSPENDU':
+                    styles[list(row.index).index('Statut')] = 'color: #FF5147; font-weight: 800; letter-spacing: 0.08em;'
                 return styles
 
-            styled_df = df_classement[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance']].style.apply(highlight_row, axis=1)
+            styled_df = df_classement[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance', 'Statut']].style.apply(highlight_row, axis=1)
             st.dataframe(styled_df, use_container_width=True, hide_index=True)
         else:
             st.info("Aucun élève trouvé pour ce classement.")
 
     # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
     elif tab_choisi == "Supervision Prof":
-        pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off") if user.lower() not in ['prof', 'admin'] else "1959"
-        if pin == "1959":
+        try:
+            _pin_attendu = st.secrets.get("PIN_PROF")
+        except Exception:
+            _pin_attendu = None
+        if not _pin_attendu:
+            st.warning("Supervision non configurée : le PIN enseignant n'est pas défini dans les secrets de l'application.")
+            pin = ""
+        else:
+            pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off")
+        if _pin_attendu and pin == _pin_attendu:
             # --- KRACH BOURSIER : panneau en haut de la Supervision (refonte du 3 nov. :
             # enseigne néon jaune pulsante, visible dès l'ouverture de l'onglet) ---
             st.markdown("""
@@ -4717,7 +4741,11 @@ else:
             with st.expander("Gestion des mots de passe (Supabase)"):
                 st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
                 code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase", autocomplete="off")
-                if code_supabase == "996633":
+                try:
+                    _code_attendu = st.secrets.get("CODE_SUPABASE")
+                except Exception:
+                    _code_attendu = None
+                if _code_attendu and code_supabase == _code_attendu:
                     st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
                 elif code_supabase:
                     st.error("Code incorrect.")
