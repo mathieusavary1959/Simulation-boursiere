@@ -231,6 +231,12 @@ def init_db():
                     donnees TEXT
                 );
             '''))
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS depart_etape2 (
+                    username TEXT PRIMARY KEY,
+                    montant NUMERIC NOT NULL
+                );
+            '''))
             session.commit()
         except Exception:
             session.rollback()
@@ -274,7 +280,7 @@ def journaliser_connexion(nom_utilisateur, evenement):
     except Exception:
         pass
 
-# --- KRACH BOURSIER (12 novembre 2026) : reset complet + page du journal ---
+# --- KRACH BOURSIER (16 novembre 2026) : reset complet + page du journal ---
 KRACH_EXEMPT_UTILISATEUR = "MathieuSavary"
 KRACH_EXEMPT_GROUPE = "Enseignants"
 
@@ -338,6 +344,11 @@ def executer_krach():
     expire = krach_fin_fenetre(maintenant).strftime("%Y-%m-%d %H:%M:%S")
     p = {"prof": KRACH_EXEMPT_UTILISATEUR, "grp": KRACH_EXEMPT_GROUPE}
     cond = "u.username <> :prof AND u.groupe <> :grp"
+    try:
+        df_dep = conn.query("SELECT username, montant FROM depart_etape2", ttl=0)
+        departs_speciaux = [(str(r["username"]), float(r["montant"])) for _, r in df_dep.iterrows()]
+    except Exception:
+        departs_speciaux = []
     with conn.session as s:
         requetes = {
             "users": f"SELECT u.* FROM users u WHERE {cond}",
@@ -357,6 +368,9 @@ def executer_krach():
         for table_nom in ("portfolio", "transactions", "frais", "ordres_en_attente", "avis_correction", "sessions"):
             s.execute(text(f"DELETE FROM {table_nom} WHERE username IN (SELECT username FROM users WHERE username <> :prof AND groupe <> :grp)"), p)
         s.execute(text("UPDATE users SET cash = 10000.0 WHERE username <> :prof AND groupe <> :grp"), p)
+        for nom_dep, montant_dep in departs_speciaux:
+            s.execute(text("UPDATE users SET cash = :m WHERE username = :u AND username <> :prof AND groupe <> :grp"),
+                      {"m": montant_dep, "u": nom_dep, "prof": p["prof"], "grp": p["grp"]})
         s.execute(text("UPDATE krach_etat SET actif=TRUE, declenche_le=:d, expire_le=:e WHERE id=1"),
                   {"d": maintenant.strftime("%Y-%m-%d %H:%M:%S"), "e": expire})
         s.commit()
@@ -379,7 +393,7 @@ def afficher_page_krach():
     if PAGE_KRACH_HTML:
         st.markdown(PAGE_KRACH_HTML, unsafe_allow_html=True)
     else:
-        st.markdown("## Krash boursier\nLa Bourse est fermée pour la soirée. Tout recommence vendredi 13 novembre à 0 h 00 : chaque compte repart à 10 000 $.")
+        st.markdown("## Krash boursier\nLa Bourse est fermée pour la journée. Tout recommence mardi 17 novembre à 0 h 00 : chaque compte repart à 10 000 $.")
 
 # --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
 VERSION_REGLES = 4
@@ -784,7 +798,7 @@ def appliquer_frais_gestion(username):
 # sens, car c'est l'exécution au prix gelé qui n'existe pas sur un vrai
 # marché ; un ordre passé marché fermé s'y exécute à l'ouverture. La
 # direction de Mathieu : rapprocher tranquillement la simulation de la
-# bourse réelle, surtout après le krach du 12 novembre. La mécanique
+# bourse réelle, surtout après le krach du 16 novembre. La mécanique
 # ferme la porte exploitée par les achats hors heures au prix gelé
 # (audit de timofeybussiere du 2 nov. : ULBI, INO, SLGB achetés marché
 # fermé à la clôture de la veille, revendus après le saut de l'ouverture).
@@ -4770,7 +4784,7 @@ else:
             </style>
             <div class="krach-panel">
               <div class="krach-titre">KRACH BOURSIER</div>
-              <div class="krach-sous">Zone du jeudi 12 novembre, 16 h 00. Au déclenchement : sauvegarde complète de tous les comptes, retour de chaque élève à 10 000 $, et la page du journal remplace l'interface jusqu'à minuit. Ton compte et le groupe Enseignants ne sont pas touchés.</div>
+              <div class="krach-sous">Zone du lundi 16 novembre, au matin. Au déclenchement : sauvegarde complète de tous les comptes, retour de chaque élève à 10 000 $ (sauf les départs spéciaux inscrits, à 9 000 $), et la page du journal remplace l'interface jusqu'à minuit. Ton compte et le groupe Enseignants ne sont pas touchés.</div>
             </div>
             """, unsafe_allow_html=True)
             if krach_est_actif():
