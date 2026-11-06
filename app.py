@@ -409,7 +409,7 @@ def afficher_popup_regles(username):
         "*Ton compte reste en dollars canadiens : à l'achat et à la vente, le montant est converti au taux de change du jour, et tu vois l'ajustement avant de confirmer.*\n\n"
         "**3. Ta position ne peut pas dépasser 5 % de ce qui s'échange chaque jour sur un titre.**\n"
         "*En vrai, un ordre géant fait bouger le prix.*\n\n"
-        "**4. Détention minimale : 1 h pour les actions, 24 h pour les ETF.**\n"
+        "**4. Détention minimale : 30 minutes pour les actions, 1 h pour les ETF.**\n"
         "*Acheter et revendre en 60 secondes sans réfléchir, ce n'est pas investir.*\n\n"
         "**5. Rappel : 4 titres différents minimum, 5 achats par mois.**\n"
         "*C'est une évaluation, pas juste un jeu.*\n\n"
@@ -2719,10 +2719,12 @@ def verifier_limite_volume(username, ticker_symbol, prix_unitaire_cad, cout_ordr
 
 
 # --- DELAI DE DETENTION MINIMUM AVANT REVENTE ---
-# Actions ordinaires : 1 h minimum (anti-flip de quelques secondes).
-# ETF : 24 h minimum (oblige a prendre le risque overnight, anti-faux-prophetes).
-DELAI_DETENTION_UNIVERSEL_H = 1
-DELAI_DETENTION_ETF_H = 24
+# Actions ordinaires : 30 minutes minimum (anti-flip de quelques secondes).
+# ETF : 1 h minimum.
+# (Decision de Mathieu, 6 nov. 2026 : la detention passe de 1 h / 24 h
+# a 30 minutes / 1 h des maintenant, avant l'etape 2.)
+DELAI_DETENTION_UNIVERSEL_H = 0.5
+DELAI_DETENTION_ETF_H = 1
 
 _MOTS_NOM_FONDS = ('ETF', 'FUND', 'TRUST', 'INDEX', 'FONDS', 'SHARES')
 
@@ -2752,7 +2754,7 @@ def est_etf(ticker_symbol):
 
 
 def delai_detention_requis(ticker_symbol):
-    """Delai de detention en heures : 24 h pour les ETF, 1 h sinon."""
+    """Delai de detention en heures : 1 h pour les ETF, 0,5 h sinon."""
     return DELAI_DETENTION_ETF_H if est_etf(ticker_symbol) else DELAI_DETENTION_UNIVERSEL_H
 
 
@@ -2776,8 +2778,8 @@ def vente_avant_delai_bloquee(username, ticker_symbol):
 def message_delai_detention(ticker_symbol):
     """Message d'avertissement adapte au delai du titre."""
     if est_etf(ticker_symbol):
-        return "Tu dois garder ce titre au moins 24 h avant de le revendre (ETF)."
-    return "Tu dois garder ce titre au moins 1 h avant de le revendre."
+        return "Tu dois garder ce titre au moins 1 h avant de le revendre (ETF)."
+    return "Tu dois garder ce titre au moins 30 minutes avant de le revendre."
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -4114,9 +4116,9 @@ else:
                 if vol_jour_cap and LIMITE_VOLUME_PCT * vol_jour_cap < 1000000:
                     st.caption(f"Position maximale sur {selected_ticker.upper()} : {LIMITE_VOLUME_PCT * vol_jour_cap:,.0f} $")
                 if est_etf(selected_ticker):
-                    st.caption("Revente possible 24 h après l'achat (ETF).")
+                    st.caption("Revente possible 1 h après l'achat (ETF).")
                 else:
-                    st.caption("Revente possible 1 h après l'achat.")
+                    st.caption("Revente possible 30 minutes après l'achat.")
 
                 if achat_penny_stock_bloque(selected_ticker):
                     st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
