@@ -2611,15 +2611,25 @@ def prix_incoherent(ticker_symbol, prix_execution_cad):
 
 @st.cache_data(ttl=10, show_spinner=False)
 def obtenir_prix_actuel(ticker_symbol):
-    """Prix d'exécution d'un ordre. Yahoo d'abord ; si Yahoo ne répond
-    pas depuis le nuage, repli sur le relais de prix (sonde multi-sources),
-    pour qu'un hoquet de Yahoo ne bloque plus les achats et les ventes."""
+    """Prix d'exécution d'un ordre. Le relais d'abord quand sa ligne
+    est fraîche ; Yahoo ensuite ; le relais en dernier repli.
+    Avant le 6 nov. 2026, Yahoo passait en premier et le relais ne
+    servait que si Yahoo se taisait : or Yahoo, depuis les serveurs
+    partagés de Streamlit, ressert parfois la même valeur périmée
+    pendant des dizaines de minutes, et les ordres s'exécutaient à
+    ce prix-là (vu sur KRMN pendant que le relais était à jour)."""
     if not _marche_ouvert():
         # Fail closed : hors heures, seul le prix figé écrit peut
         # exécuter un ordre. Sans prix figé, None (la transaction est
         # refusée par l'appelant), jamais le prix en direct qui
         # continue de bouger en après-séance.
         return _prix_gele_ou_none(ticker_symbol)
+    lignes_fraiches = _relais_lire_prix([ticker_symbol])
+    ligne_f = lignes_fraiches.get(str(ticker_symbol).strip().upper())
+    if _ligne_relais_fraiche(ligne_f):
+        entree_f = _entree_depuis_ligne_relais(ligne_f, ticker_symbol)
+        if entree_f is not None and entree_f.get("cad") is not None:
+            return entree_f["cad"]
     try:
         t = yf.Ticker(ticker_symbol)
         data = t.fast_info
@@ -3018,7 +3028,7 @@ def _relais_lire_prix(tickers):
         params = {f"t{i}": t for i, t in enumerate(propres)}
         df = conn.query(
             "SELECT ticker, prix_natif, prev_natif, ouverture, haut, bas, "
-            f"haut52, bas52, devise FROM prix_relais WHERE ticker IN ({marques})",
+            f"haut52, bas52, devise, maj FROM prix_relais WHERE ticker IN ({marques})",
             params=params, ttl=0)
         return {str(r['ticker']).upper(): r for _, r in df.iterrows()}
     except Exception:
@@ -3048,6 +3058,25 @@ def _entree_depuis_relais(ticker_symbol):
     lignes = _relais_lire_prix([ticker_symbol])
     return _entree_depuis_ligne_relais(
         lignes.get(str(ticker_symbol).strip().upper()), ticker_symbol)
+
+
+
+def _ligne_relais_fraiche(ligne, max_age_s=900):
+    """Vrai si la ligne du relais a été écrite il y a moins de
+    max_age_s secondes. Le champ maj arrive en ISO (avec ou sans T,
+    avec fuseau) en heure de Toronto ; on compare en heure locale
+    naïve. Le cycle rapide de la sonde écrit aux 3 minutes environ :
+    900 s couvre plusieurs cycles manqués avant de déclarer la
+    ligne périmée."""
+    if ligne is None:
+        return False
+    try:
+        brut = str(ligne['maj']).replace('T', ' ')[:19]
+        maj = datetime.strptime(brut, "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return False
+    maintenant = datetime.now(ZoneInfo("America/Toronto")).replace(tzinfo=None)
+    return 0 <= (maintenant - maj).total_seconds() <= max_age_s
 
 
 def _prix_depuis_historique(ticker_symbol):
@@ -3092,12 +3121,40 @@ def obtenir_prix_groupes(tickers_list):
     clean_tickers = list(set([str(t).strip().upper() for t in tickers_list if t and str(t).strip()]))
     if not clean_tickers:
         return {}
+    # Le relais d'abord (correctif du 6 nov. 2026) : la sonde écrit
+    # les prix aux 3 minutes environ depuis une adresse non limitée,
+    # alors que Yahoo, interrogé directement depuis les serveurs
+    # partagés de Streamlit, ressert parfois la même valeur périmée
+    # pendant des dizaines de minutes (vu sur KRMN : 42,06 $ affichés
+    # refresh après refresh pendant que le vrai prix était 43,24 $
+    # et le relais à 42,90 $). Un titre dont la ligne du relais est
+    # fraîche (15 minutes ou moins en séance) est servi par le
+    # relais ; les autres suivent la voie habituelle. Hors séance,
+    # la ligne du relais vaut le dernier prix connu et le gel
+    # ci-dessous corrige l'affichage.
+    prix_dict = {}
+    restants = list(clean_tickers)
     try:
-        data = yf.Tickers(" ".join(clean_tickers))
+        lignes_relais = _relais_lire_prix(clean_tickers)
+        ouvert_r = _marche_ouvert()
+        for tk in clean_tickers:
+            ligne = lignes_relais.get(tk)
+            if ligne is None:
+                continue
+            if ouvert_r and not _ligne_relais_fraiche(ligne):
+                continue
+            entree_r = _entree_depuis_ligne_relais(ligne, tk)
+            if entree_r is not None and entree_r.get("cad") is not None:
+                prix_dict[tk] = entree_r
+                _memo_derniers_prix()[tk] = dict(entree_r)
+        restants = [tk for tk in clean_tickers if tk not in prix_dict]
+    except Exception:
+        restants = list(clean_tickers)
+    try:
+        data = yf.Tickers(" ".join(restants)) if restants else None
     except Exception:
         data = None
-    prix_dict = {}
-    for tk in clean_tickers:
+    for tk in restants:
         entree = None
         if data is not None:
             try:
