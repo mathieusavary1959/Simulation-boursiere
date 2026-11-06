@@ -588,6 +588,22 @@ def compte_exempte_frais(username):
     return False
 
 
+def est_compte_enseignant(username):
+    """Vrai pour les comptes du groupe Enseignants (et MathieuSavary).
+    La Supervision n'existe que pour ces comptes : les autres ne voient
+    même pas l'onglet (demande de Mathieu, 6 nov. 2026)."""
+    if username == "MathieuSavary":
+        return True
+    try:
+        r = conn.query("SELECT groupe FROM users WHERE username=:u",
+                       params={"u": username}, ttl=300)
+        if not r.empty:
+            return "enseignant" in str(r.iloc[0]['groupe'] or "").strip().lower()
+    except Exception:
+        pass
+    return False
+
+
 # Plafond d'achats par jour (décision de Mathieu, 29 oct. 2026) : après
 # LIMITE_ACHATS_JOUR achats dans la même journée civile (heure de
 # Toronto, de minuit à minuit), les achats sont en pause jusqu'au
@@ -3770,7 +3786,11 @@ else:
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # --- NAVIGATION ET PERSISTENCE D'ONGLET (POUR F5) ---
-    TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement", "Supervision Prof"]
+    TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement"]
+    if est_compte_enseignant(user):
+        TABS_LIST.append("Supervision Prof")
+    if st.session_state.get("main_nav_radio") not in TABS_LIST:
+        st.session_state.pop("main_nav_radio", None)
     default_tab = st.query_params.get("tab", "Marché & Analyse")
     if default_tab not in TABS_LIST:
         default_tab = "Marché & Analyse"
@@ -4720,6 +4740,8 @@ else:
 
     # --- ONGLET 5 : SUPERVISION PROFESSEUR ---
     elif tab_choisi == "Supervision Prof":
+        if not est_compte_enseignant(user):
+            st.stop()
         try:
             _pin_attendu = st.secrets.get("PIN_PROF")
         except Exception:
