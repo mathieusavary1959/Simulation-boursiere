@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import requests
 import uuid
+import html
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
@@ -168,9 +169,20 @@ def init_db():
                     prix_execution DOUBLE PRECISION,
                     shares INT,
                     execute_le TEXT,
-                    note TEXT
+                    note TEXT,
+                    sens TEXT DEFAULT 'ACHAT',
+                    parts INT,
+                    avg_reserve DOUBLE PRECISION
                 );
             '''))
+            # Étape 2 (6 nov. 2026) : les ordres portent aussi les VENTES
+            # en attente (sens, parts réservées, prix moyen à restaurer
+            # si l'ordre est annulé). Colonnes ajoutées à la table
+            # existante ; les ordres d'achat déjà là gardent sens NULL,
+            # lu comme ACHAT partout.
+            session.execute(text("ALTER TABLE ordres_en_attente ADD COLUMN IF NOT EXISTS sens TEXT DEFAULT 'ACHAT'"))
+            session.execute(text("ALTER TABLE ordres_en_attente ADD COLUMN IF NOT EXISTS parts INT"))
+            session.execute(text("ALTER TABLE ordres_en_attente ADD COLUMN IF NOT EXISTS avg_reserve DOUBLE PRECISION"))
             session.execute(text('''
                 CREATE TABLE IF NOT EXISTS photos (
                     username TEXT PRIMARY KEY,
@@ -396,41 +408,42 @@ def afficher_page_krach():
         st.markdown("## Krash boursier\nLa Bourse est fermée pour la journée. Tout recommence mardi 17 novembre à 0 h 00 : chaque compte repart à 10 000 $.")
 
 # --- FENETRE OBLIGATOIRE DES REGLES DU JEU (1 seule fois par version) ---
-VERSION_REGLES = 4
+VERSION_REGLES = 5
 
-@st.dialog("Nouvelles règles du jeu")
+@st.dialog("Étape 2 : les règles du jeu")
 def afficher_popup_regles(username):
     st.markdown(
         "**Lis ça une fois. Après, tu ne pourras plus dire que tu ne savais pas.**\n\n"
-        "**1. 3 bourses seulement : Toronto, New York et Nasdaq.**\n"
-        "Fini les cryptos, les devises, les paris sur la peur. "
-        "*En vrai, on ne trade pas le franc suisse à l'école. On joue à la vraie bourse.*\n\n"
-        "**2. Les prix sont affichés dans la devise du titre (ex. $ US pour Apple), comme sur les vrais sites.**\n"
-        "*Ton compte reste en dollars canadiens : à l'achat et à la vente, le montant est converti au taux de change du jour, et tu vois l'ajustement avant de confirmer.*\n\n"
-        "**3. Ta position ne peut pas dépasser 5 % de ce qui s'échange chaque jour sur un titre.**\n"
-        "*En vrai, un ordre géant fait bouger le prix.*\n\n"
-        "**4. Détention minimale : 30 minutes pour les actions, 1 h pour les ETF.**\n"
-        "*Acheter et revendre en 60 secondes sans réfléchir, ce n'est pas investir.*\n\n"
-        "**5. Rappel : 4 titres différents minimum, 5 achats par mois.**\n"
-        "*C'est une évaluation, pas juste un jeu.*\n\n"
-        "**6. Les points perdus aux vérifications ne reviennent pas.**\n"
-        "*Tu connais les règles : c'est un risque que tu prends.*\n\n"
-        "---\n\n"
-        "**NOUVEAUTÉ : ON PASSE EN MODE « VRAIE BOURSE »**\n\n"
-        "Tu sais maintenant acheter, vendre et suivre un titre. La base est solide. "
-        "À partir de maintenant, on joue un peu plus comme les vrais joueurs. "
-        "Dans la vraie vie, investir coûte quelque chose et les marchés ont des règles de sécurité.\n\n"
-        "**7. Frais de transaction : 10 $ par achat et 10 $ par vente.**\n"
-        "*Chaque fois que tu achètes ou que tu vends, ton courtier garde 10 $. Réfléchis avant de cliquer : les petits achats impulsifs vont te coûter cher.*\n\n"
-        "**8. Frais de conversion : 1,5 % sur les titres américains.**\n"
-        "*Quand tu achètes ou vends un titre des États-Unis, changer tes dollars canadiens en dollars américains coûte 1,5 % du montant. C'est le frais caché que les vraies institutions prennent sur l'échange de devises.*\n\n"
-        "**9. Frais de gestion : 0,5 % par mois.**\n"
-        "*Le 1er de chaque mois, à compter du 1er novembre, des frais de gestion de 0,5 % de la valeur totale de ton compte sont prélevés. C'est ce que les vraies institutions chargent pour s'occuper de ton argent. Ton argent doit travailler plus fort que les frais.*\n\n"
-        "**10. Maximum 25 % sur un seul titre.**\n"
-        "*Quand tu achètes, tu ne peux pas mettre plus de 25 % de la valeur de ton compte sur une seule entreprise. Aucun vrai conseiller ne te laisserait miser la moitié de ton argent sur un seul titre.*\n\n"
-        "**11. Coupe-circuit sur les titres en feu.**\n"
-        "*Si un titre monte ou descend de plus de 30 % dans la même journée, les achats de ce titre sont suspendus jusqu'au prochain jour de bourse. Tu peux toujours vendre. Les vrais marchés font exactement ça pour calmer le jeu quand tout le monde s'emballe en même temps.*\n\n"
-        "**Et ce n'est pas fini : d'autres changements s'ajouteront en cours de route. Le but : que la simulation ressemble de plus en plus à la vraie bourse. Ceux qui s'adaptent vont bien s'en sortir.**"
+        "**ÉTAPE 2 : ON REPART À ZÉRO**\n\n"
+        "Tous les comptes repartent à 10 000 $. Voici les règles complètes de l'étape 2. "
+        "Elles sont annoncées dès le départ et elles ne changeront pas en cours de route : "
+        "pas de surprise, pas de nouvelle règle en plein milieu de l'étape.\n\n"
+        "**LES BALISES DU MARCHÉ**\n"
+        "1. Le marché ouvre à 9 h 30 et ferme à 16 h ; en dehors, on prépare des ordres, on ne transige pas.\n"
+        "2. Un ordre préparé à l'avance s'exécute à l'ouverture, au prix d'ouverture, le même pour tout le monde.\n"
+        "3. Chaque achat vaut entre 2 % et 25 % de ton compte.\n"
+        "4. Maximum 5 achats par jour. Le marché sera encore là demain.\n"
+        "5. Un titre acheté se garde au moins 30 minutes, 1 h pour un fonds (ETF).\n"
+        "6. Si un titre bouge de plus de 30 % dans une journée, ses achats s'arrêtent jusqu'au lendemain.\n"
+        "7. Vrais frais : 10 $, conversion sur les titres américains, 0,5 % de gestion le 1er du mois.\n"
+        "8. Ce qui est inscrit est final. Un bogue n'est pas un gain.\n\n"
+        "Et voici le détail, point par point :\n\n"
+        "**1. La bourse a des heures : 9 h 30 à 16 h.**\n"
+        "Les transactions se font pendant la séance seulement. En dehors des heures, tu peux placer un ordre, pour un achat comme pour une vente : il s'exécute à l'ouverture de la prochaine séance, au prix d'ouverture. Tu peux annuler un ordre tant qu'il est en attente. "
+        "*En vrai, personne n'achète une action à 21 h au prix de la fermeture de 16 h.*\n\n"
+        "**2. Détention minimale : 30 minutes pour une action, 1 h pour un ETF.**\n"
+        "*Acheter et revendre deux minutes plus tard sans réfléchir, ce n'est pas investir.*\n\n"
+        "**3. Chaque achat vaut entre 2 % et 25 % de la valeur de ton compte.**\n"
+        "*Fini les positions décorations achetées avec de la petite monnaie pour cocher une case, et aucun vrai conseiller ne te laisserait miser plus du quart de ton argent sur une seule entreprise.*\n\n"
+        "**4. Maximum 5 achats par jour. Les ventes restent toujours libres.**\n"
+        "*Le marché sera encore là demain, il ne part pas sans toi.*\n\n"
+        "**5. Les frais : 10 $ par achat et par vente, 1,5 % de conversion sur les titres américains, 0,5 % de frais de gestion le 1er de chaque mois.**\n"
+        "*Investir coûte quelque chose. Ton argent doit travailler plus fort que les frais.*\n\n"
+        "**6. Coupe-circuit : si un titre monte ou descend de plus de 30 % dans une journée, ses achats sont suspendus jusqu'au prochain jour de bourse. Tu peux toujours vendre.**\n"
+        "*Les vrais marchés font exactement ça pour calmer le jeu.*\n\n"
+        "**7. Ta position sur un titre ne peut pas dépasser 5 % de ce qui s'échange chaque jour sur ce titre. Et seulement 3 bourses : Toronto, New York et Nasdaq.**\n\n"
+        "**8. Toujours en vigueur : 4 titres différents minimum, 5 achats par mois. Les points perdus aux vérifications ne reviennent pas.**\n"
+        "*C'est une évaluation, pas juste un jeu.*"
     )
     lu = st.checkbox("J'ai lu et je comprends ces règles.")
     if st.button("Fermer", disabled=not lu, use_container_width=True):
@@ -445,7 +458,17 @@ def afficher_popup_regles(username):
 
 
 def verifier_popup_regles(username):
-    """Affiche la fenêtre des règles tant que l'élève n'a pas vu la version en cours."""
+    """Affiche la fenêtre des règles tant que l'élève n'a pas vu la version en cours.
+
+    GARDE-FOU (6 nov. 2026) : la fenêtre de l'étape 2 annonce le retour
+    à 10 000 $. Avant le jour du krach (16 novembre 2026), seuls les
+    comptes enseignants peuvent la voir : la surprise reste entière
+    même si le paquet étape 2 est déployé plus tôt, pour un essai ou
+    par erreur."""
+    if not est_compte_enseignant(username):
+        from datetime import date as _date_garde
+        if datetime.now(ZoneInfo("America/Toronto")).date() < _date_garde(2026, 11, 16):
+            return
     try:
         r = conn.query("SELECT version FROM regles_vues WHERE username=:u", params={"u": username}, ttl=0)
         if r.empty or int(r.iloc[0]['version']) < VERSION_REGLES:
@@ -571,6 +594,13 @@ FRAIS_CONVERSION_PCT = 0.015
 FRAIS_GESTION_PCT = 0.005
 FRAIS_GESTION_DEBUT = (2026, 11)  # (année, mois) du premier prélèvement
 PLAFOND_TITRE_PCT = 25.0
+# Plancher d'achat de l'étape 2 (décision de Mathieu, 6 nov. 2026) :
+# chaque achat vaut au moins 2 % de la valeur du compte, le symétrique
+# du plafond de 25 %. Il tue les positions décorations (une action
+# pour cocher « 4 titres ») sans empêcher les achats en tranches.
+# Vérifié à la création de l'achat ou de l'ordre seulement, jamais à
+# l'exécution : une position qui rapetisse ensuite n'est pas punie.
+PLANCHER_TITRE_PCT = 2.0
 COUPE_CIRCUIT_PCT = 30.0
 
 
@@ -604,13 +634,14 @@ def est_compte_enseignant(username):
     return False
 
 
-# Plafond d'achats par jour (décision de Mathieu, 29 oct. 2026) : après
+# Plafond d'achats par jour (décision de Mathieu, 29 oct. 2026 ; porté
+# à 5 et annoncé dans les règles à l'étape 2, décision du 6 nov. 2026) : après
 # LIMITE_ACHATS_JOUR achats dans la même journée civile (heure de
 # Toronto, de minuit à minuit), les achats sont en pause jusqu'au
 # lendemain ; les ventes restent toujours libres. Rien n'est annoncé
 # d'avance : le message n'apparaît qu'au moment où l'élève atteint la
 # limite, l'effet de surprise fait partie du dispositif.
-LIMITE_ACHATS_JOUR = 4
+LIMITE_ACHATS_JOUR = 5
 
 
 def achats_du_jour(username):
@@ -638,47 +669,16 @@ def plafond_achats_atteint(username):
     return achats_du_jour(username) >= LIMITE_ACHATS_JOUR
 
 
-# Plafond caché par achat hors heures (décision de Mathieu, 30 oct.
-# 2026) : en dehors de la séance régulière (lun-ven, 9 h 30 à 16 h,
-# heure de Toronto), un achat ne peut pas dépasser
-# LIMITE_ACHAT_HORS_HEURES en dollars canadiens. La grande fenêtre au
-# prix gelé (16 h à 9 h 30) servait à placer de très gros paris sur
-# l'après-séance la veille pour le lendemain (vu le 29 oct. : trois
-# achats d'environ 16 000 $ entre 16 h 28 et 16 h 31). Le plafond
-# s'applique le soir ET le matin avant l'ouverture, donc la même
-# règle couvre les deux bouts de la fenêtre. Rien n'est annoncé
-# d'avance et aucun message en fenêtre ne s'ajoute : au dépassement,
-# une seule ligne de refus dans le panneau d'ordre. Les ventes
-# restent toujours libres et les achats en séance ne changent pas.
-# Comptes exemptés : enseignant, comme les frais et le plafond
-# d'achats par jour. Avec la limite de 4 achats par jour, le maximum
-# déployable hors heures est de 2 000 $ par journée civile.
-LIMITE_ACHAT_HORS_HEURES = 500.00
-
-
-def achat_hors_heures_bloque(username, montant_cad, moment=None):
-    """Vrai si cet achat dépasse le plafond hors heures. moment est
-    injectable pour les tests ; par défaut, l'heure de Toronto."""
-    if compte_exempte_frais(username):
-        return False
-    if moment is None:
-        moment = datetime.now(ZoneInfo("America/Toronto"))
-    if moment.weekday() < 5:
-        minutes = moment.hour * 60 + moment.minute
-        if 9 * 60 + 30 <= minutes < 16 * 60:
-            return False
-    try:
-        montant = float(montant_cad)
-    except (TypeError, ValueError):
-        return True
-    if montant != montant:  # NaN : montant illisible, on refuse.
-        return True
-    return montant > LIMITE_ACHAT_HORS_HEURES
+# Plafond caché de 500 $ par achat hors heures (30 oct. 2026) RETIRÉ
+# à l'étape 2 (décision de Mathieu, 6 nov. 2026) : hors heures, il
+# n'y a plus aucune transaction immédiate, seulement des ordres en
+# attente exécutés à l'ouverture, et le plancher d'achat de 2 % de la
+# valeur du compte remplace le plafond comme garde-fou anti-excès.
 
 
 @st.dialog("Prends une pause de la bourse !")
 def dialogue_pause_bourse():
-    st.write("4 achats dans la même journée, c'est suffisant ;) "
+    st.write("5 achats dans la même journée, c'est suffisant ;) "
              "Rassure-toi : le marché sera encore là demain, il ne "
              "part pas sans toi.")
     st.write("Les bons investisseurs choisissent leurs moments au "
@@ -745,6 +745,19 @@ def part_titre_apres_achat(username, ticker_symbol, prix_unitaire_cad, quantite)
                    params={"u": username, "t": ticker_symbol}, ttl=0)
     sh = int(p.iloc[0]['shares']) if not p.empty else 0
     return (sh + quantite) * prix_unitaire_cad / total * 100.0
+
+
+def plancher_achat_minimum(username):
+    """Montant minimum d'un achat : PLANCHER_TITRE_PCT % de la valeur
+    totale du compte. None si la valeur est illisible (dans ce cas,
+    on ne bloque pas sur une donnée qu'on ne peut pas vérifier)."""
+    try:
+        _, _, total = valeur_totale_compte(username)
+    except Exception:
+        return None
+    if not total or float(total) <= 0:
+        return None
+    return round(float(total) * PLANCHER_TITRE_PCT / 100.0, 2)
 
 
 def coupe_circuit_actif(ticker_symbol):
@@ -910,7 +923,7 @@ def ordres_en_attente_pour(username):
     """Ordres en attente du compte, du plus récent au plus ancien."""
     try:
         return conn.query(
-            "SELECT id, ticker, montant_cad, devise, place_le, session_execution "
+            "SELECT id, ticker, montant_cad, devise, place_le, session_execution, sens, parts "
             "FROM ordres_en_attente WHERE username=:u AND statut='en_attente' "
             "ORDER BY id DESC",
             params={"u": username}, ttl=0)
@@ -938,12 +951,11 @@ def achat_hors_heures_deja_fait(username, ticker_symbol, nouvelle_session):
     """Vrai si le compte a déjà fait son achat hors heures de ce titre
     aujourd'hui (règle « un achat par entreprise par jour » hors heures,
     décision de Mathieu, 2 nov. 2026 au soir, après les 4 achats
-    identiques de MERC à 499,88 $ d'Éloi Lévesque : le plafond de 500 $
-    par achat ne doit pas se contourner en répétant le même achat).
+    identiques de MERC à 499,88 $ d'Éloi Lévesque : un achat hors
+    heures ne doit pas se fractionner en répétant le même titre).
     Un ordre annulé par l'élève avant l'ouverture ne compte pas : il
     n'a jamais été un achat. Les comptes exemptés ne sont pas touchés.
-    Rien n'est annoncé d'avance ; le refus paraît en une ligne dans le
-    panneau d'ordre, comme le plafond de 500 $."""
+    Le refus paraît en une ligne dans le panneau d'ordre."""
     if compte_exempte_frais(username):
         return False
     auj = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
@@ -1010,9 +1022,51 @@ def _regler_ordre_annule(session, ordre, statut, note):
         {"st": statut, "n": note, "e": regle_le, "i": int(ordre['id'])})
 
 
+def _regler_ordre_vente_annule(session, ordre, statut, note):
+    """Remet les parts réservées d'un ordre de vente dans le
+    portefeuille et marque l'ordre réglé. Le prix moyen est refondu
+    au prorata si la position existe encore (des achats ont pu
+    s'ajouter entre-temps) ; sinon, la ligne est recréée avec le
+    prix moyen gardé dans l'ordre. execute_le reçoit le moment du
+    règlement : c'est lui qui fait partir le délai d'affichage de
+    2 minutes de la carte de résultat."""
+    regle_le = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+    username_o = ordre['username']
+    ticker_o = str(ordre['ticker']).upper()
+    try:
+        parts_o = int(ordre['parts'] or 0)
+    except (TypeError, ValueError):
+        parts_o = 0
+    avg_o = ordre['avg_reserve']
+    try:
+        avg_o = float(avg_o) if avg_o is not None and not pd.isna(avg_o) else None
+    except (TypeError, ValueError):
+        avg_o = None
+    if parts_o > 0:
+        p_row = session.execute(text("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                                {"u": username_o, "t": ticker_o}).fetchone()
+        if p_row is not None:
+            anc_s, anc_p = int(p_row[0]), float(p_row[1] or 0.0)
+            base_p = avg_o if avg_o is not None else anc_p
+            n_s = anc_s + parts_o
+            n_p = ((anc_s * anc_p) + (parts_o * base_p)) / n_s
+            session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                            {"s": n_s, "p": n_p, "u": username_o, "t": ticker_o})
+        else:
+            session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"),
+                            {"u": username_o, "t": ticker_o, "s": parts_o,
+                             "p": avg_o if avg_o is not None else 0.0})
+    session.execute(
+        text("UPDATE ordres_en_attente SET statut=:st, note=:n, execute_le=:e WHERE id=:i"),
+        {"st": statut, "n": note, "e": regle_le, "i": int(ordre['id'])})
+
+
 def annuler_ordre_en_attente(username, ordre_id):
-    """Annulation par l'élève : remboursement intégral du montant réservé."""
-    r = conn.query("SELECT id, username, montant_cad FROM ordres_en_attente "
+    """Annulation par l'élève avant l'ouverture. Achat : remboursement
+    intégral du montant réservé. Vente : les parts réservées
+    retournent dans le portefeuille."""
+    r = conn.query("SELECT id, username, montant_cad, ticker, sens, parts, avg_reserve "
+                   "FROM ordres_en_attente "
                    "WHERE id=:i AND username=:u AND statut='en_attente'",
                    params={"i": int(ordre_id), "u": username}, ttl=0)
     if r.empty:
@@ -1028,9 +1082,156 @@ def annuler_ordre_en_attente(username, ordre_id):
         if statut_rel != 'en_attente':
             session.rollback()
             return False
-        _regler_ordre_annule(session, r.iloc[0], "annule_eleve", "Annulé par l'élève avant l'ouverture.")
+        if str(r.iloc[0]['sens'] or 'ACHAT').upper() == 'VENTE':
+            _regler_ordre_vente_annule(session, r.iloc[0], "annule_eleve",
+                                       "Annulé par l'élève avant l'ouverture. Les actions sont de retour dans ton portefeuille.")
+        else:
+            _regler_ordre_annule(session, r.iloc[0], "annule_eleve", "Annulé par l'élève avant l'ouverture.")
         session.commit()
     return True
+
+
+def ordre_vente_en_attente_sur(username, ticker_symbol):
+    """Vrai si un ordre de VENTE est déjà en attente sur ce titre :
+    un seul ordre de vente par entreprise à la fois (les parts sont
+    réservées, un deuxième ordre n'aurait rien de propre à réserver)."""
+    try:
+        r = conn.query(
+            "SELECT COUNT(*) AS n FROM ordres_en_attente WHERE username=:u "
+            "AND LOWER(ticker)=LOWER(:t) AND statut='en_attente' AND sens='VENTE'",
+            params={"u": username, "t": ticker_symbol}, ttl=0)
+        return not r.empty and int(r.iloc[0]['n'] or 0) > 0
+    except Exception:
+        return False
+
+
+def creer_ordre_vente_en_attente(username, ticker_symbol, parts, devise, session_exec=None):
+    """Réserve les parts dans le portefeuille et inscrit l'ordre de
+    vente en attente. Les parts sortent du portefeuille dès la
+    création (même patron que l'argent réservé des achats) : elles
+    ne peuvent plus être vendues une deuxième fois ailleurs. Le
+    prix moyen d'achat est gardé dans l'ordre, pour restaurer la
+    position à l'identique si l'ordre est annulé ou échoue.
+    Parts disponibles, limite d'ordres et doublon sont REVÉRIFIÉS
+    sous le verrou, dans la transaction d'écriture. Retourne la
+    séance d'exécution, ou None si la réservation est refusée."""
+    try:
+        parts = int(parts)
+    except (TypeError, ValueError):
+        return None
+    if parts < 1:
+        return None
+    moment = datetime.now(ZoneInfo("America/Toronto"))
+    now_str = moment.strftime("%Y-%m-%d %H:%M:%S")
+    if session_exec is None:
+        session_exec = _prochaine_seance_execution(moment)
+    tk = str(ticker_symbol).upper()
+    with conn.session as session:
+        _verrou_transaction(session, username)
+        nb_att = session.execute(
+            text("SELECT COUNT(*) FROM ordres_en_attente WHERE username=:u AND statut='en_attente'"),
+            {"u": username}).scalar()
+        if int(nb_att or 0) >= LIMITE_ORDRES_EN_ATTENTE:
+            session.rollback()
+            return None
+        doublon = session.execute(
+            text("SELECT COUNT(*) FROM ordres_en_attente WHERE username=:u AND LOWER(ticker)=LOWER(:t) AND statut='en_attente' AND sens='VENTE'"),
+            {"u": username, "t": tk}).scalar()
+        if int(doublon or 0) > 0:
+            session.rollback()
+            return None
+        p_row = session.execute(text("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                                {"u": username, "t": tk}).fetchone()
+        if p_row is None or int(p_row[0]) < parts:
+            session.rollback()
+            return None
+        anc_s, anc_p = int(p_row[0]), float(p_row[1] or 0.0)
+        rem = anc_s - parts
+        if rem > 0:
+            session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                            {"s": rem, "u": username, "t": tk})
+        else:
+            session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
+                            {"u": username, "t": tk})
+        session.execute(
+            text("INSERT INTO ordres_en_attente (username, ticker, montant_cad, devise, "
+                 "place_le, session_execution, statut, sens, parts, avg_reserve) "
+                 "VALUES (:u, :t, 0, :d, :p, :s, 'en_attente', 'VENTE', :n, :a)"),
+            {"u": username, "t": tk, "d": devise, "p": now_str, "s": session_exec,
+             "n": parts, "a": anc_p})
+        session.commit()
+    return session_exec
+
+
+def _regler_ordre_vente(username, ordre, maintenant, auj, minutes, exempte):
+    """Règle un ordre de VENTE en attente à l'ouverture de sa séance.
+    Symétrique des achats, avec les différences de la vraie bourse :
+    aucun coupe-circuit sur une vente (vendre reste toujours
+    permis), aucune limite de volume (vendre ne crée pas de
+    position) et aucun délai de détention à revérifier (entre la
+    création le soir et l'ouverture du lendemain, le délai de
+    30 minutes ou de 1 h est toujours écoulé). Si le prix
+    d'ouverture est introuvable après 4 jours, les parts sont
+    remises et l'ordre est fermé en échec."""
+    date_exec = str(ordre['session_execution'])
+    if date_exec == auj and minutes < 9 * 60 + 30:
+        return  # l'ouverture de cette séance n'a pas encore eu lieu
+    ticker_o = str(ordre['ticker']).upper()
+    try:
+        parts_o = int(ordre['parts'] or 0)
+    except (TypeError, ValueError):
+        parts_o = 0
+    devise_o = str(ordre['devise'] or devise_naturelle(ticker_o)).upper()
+    prix_ouv = _prix_ouverture_session(ticker_o, date_exec)
+    if prix_ouv is None:
+        try:
+            retard = (maintenant.date() - datetime.strptime(date_exec, "%Y-%m-%d").date()).days
+        except Exception:
+            retard = 0
+        if retard > 4:
+            with conn.session as session:
+                _regler_ordre_vente_annule(session, ordre, "echec",
+                                           "Aucun prix d'ouverture trouvé pour la séance visée. Tes actions sont de retour dans ton portefeuille.")
+                session.commit()
+        return
+    # Bouclier prix incohérent, le même que sur les transactions
+    # directes : si l'ouverture s'écarte d'un facteur 3 de la
+    # clôture de la veille, ce sont les données qui sont fausses
+    # (ou un fractionnement) ; on ne vend pas à un prix faux, les
+    # parts retournent dans le portefeuille.
+    clot_prec_v = cloture_avant_date(ticker_o, date_exec)
+    if clot_prec_v and float(clot_prec_v) > 0 and (
+            prix_ouv > 3.0 * float(clot_prec_v) or prix_ouv < float(clot_prec_v) / 3.0):
+        with conn.session as session:
+            _regler_ordre_vente_annule(session, ordre, "echec",
+                                       "Le prix d'ouverture ne concordait pas avec la clôture de la veille. Tes actions sont de retour dans ton portefeuille.")
+            session.commit()
+        return
+    if parts_o < 1:
+        with conn.session as session:
+            _regler_ordre_vente_annule(session, ordre, "echec",
+                                       "Ordre de vente sans quantité lisible. Tes actions sont de retour dans ton portefeuille.")
+            session.commit()
+        return
+    now_str = maintenant.strftime("%Y-%m-%d %H:%M:%S")
+    brut = round(parts_o * prix_ouv, 2)
+    frais_fixe_o, frais_conv_o = (0.0, 0.0) if exempte else frais_pour_ordre(devise_o, brut)
+    credit_net = round(brut - frais_fixe_o - frais_conv_o, 2)
+    with conn.session as session:
+        session.execute(text("UPDATE users SET cash = cash + :m WHERE username = :u"),
+                        {"m": credit_net, "u": username})
+        session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) "
+                             "VALUES (:u, :t, :s, :p, :tot, :time)"),
+                        {"u": username, "t": ticker_o, "s": -parts_o, "p": prix_ouv,
+                         "tot": brut, "time": now_str})
+        enregistrer_frais(session, username, "transaction", frais_fixe_o, ticker_o)
+        enregistrer_frais(session, username, "conversion", frais_conv_o, ticker_o)
+        session.execute(
+            text("UPDATE ordres_en_attente SET statut='execute', prix_execution=:p, "
+                 "shares=:s, execute_le=:e, note=:n WHERE id=:i"),
+            {"p": prix_ouv, "s": parts_o, "e": now_str,
+             "n": f"Vendu à l'ouverture du {date_exec}.", "i": int(ordre['id'])})
+        session.commit()
 
 
 def executer_ordres_en_attente(username):
@@ -1061,7 +1262,7 @@ def _executer_ordres_en_attente_sous_verrou(username):
     auj = maintenant.date().isoformat()
     minutes = maintenant.hour * 60 + maintenant.minute
     dus = conn.query(
-        "SELECT id, username, ticker, montant_cad, devise, session_execution "
+        "SELECT id, username, ticker, montant_cad, devise, session_execution, sens, parts, avg_reserve "
         "FROM ordres_en_attente WHERE username=:u AND statut='en_attente' "
         "AND session_execution <= :a ORDER BY id",
         params={"u": username, "a": auj}, ttl=0)
@@ -1069,6 +1270,9 @@ def _executer_ordres_en_attente_sous_verrou(username):
         return
     exempte = compte_exempte_frais(username)
     for _, ordre in dus.iterrows():
+        if str(ordre['sens'] or 'ACHAT').upper() == 'VENTE':
+            _regler_ordre_vente(username, ordre, maintenant, auj, minutes, exempte)
+            continue
         date_exec = str(ordre['session_execution'])
         if date_exec == auj and minutes < 9 * 60 + 30:
             continue  # l'ouverture de cette séance n'a pas encore eu lieu
@@ -1185,6 +1389,137 @@ def _ordre_regle_visible(execute_le, maintenant):
     return 0 <= ecart <= DELAI_AFFICHAGE_ORDRE_REGLE_S
 
 
+def _html_recu(d):
+    """Reçu de transaction en HTML : la confirmation d'un achat ou
+    d'une vente, d'un ordre en attente, d'une annulation ou d'un refus,
+    dans la famille visuelle des cartes du site plutôt que les messages
+    par défaut de Streamlit (demande de Mathieu, 6 nov. 2026).
+    d : genre, titre, sous, lignes [(libellé, montant)], total
+    (libellé, montant) ou None, pied. Fonction pure, testable."""
+    import html as _h
+    genre = str(d.get("genre") or "")
+    classe = "recu"
+    if genre in ("ordre", "refus", "annulation"):
+        classe += " " + genre
+    morceaux = [f"<div class='{classe}'>"]
+    morceaux.append(f"<div class='recu-titre'>{_h.escape(str(d.get('titre') or ''))}</div>")
+    if d.get("sous"):
+        morceaux.append(f"<div class='recu-sous'>{_h.escape(str(d['sous']))}</div>")
+    lignes = d.get("lignes") or []
+    total = d.get("total")
+    if lignes or total:
+        morceaux.append("<table class='recu-lignes'>")
+        for lib, mont in lignes:
+            morceaux.append(f"<tr><td>{_h.escape(str(lib))}</td><td class='m'>{_h.escape(str(mont))}</td></tr>")
+        if total:
+            morceaux.append(f"<tr class='total'><td>{_h.escape(str(total[0]))}</td><td class='m'>{_h.escape(str(total[1]))}</td></tr>")
+        morceaux.append("</table>")
+    if d.get("pied"):
+        morceaux.append(f"<div class='recu-pied'>{_h.escape(str(d['pied']))}</div>")
+    morceaux.append("</div>")
+    return "".join(morceaux)
+
+
+def afficher_refus(raison):
+    """Un refus d'ordre, dans la même forme éteinte que le reçu,
+    plutôt que le bloc bourgogne par défaut. La raison reste en une
+    phrase, dans le panneau, comme Mathieu l'a demandé le 30 oct."""
+    st.markdown(_html_recu({"genre": "refus", "titre": "ORDRE REFUSÉ",
+                            "sous": str(raison), "lignes": [],
+                            "total": None, "pied": ""}),
+                unsafe_allow_html=True)
+
+
+def afficher_missions(user):
+    """La carte des missions de l'étape 2 (affichage seulement). Depuis
+    la vague 2 du 6 nov. 2026, elle ne paraît que dans l'onglet Marché
+    & Analyse, plus dans le bloc global du haut de page. Lectures
+    propres à la fonction, mêmes règles qu'avant."""
+    pos_df = conn.query("SELECT ticker, shares, avg_price FROM portfolio WHERE username=:u",
+                        params={"u": user}, ttl=0)
+    mois_court = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m")
+    nb_titres = int(pos_df['ticker'].nunique()) if not pos_df.empty else 0
+    ach_mois_q = conn.query(
+        "SELECT COUNT(*) AS n FROM transactions WHERE username=:u AND shares > 0 AND timestamp LIKE :m",
+        params={"u": user, "m": mois_court + "%"}, ttl=0)
+    nb_achats_mois = int(ach_mois_q.iloc[0]['n']) if not ach_mois_q.empty else 0
+    regle_titres_ok = nb_titres >= 4
+    regle_achats_ok = nb_achats_mois >= 5
+    prix_dict = {}
+    valeur_positions = 0.0
+    if not pos_df.empty:
+        prix_dict = obtenir_prix_groupes(pos_df['ticker'].unique().tolist())
+        for _, r_v in pos_df.iterrows():
+            _i_v = prix_dict.get(str(r_v['ticker']).strip().upper())
+            _px_v = _i_v["cad"] if _i_v and _i_v.get("cad") is not None else float(r_v['avg_price'] or 0.0)
+            valeur_positions += _px_v * float(r_v['shares'])
+    cash_q = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
+    cash_val = float(cash_q.iloc[0]['cash']) if not cash_q.empty else 0.0
+    valeur_totale = cash_val + valeur_positions
+    nb_pos_conformes = 0
+    nb_pos_trop_petites = 0
+    nb_pos_trop_grosses = 0
+    if not pos_df.empty and valeur_totale > 0:
+        for _, row_m in pos_df.iterrows():
+            tk_m = str(row_m['ticker']).strip().upper()
+            _info_m = prix_dict.get(tk_m)
+            px_m = _info_m["cad"] if _info_m else None
+            px_m = px_m if px_m is not None else float(row_m['avg_price'] or 0.0)
+            part_m = px_m * float(row_m['shares']) / valeur_totale * 100
+            if part_m < 2.0:
+                nb_pos_trop_petites += 1
+            elif part_m > 25.0:
+                nb_pos_trop_grosses += 1
+            else:
+                nb_pos_conformes += 1
+    mission_positions_ok = (nb_titres > 0 and nb_pos_trop_petites == 0)
+
+    def ligne_mission(titre, sous, valeur, cible, ok):
+        if ok:
+            coche = "<div style='width:26px;height:26px;border-radius:50%;border:2.5px solid #34D399;background:rgba(52,211,153,0.14);color:#34D399;flex:none;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;'>✓</div>"
+            droite = f"<div style='font-weight:800;font-size:15px;min-width:42px;text-align:right;'>{valeur} / {cible}</div>"
+        else:
+            coche = "<div style='width:26px;height:26px;border-radius:50%;border:2.5px solid #3D3D3D;flex:none;'></div>"
+            pct = min(100, int(valeur / cible * 100)) if cible else 0
+            droite = (f"<div style='background:#2B2B2B;border-radius:20px;height:11px;width:110px;flex:none;overflow:hidden;'>"
+                      f"<div style='height:100%;background:#E50914;width:{pct}%;'></div></div>"
+                      f"<div style='font-weight:800;font-size:15px;min-width:42px;text-align:right;'>{valeur} / {cible}</div>")
+        return (f"<div style='display:flex;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid #262626;'>"
+                f"{coche}<div style='flex:1;font-size:16px;font-weight:600;color:#FFFFFF;'>{titre}"
+                f"<small style='display:block;color:#9CA3AF;font-weight:400;font-size:13.5px;'>{sous}</small></div>{droite}</div>")
+
+    manques = []
+    if not regle_titres_ok:
+        manques.append(f"ajoute {4 - nb_titres} titre(s) différent(s)")
+    if not regle_achats_ok:
+        manques.append(f"fais {5 - nb_achats_mois} achat(s) de plus ce mois-ci")
+    if nb_pos_trop_petites:
+        manques.append("une de tes positions vaut moins de 2 % de ton compte : elle ne compte presque pas")
+    if manques:
+        pied_missions = "Pour tes missions : " + " et ".join(manques) + "."
+    elif nb_titres:
+        pied_missions = "Missions accomplies. Beau travail !"
+    else:
+        pied_missions = ""
+    if nb_pos_trop_grosses:
+        pied_missions += " Une de tes positions dépasse 25 % de ton compte. Quand un seul titre pèse aussi lourd, tout ton compte bouge avec lui : pense à répartir ton risque."
+    pos_valeur = nb_pos_conformes + nb_pos_trop_grosses
+    pos_cible = max(nb_titres, 1)
+    pos_ok = mission_positions_ok and nb_pos_trop_grosses == 0
+    carte_missions = (
+        "<div style='background:linear-gradient(180deg,#262626 0%,#1A1A1A 100%);border:1px solid rgba(255,255,255,0.12);"
+        "border-top:3px solid #E50914;border-radius:14px;padding:18px 22px 10px;margin:6px 0 14px;"
+        "box-shadow:0 16px 32px -14px rgba(0,0,0,0.9);'>"
+        "<div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.8rem;letter-spacing:0.06em;color:#FFFFFF;line-height:1;\">TES MISSIONS <span style='color:#E50914;'>ÉTAPE 2</span></div>"
+        "<div style='color:#9CA3AF;font-size:0.92rem;margin:3px 0 4px;'>Les missions montrent où tu en es. Elles ne donnent ni argent ni pouvoir.</div>"
+        + ligne_mission("Posséder 4 titres différents", "La diversification minimale, toujours en vigueur.", nb_titres, 4, regle_titres_ok)
+        + ligne_mission("Faire 5 achats ce mois-ci", "Le minimum mensuel, toujours en vigueur.", nb_achats_mois, 5, regle_achats_ok)
+        + ligne_mission("Garder chaque position entre 2 % et 25 % de ton compte", "Assez grosse pour compter, jamais assez pour tout risquer sur un seul titre.", pos_valeur, pos_cible, pos_ok)
+        + (f"<div style='color:#9CA3AF;font-size:0.88rem;padding:8px 0 4px;'>{pied_missions}</div>" if pied_missions else "")
+        + "</div>")
+    st.markdown(carte_missions, unsafe_allow_html=True)
+
+
 def afficher_ordres_en_attente(username):
     """Bloc « Mes ordres en attente », en haut de page : une carte par
     ordre, dans la famille des cartes KPI avec un accent cyan réservé
@@ -1196,7 +1531,7 @@ def afficher_ordres_en_attente(username):
     maintenant = datetime.now(ZoneInfo("America/Toronto"))
     try:
         tous_regles = conn.query(
-            "SELECT ticker, montant_cad, statut, prix_execution, shares, note, session_execution, execute_le "
+            "SELECT ticker, montant_cad, statut, prix_execution, shares, note, session_execution, execute_le, sens, parts "
             "FROM ordres_en_attente WHERE username=:u AND statut <> 'en_attente' "
             "ORDER BY id DESC",
             params={"u": username}, ttl=0)
@@ -1210,7 +1545,7 @@ def afficher_ordres_en_attente(username):
     if en_attente.empty and regles.empty:
         return
     st.markdown(
-        "<div style='color:#22D3EE;font-size:0.8rem;font-weight:800;letter-spacing:0.1em;"
+        "<div style='color:#E5E7EB;font-size:0.8rem;font-weight:800;letter-spacing:0.1em;"
         "text-transform:uppercase;margin:6px 0 8px;'>Mes ordres en attente · exécution au prix d'ouverture</div>",
         unsafe_allow_html=True)
     if not en_attente.empty:
@@ -1220,48 +1555,77 @@ def afficher_ordres_en_attente(username):
             oid = int(o['id'])
             tk = str(o['ticker']).upper()
             with cols[i]:
+                _est_vente = str(o.get('sens') or 'ACHAT').upper() == 'VENTE'
+                if _est_vente:
+                    _montant_carte = f"VENTE · {int(o['parts'] or 0)} actions réservées"
+                    _detail_carte = (f"Ordre de vente. S'exécute à l'ouverture, au prix d'ouverture<br>"
+                                     f"({_date_fr_courte(o['session_execution'])} · 9 h 30)")
+                else:
+                    _montant_carte = f"ACHAT · ${float(o['montant_cad']):,.2f} réservés"
+                    _detail_carte = (f"S'exécute à l'ouverture, au prix d'ouverture<br>"
+                                     f"({_date_fr_courte(o['session_execution'])} · 9 h 30)")
+                _classe_carte = "ordre-card vente" if _est_vente else "ordre-card"
+                _classe_badge = "ordre-badge vente" if _est_vente else "ordre-badge"
+                _lib_badge = "Vente en attente" if _est_vente else "Achat en attente"
+                _coul_btn = "245, 158, 11" if _est_vente else "34, 211, 238"
+                _coul_btn_txt = "#FBBF24" if _est_vente else "#22D3EE"
                 st.markdown(
-                    f"<div class='ordre-card'>"
+                    f"<div class='{_classe_carte}'>"
                     f"<div class='ordre-ticker'>{tk}</div>"
-                    f"<div class='ordre-montant'>${float(o['montant_cad']):,.2f} réservés</div>"
-                    f"<div class='ordre-detail'>S'exécute à l'ouverture, au prix d'ouverture<br>"
-                    f"({_date_fr_courte(o['session_execution'])} · 9 h 30)</div>"
-                    f"<span class='ordre-badge'><span class='ordre-point'></span>En attente</span>"
+                    f"<div class='ordre-montant'>{_montant_carte}</div>"
+                    f"<div class='ordre-detail'>{_detail_carte}</div>"
+                    f"<span class='{_classe_badge}'><span class='ordre-point'></span>{_lib_badge}</span>"
                     f"</div>",
                     unsafe_allow_html=True)
                 boutons_css += (
                     f'div[class~="st-key-annuler_ordre_{oid}"] button {{'
                     "background: #101418 !important;"
-                    "border: 1px solid rgba(34, 211, 238, 0.6) !important;"
+                    f"border: 1px solid rgba({_coul_btn}, 0.6) !important;"
                     "}"
                     f'div[class~="st-key-annuler_ordre_{oid}"] button p {{'
-                    "color: #22D3EE !important; font-weight: 700 !important;"
+                    f"color: {_coul_btn_txt} !important; font-weight: 700 !important;"
                     "}")
                 if st.button("Annuler l'ordre", key=f"annuler_ordre_{oid}", use_container_width=True):
                     if annuler_ordre_en_attente(username, oid):
-                        st.session_state['flash_msg'] = ("success", "Ordre annulé : le montant réservé est de retour dans ton comptant.")
+                        st.session_state['flash_msg'] = ("recu", {"genre": "annulation", "titre": "ORDRE ANNULÉ", "sous": "", "lignes": [], "total": None, "pied": "La réservation est libérée : le montant ou les actions sont de retour dans ton compte."})
                         st.rerun()
         boutons_css += "</style>"
         st.markdown(boutons_css, unsafe_allow_html=True)
     for _, o in regles.iterrows():
         tk = str(o['ticker']).upper()
+        vente_o = str(o.get('sens') or 'ACHAT').upper() == 'VENTE'
         if o['statut'] == 'execute':
+            if vente_o:
+                _montant_regle = f"{int(o['shares'])} actions vendues à ${float(o['prix_execution']):,.2f}"
+                _detail_regle = f"Vendu au prix d'ouverture du {_date_fr_courte(o['session_execution'])}"
+            else:
+                _montant_regle = f"{int(o['shares'])} actions à ${float(o['prix_execution']):,.2f}"
+                _detail_regle = (f"Acheté au prix d'ouverture du {_date_fr_courte(o['session_execution'])} "
+                                 f"(ordre de ${float(o['montant_cad']):,.2f})")
             st.markdown(
                 f"<div class='ordre-card exec'>"
                 f"<div class='ordre-ticker'>{tk}</div>"
-                f"<div class='ordre-montant'>{int(o['shares'])} actions à ${float(o['prix_execution']):,.2f}</div>"
-                f"<div class='ordre-detail'>Acheté au prix d'ouverture du {_date_fr_courte(o['session_execution'])} "
-                f"(ordre de ${float(o['montant_cad']):,.2f})</div>"
+                f"<div class='ordre-montant'>{_montant_regle}</div>"
+                f"<div class='ordre-detail'>{_detail_regle}</div>"
                 f"<span class='ordre-badge exec'>Exécuté</span>"
                 f"</div>",
                 unsafe_allow_html=True)
         else:
             libelle = "Annulé par toi" if o['statut'] == 'annule_eleve' else "Annulé"
-            note = str(o['note'] or "Montant remboursé au complet.")
+            if vente_o:
+                try:
+                    _n_parts = int(o['parts'] or 0)
+                except (TypeError, ValueError):
+                    _n_parts = 0
+                note = str(o['note'] or "Tes actions sont de retour dans ton portefeuille.")
+                _montant_regle = f"{_n_parts} actions remises dans ton portefeuille"
+            else:
+                note = str(o['note'] or "Montant remboursé au complet.")
+                _montant_regle = f"${float(o['montant_cad']):,.2f} remboursés"
             st.markdown(
                 f"<div class='ordre-card annule'>"
                 f"<div class='ordre-ticker'>{tk}</div>"
-                f"<div class='ordre-montant'>${float(o['montant_cad']):,.2f} remboursés</div>"
+                f"<div class='ordre-montant'>{_montant_regle}</div>"
                 f"<div class='ordre-detail'>{note}</div>"
                 f"<span class='ordre-badge annule'>{libelle}</span>"
                 f"</div>",
@@ -1578,6 +1942,7 @@ st.markdown("""
     /* --- CARTES ORDRES EN ATTENTE (prix d'ouverture) ---
        Même famille que les cartes KPI, accent cyan : une couleur
        réservée aux ordres en attente sur la plateforme. */
+    section[data-testid="stSidebar"] { background: #0A0A0A; border-right: 1px solid #262626; }
     .ordre-card {
         background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
         border: 1px solid rgba(34, 211, 238, 0.35);
@@ -1589,6 +1954,9 @@ st.markdown("""
         margin-bottom: 8px;
     }
     .ordre-card.exec { border-color: rgba(52, 211, 153, 0.4); border-top-color: #34D399; box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 24px -8px rgba(52, 211, 153, 0.4); }
+    .ordre-card.vente { border-color: rgba(245, 158, 11, 0.4); border-top-color: #F59E0B; box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9), 0 0 24px -8px rgba(245, 158, 11, 0.45); }
+    .ordre-card.vente .ordre-point { background: #F59E0B; animation-name: ordrePulseAmbre; }
+    @keyframes ordrePulseAmbre { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); } 50% { opacity: 0.55; box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); } }
     .ordre-card.annule { border-color: rgba(255, 255, 255, 0.14); border-top-color: #6B7280; box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9); opacity: 0.8; }
     .ordre-ticker {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
@@ -1603,9 +1971,36 @@ st.markdown("""
         background: rgba(34, 211, 238, 0.14); color: #22D3EE; border: 1px solid rgba(34, 211, 238, 0.55);
     }
     .ordre-badge.exec { background: rgba(16, 185, 129, 0.16); color: #34D399; border-color: rgba(16, 185, 129, 0.55); }
+    .ordre-badge.vente { background: rgba(245, 158, 11, 0.15); color: #FBBF24; border-color: rgba(245, 158, 11, 0.55); }
     .ordre-badge.annule { background: rgba(107, 114, 128, 0.16); color: #9CA3AF; border-color: rgba(107, 114, 128, 0.55); }
     .ordre-point { width: 8px; height: 8px; border-radius: 50%; background: #22D3EE; animation: ordrePulse 1.6s ease-in-out infinite; }
     @keyframes ordrePulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5); } 50% { opacity: 0.55; box-shadow: 0 0 0 5px rgba(34, 211, 238, 0); } }
+
+    /* Reçus de transaction : remplacent les messages par défaut
+       (vert kaki, bourgogne) à l'achat et à la vente. */
+    .recu {
+        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-top: 6px solid #E50914;
+        border-radius: 14px;
+        padding: 20px 22px 16px 22px;
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+        animation: fadeUp 0.5s ease both;
+        margin: 10px 0 14px 0;
+    }
+    .recu.ordre { border-top-color: #22D3EE; }
+    .recu.refus, .recu.annulation { border-top-color: #6B7280; }
+    .recu-titre {
+        font-family: 'Bebas Neue', 'Work Sans', sans-serif;
+        font-size: 2.2rem; line-height: 1; color: #FFFFFF; letter-spacing: 0.05em;
+    }
+    .recu.refus .recu-titre, .recu.annulation .recu-titre { color: #D1D5DB; }
+    .recu-sous { color: #D1D5DB; font-size: 0.98rem; font-weight: 700; margin-top: 3px; }
+    .recu-lignes { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .recu-lignes td { padding: 3px 0; color: #E5E7EB; font-size: 0.97rem; }
+    .recu-lignes td.m { text-align: right; font-weight: 700; color: #FFFFFF; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 16px; }
+    .recu-lignes tr.total td { border-top: 1px solid rgba(255, 255, 255, 0.28); padding-top: 7px; font-weight: 800; color: #FFFFFF; }
+    .recu-pied { color: #9CA3AF; font-size: 0.88rem; margin-top: 8px; line-height: 1.45; }
 
     /* Cartes de vente rapide */
     div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -1753,6 +2148,36 @@ st.markdown("""
     }
 
     /* --- PODIUM DU CLASSEMENT --- */
+    .pos-carte {
+        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-top: 3px solid #E50914;
+        border-radius: 14px;
+        padding: 14px 16px 12px;
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+        flex: 1 1 280px;
+        max-width: 430px;
+        animation: fadeUp 0.5s ease both;
+    }
+    .pos-sym { font-family: 'Bebas Neue', 'Work Sans', sans-serif; font-size: 1.75rem; line-height: 1; color: #FFFFFF; letter-spacing: 0.04em; }
+    .pos-val { font-size: 1.08rem; font-weight: 800; color: #FFFFFF; font-variant-numeric: tabular-nums; }
+    .pos-detail { color: #9CA3AF; font-size: 0.88rem; margin-top: 5px; line-height: 1.5; }
+    .pos-detail b { color: #E5E7EB; }
+    .pos-gain { font-size: 1rem; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .meneur-card {
+        border: 1px solid rgba(255, 215, 0, 0.35);
+        border-top: 3px solid #FFD700;
+        border-radius: 14px;
+        padding: 12px 18px;
+        margin: 2px 0 12px 0;
+        background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
+        box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+        animation: fadeUp 0.5s ease both;
+    }
+    .meneur-titre { color: #FFD700; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+    .meneur-nom { font-family: 'Bebas Neue', 'Work Sans', sans-serif; font-size: 1.9rem; line-height: 1.05; color: #FFFFFF; letter-spacing: 0.04em; margin-top: 2px; }
+    .meneur-val { color: #34D399; font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .meneur-detail { color: #9CA3AF; font-size: 0.85rem; margin-top: 3px; line-height: 1.45; }
     .podium-card {
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-top: 4px solid #FFFFFF;
@@ -2244,6 +2669,134 @@ def _marche_ouvert():
     return 9 * 60 + 30 <= minutes < 16 * 60
 
 
+def _prochaine_ouverture(moment):
+    """Prochaine ouverture de séance (lun-ven, 9 h 30, heure de
+    Toronto) strictement après le moment donné. Fonction pure,
+    testable. Les jours fériés ne sont pas déduits, comme partout
+    ailleurs dans l'application."""
+    candidat = moment.replace(hour=9, minute=30, second=0, microsecond=0)
+    if moment.weekday() < 5 and moment < candidat:
+        return candidat
+    candidat += timedelta(days=1)
+    while candidat.weekday() >= 5:
+        candidat += timedelta(days=1)
+    return candidat
+
+
+def _duree_avant_ouverture(maintenant):
+    """(heures, minutes) avant la prochaine ouverture. Pure, testable."""
+    ouv = _prochaine_ouverture(maintenant)
+    secondes = int((ouv - maintenant).total_seconds())
+    return secondes // 3600, (secondes % 3600) // 60
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _indices_bande():
+    """Les trois indices de la bande de cotation (S&P/TSX, S&P 500,
+    NASDAQ) : un seul appel groupé, caché 5 minutes pour tout le
+    monde, aucun coût par élève. Retourne [] si indisponible."""
+    try:
+        noms = {"^GSPTSE": "S&P/TSX", "^GSPC": "S&P 500", "^IXIC": "NASDAQ"}
+        data = yf.download(list(noms), period="5d", progress=False,
+                           auto_adjust=False, threads=False)
+        if data is None or data.empty or "Close" not in data:
+            return []
+        closes = data["Close"]
+        sortie = []
+        for sym, nom in noms.items():
+            try:
+                serie = closes[sym].dropna()
+                if len(serie) >= 2:
+                    dernier, avant = float(serie.iloc[-1]), float(serie.iloc[-2])
+                    if avant > 0:
+                        sortie.append((nom, dernier, (dernier / avant - 1) * 100))
+            except Exception:
+                continue
+        return sortie
+    except Exception:
+        return []
+
+
+def _elements_bande():
+    """Éléments de la bande de cotation : les indices, puis les titres
+    les plus détenus par les élèves, aux prix du relais. Chaque élément :
+    (nom, prix affiché, variation du jour en % ou None)."""
+    elements = []
+    for nom, valeur, var in _indices_bande():
+        elements.append((nom, f"{valeur:,.0f}", var))
+    try:
+        top = conn.query(
+            "SELECT ticker FROM portfolio GROUP BY ticker "
+            "ORDER BY COUNT(*) DESC LIMIT 8", ttl=120)
+        tickers = [str(t).strip().upper() for t in top['ticker'].tolist()] if not top.empty else []
+    except Exception:
+        tickers = []
+    if tickers:
+        prix = obtenir_prix_groupes(tickers)
+        for tk in tickers:
+            info = prix.get(tk)
+            if not info or info.get("natif") is None:
+                continue
+            var = None
+            if info.get("prev_cad") and info.get("cad"):
+                try:
+                    var = (float(info["cad"]) / float(info["prev_cad"]) - 1) * 100
+                except Exception:
+                    var = None
+            elements.append((tk, fmt_prix(info["natif"], info.get("devise") or devise_naturelle(tk)), var))
+    return elements
+
+
+def _variation_html(var):
+    if var is None:
+        return ""
+    couleur = "#34D399" if var >= 0 else "#F87171"
+    fleche = "▲" if var >= 0 else "▼"
+    return f"<span style='color:{couleur};'>{fleche} {var:+.1f} %</span>"
+
+
+def afficher_bande_cotation(en_seance):
+    """Bande de cotation en haut de l'accueil (étape 2, affichage
+    seulement) : pendant la séance, un ruban qui défile lentement ;
+    marché fermé, une bande fixe avec les clôtures et la prochaine
+    ouverture. Aucun appel réseau par élève : indices cachés, titres
+    au prix du relais."""
+    elements = _elements_bande()
+    if not elements:
+        return
+    if en_seance:
+        items = "".join(
+            f"<span class='item'><b>{n}</b>&nbsp;{p}&nbsp;{_variation_html(v)}</span>"
+            for n, p, v in elements)
+        duree = max(24, 4 * len(elements))
+        css = ("<style>body{margin:0;background:#111111;font-family:'Work Sans',sans-serif;overflow:hidden;"
+               "border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}"
+               ".track{display:flex;width:max-content;padding:11px 0;animation:bandeScroll " + str(duree) + "s linear infinite}"
+               ".track:hover{animation-play-state:paused}"
+               ".item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}"
+               ".item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}"
+               "@keyframes bandeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>")
+        components.html(f"<!DOCTYPE html><html><head>{css}</head><body><div class='track'>{items}{items}</div></body></html>", height=46)
+    else:
+        maintenant = datetime.now(ZoneInfo("America/Toronto"))
+        ouv = _prochaine_ouverture(maintenant)
+        ecart_jours = (ouv.date() - maintenant.date()).days
+        if ecart_jours == 0:
+            jour_ouv = "aujourd'hui"
+        elif ecart_jours == 1:
+            jour_ouv = "demain"
+        else:
+            jour_ouv = "lundi" if ouv.weekday() == 0 else ouv.strftime("le %d-%m")
+        items = " &nbsp;·&nbsp; ".join(
+            f"<b>{n}</b> {p} {_variation_html(v)}" for n, p, v in elements)
+        st.markdown(
+            "<div style='background:#161616;border:1px solid #2E2E2E;border-radius:10px;padding:10px 16px;margin:4px 0 10px;'>"
+            "<span style='color:#E50914;font-weight:800;letter-spacing:0.08em;font-size:0.82rem;'>MARCHÉ FERMÉ</span>"
+            f"<span style='color:#9CA3AF;font-size:0.88rem;'> &nbsp;·&nbsp; Clôtures &nbsp;·&nbsp; Prochaine ouverture : {jour_ouv} à 9 h 30</span>"
+            f"<div style='margin-top:7px;color:#FFFFFF;font-weight:600;font-size:0.97rem;'>{items}</div></div>",
+            unsafe_allow_html=True)
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _cloture_officielle_figee(ticker_symbol):
     """Clôture officielle (en CAD) de la dernière séance complétée,
@@ -2719,10 +3272,10 @@ def verifier_limite_volume(username, ticker_symbol, prix_unitaire_cad, cout_ordr
 
 
 # --- DELAI DE DETENTION MINIMUM AVANT REVENTE ---
-# Actions ordinaires : 30 minutes minimum (anti-flip de quelques secondes).
-# ETF : 1 h minimum.
-# (Decision de Mathieu, 6 nov. 2026 : la detention passe de 1 h / 24 h
-# a 30 minutes / 1 h des maintenant, avant l'etape 2.)
+# Actions ordinaires : 1 h minimum (anti-flip de quelques secondes).
+# Étape 2 (décision de Mathieu, 6 nov. 2026) : détention abaissée à
+# 30 minutes pour une action ordinaire et à 1 h pour un ETF (avant :
+# 1 h et 24 h).
 DELAI_DETENTION_UNIVERSEL_H = 0.5
 DELAI_DETENTION_ETF_H = 1
 
@@ -2801,8 +3354,16 @@ def obtenir_nouvelles(ticker_symbol):
             pub = (src_el.text or '') if src_el is not None else ''
             if ' - ' in titre:
                 titre = titre.rsplit(' - ', 1)[0]
+            date_courte = ''
+            try:
+                from datetime import datetime as _dt_news
+                _d_news = _dt_news.strptime((it.findtext('pubDate') or '')[:25], "%a, %d %b %Y %H:%M:%S")
+                _mois_fr = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juill.', 'août', 'sept.', 'oct.', 'nov.', 'déc.']
+                date_courte = f"{_d_news.day} {_mois_fr[_d_news.month - 1]}"
+            except Exception:
+                date_courte = ''
             if titre and lien:
-                out.append({'title': titre, 'link': lien, 'publisher': pub})
+                out.append({'title': titre, 'link': lien, 'publisher': pub, 'date': date_courte})
         return out
     except Exception:
         return []
@@ -2992,15 +3553,10 @@ def executer_annulation_9h30(violations_df):
     return len(plans), nb_tx_total, total_cash
 
 
-def achat_penny_stock_bloque(ticker_symbol):
-    """Vrai si l'action clôturait sous 5 $ la veille ET qu'on est avant
-    l'ouverture à 9h30. Dès 9h30, tout est permis."""
-    maintenant = datetime.now(ZoneInfo("America/Toronto"))
-    minutes = maintenant.hour * 60 + maintenant.minute
-    if minutes >= 9 * 60 + 30:
-        return False  # marché ouvert : tout est permis
-    veille = cloture_veille(ticker_symbol)
-    return veille is not None and veille < 5.0
+# Barre des titres sous 5 $ avant 9 h 30 RETIRÉE à l'étape 2
+# (décision de Mathieu, 6 nov. 2026) : avant l'ouverture, les achats
+# sont de toute façon des ordres en attente exécutés au prix
+# d'ouverture, la barre ne protégeait plus rien.
 
 @st.cache_resource
 def _memo_derniers_prix():
@@ -3060,7 +3616,6 @@ def _entree_depuis_relais(ticker_symbol):
     lignes = _relais_lire_prix([ticker_symbol])
     return _entree_depuis_ligne_relais(
         lignes.get(str(ticker_symbol).strip().upper()), ticker_symbol)
-
 
 
 def _ligne_relais_fraiche(ligne, max_age_s=900):
@@ -3564,13 +4119,9 @@ if st.session_state['user'] is None:
 if "user" in st.query_params:
     del st.query_params["user"]
 
-# AFFICHAGE DES MESSAGES FLASH (TOAST)
-if 'flash_msg' in st.session_state:
-    type_msg, txt = st.session_state.pop('flash_msg')
-    if type_msg == "success":
-        st.toast(txt)
-    elif type_msg == "error":
-        st.toast(txt)
+# MESSAGES FLASH : le reçu de transaction se rend après la bannière,
+# dans le flux de la page ; les autres messages restent en toast.
+_flash_en_attente = st.session_state.pop('flash_msg', None)
 
 # BANNIÈRE D'EN-TÊTE
 st.markdown("""
@@ -3583,8 +4134,16 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+if _flash_en_attente is not None:
+    if _flash_en_attente[0] == "recu":
+        st.markdown(_html_recu(_flash_en_attente[1]), unsafe_allow_html=True)
+    else:
+        st.toast(_flash_en_attente[1])
+
 # --- PORTAIL CONNEXION / INSCRIPTION ---
 if st.session_state['user'] is None:
+    # Barre latérale masquée tant qu'on n'est pas connecté (vague 2).
+    st.markdown("<style>section[data-testid='stSidebar'], div[data-testid='stSidebarCollapsedControl'], div[data-testid='collapsedControl'] { display: none !important; }</style>", unsafe_allow_html=True)
     col_centered = st.columns([1, 1.2, 1])[1]
     with col_centered:
         tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
@@ -3710,10 +4269,13 @@ else:
             st.dataframe(pd.DataFrame(lignes_s), use_container_width=True, hide_index=True)
         else:
             st.caption("Aucune position pour le moment.")
-        ordres_s = conn.query("SELECT ticker, montant_cad FROM ordres_en_attente WHERE username=:u AND statut='en attente' ORDER BY id", params={"u": user}, ttl=0)
+        ordres_s = conn.query("SELECT ticker, montant_cad, sens, parts FROM ordres_en_attente WHERE username=:u AND statut='en attente' ORDER BY id", params={"u": user}, ttl=0)
         if not ordres_s.empty:
             st.caption("Ordres en attente (lecture seule) : " + " · ".join(
-                f"{str(o['ticker']).upper()} {float(o['montant_cad']):,.2f} $" for _, o in ordres_s.iterrows()))
+                (f"{str(o['ticker']).upper()} VENTE de {int(o['parts'] or 0)} actions"
+                 if str(o.get('sens') or 'ACHAT').upper() == 'VENTE'
+                 else f"{str(o['ticker']).upper()} {float(o['montant_cad']):,.2f} $")
+                for _, o in ordres_s.iterrows()))
         st.stop()
 
     # Bandeaux des ordres : fragment rafraîchi aux 30 s, pour que les
@@ -3729,6 +4291,50 @@ else:
         afficher_ordres_en_attente(user)
 
     _bloc_ordres()
+
+    # --- BANDE DE COTATION (étape 2) : affichage seulement. Le mode
+    # démo enseignant (Supervision) peut forcer l'affichage « séance »
+    # le soir, pour les yeux des enseignants seulement. ---
+    _demo_jour = bool(st.session_state.get("demo_jour")) and est_compte_enseignant(user)
+
+    # --- MODE « LE MARCHÉ DORT » (étape 2, refait en une seule carte
+    # à la vague 2 du 6 nov. 2026) : hors séance, une seule grande carte
+    # qui porte le titre, la réouverture, le compte à rebours géant et
+    # le bouton vers l'onglet Marché. Le bloc entier vit dans un
+    # fragment rafraîchi chaque minute : aucun appel réseau, un calcul
+    # de dates seulement. Affichage seulement ; les cartes d'ordres en
+    # attente sont juste au-dessus. En mode démo enseignant, rien. ---
+    if not _marche_ouvert() and not _demo_jour:
+        try:
+            fragment_dort = st.fragment(run_every=60)
+        except TypeError:
+            fragment_dort = st.fragment
+
+        @fragment_dort
+        def _bloc_marche_dort():
+            _m_d = datetime.now(ZoneInfo("America/Toronto"))
+            _o_d = _prochaine_ouverture(_m_d)
+            _j_d = (_o_d.date() - _m_d.date()).days
+            _jour_d = "aujourd'hui" if _j_d == 0 else ("demain" if _j_d == 1 else ("lundi" if _o_d.weekday() == 0 else _o_d.strftime("le %d-%m")))
+            _h_d, _min_d = _duree_avant_ouverture(_m_d)
+            _txt_d = f"{_h_d} h {_min_d:02d} min" if _h_d > 0 else (f"{_min_d} min" if _min_d > 0 else "moins d'une minute")
+            st.markdown(
+                "<div style='background:radial-gradient(1100px 420px at 50% -60px,#16283B 0%,#0D0D0D 62%);border:1px solid #22384F;border-radius:14px;padding:34px 30px 24px;margin:6px 0 4px;text-align:center;'>"
+                "<div style='font-family:\'Bebas Neue\',\'Work Sans\',sans-serif;font-size:3.6rem;line-height:1;color:#FFFFFF;letter-spacing:0.06em;'>LE MARCHÉ <span style='color:#7DB8E8;'>DORT</span></div>"
+                f"<div style='color:#9CA3AF;font-size:1.02rem;margin-top:8px;'>Il rouvre {_jour_d} à 9 h 30. Tes ordres l'attendront, et ils s'exécuteront à l'ouverture, au prix d'ouverture.</div>"
+                f"<div style='margin-top:14px;'><span style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:4.4rem;color:#FFFFFF;letter-spacing:0.05em;line-height:1;\">{_txt_d}</span></div>"
+                "<div style='color:#9CA3AF;font-size:0.78rem;letter-spacing:0.24em;font-weight:700;'>AVANT L'OUVERTURE</div>"
+                "</div>", unsafe_allow_html=True)
+            _cd1, _cd2, _cd3 = st.columns([1, 1.4, 1])
+            with _cd2:
+                if st.button("Préparer mes ordres pour l'ouverture", key="dort_vers_marche", use_container_width=True):
+                    st.session_state["main_nav_radio"] = "Marché & Analyse"
+                    st.query_params["tab"] = "Marché & Analyse"
+                    st.rerun()
+
+        _bloc_marche_dort()
+
+    afficher_bande_cotation(_marche_ouvert() or _demo_jour)
 
     # --- MÉTRIQUES DE HAUT DE PAGE ---
     # Rafraîchissement automatique des 4 carrés toutes les 30 s (fragment seul, sans refresh de page).
@@ -3788,43 +4394,6 @@ else:
                 css_tape = "<style>body{margin:0;background:#161616;font-family:'Work Sans',sans-serif;overflow:hidden;border:1px solid #2E2E2E;border-radius:10px;box-sizing:border-box;height:44px}.track{display:flex;width:max-content;padding:11px 0;animation:tapeScroll " + str(duree_tape) + "s linear infinite}.track:hover{animation-play-state:paused}.item{padding:0 22px;border-right:1px solid rgba(255,255,255,0.12);color:#FFFFFF;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.item b{font-family:'Bebas Neue','Work Sans',sans-serif;font-weight:400;letter-spacing:0.05em;font-size:17px}@keyframes tapeScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}</style>"
                 components.html(f"<!DOCTYPE html><html><head>{css_tape}</head><body><div class='track'>{items_tape}{items_tape}</div></body></html>", height=46)
 
-        # --- SUIVI DES RÈGLES DU JEU (compact, effet néon discret) ---
-        mois_court = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m")
-        nb_titres = int(pos_df['ticker'].nunique()) if not pos_df.empty else 0
-        ach_mois_q = conn.query(
-            "SELECT COUNT(*) AS n FROM transactions WHERE username=:u AND shares > 0 AND timestamp LIKE :m",
-            params={"u": user, "m": mois_court + "%"}, ttl=0)
-        nb_achats_mois = int(ach_mois_q.iloc[0]['n']) if not ach_mois_q.empty else 0
-
-        regle_titres_ok = nb_titres >= 4
-        regle_achats_ok = nb_achats_mois >= 5
-
-        def puce_regle(titre, valeur, cible, ok):
-            affichage = "✓" if ok else f"{valeur}/{cible}"
-            couleur = "#10B981" if ok else "#E50914"
-            pct = min(100, int(valeur / cible * 100)) if cible else 0
-            return (f"<div style=\"background:#161616;border:1px solid #2E2E2E;border-radius:10px;padding:8px 14px;"
-                    f"box-shadow:0 0 18px -6px {couleur}66;\">"
-                    f"<span style=\"color:#9CA3AF;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;\">{titre}</span>"
-                    f"<span style=\"color:#FFFFFF;font-size:15px;font-weight:800;margin-left:8px;\">{affichage}</span>"
-                    f"<div style=\"background:#2E2E2E;border-radius:6px;height:5px;margin-top:6px;\">"
-                    f"<div style=\"background:{couleur};border-radius:6px;height:5px;width:{pct}%;box-shadow:0 0 10px {couleur};\"></div></div></div>")
-
-        st.markdown("<div style=\"color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:2px 0 8px 0;\">Règles du jeu</div>", unsafe_allow_html=True)
-        rc1, rc2 = st.columns(2)
-        rc1.markdown(puce_regle("Titres différents (min. 4)", nb_titres, 4, regle_titres_ok), unsafe_allow_html=True)
-        rc2.markdown(puce_regle("Achats ce mois-ci (min. 5)", nb_achats_mois, 5, regle_achats_ok), unsafe_allow_html=True)
-
-        manques = []
-        if not regle_titres_ok:
-            manques.append(f"ajoute {4 - nb_titres} titre(s) différent(s)")
-        if not regle_achats_ok:
-            manques.append(f"fais {5 - nb_achats_mois} achat(s) de plus ce mois-ci")
-        if manques:
-            st.caption("Pour respecter les règles : " + " et ".join(manques) + ".")
-        else:
-            st.caption("Règles respectées. Beau travail!")
-
         # --- FRAIS PAYÉS (mode vraie bourse) : cumulatif visible par l'élève ---
         try:
             if not compte_exempte_frais(user):
@@ -3842,9 +4411,11 @@ else:
 
     afficher_metrics_live()
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    # --- NAVIGATION ET PERSISTENCE D'ONGLET (POUR F5) ---
+    # --- NAVIGATION VERTICALE (barre latérale, vague 2 du 6 nov.
+    # 2026) : les onglets vivent à gauche, en boutons pleine largeur.
+    # L'onglet actif est rouge plein, les autres sont des cartes
+    # sombres. Persistance inchangée : session_state["main_nav_radio"]
+    # et le paramètre d'adresse "tab" (F5 garde l'onglet). ---
     TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement"]
     if est_compte_enseignant(user):
         TABS_LIST.append("Supervision Prof")
@@ -3853,19 +4424,55 @@ else:
     default_tab = st.query_params.get("tab", "Marché & Analyse")
     if default_tab not in TABS_LIST:
         default_tab = "Marché & Analyse"
+    if "main_nav_radio" not in st.session_state:
+        st.session_state["main_nav_radio"] = default_tab
+    tab_choisi = st.session_state["main_nav_radio"]
 
-    tab_choisi = st.radio(
-        "Navigation",
-        options=TABS_LIST,
-        index=TABS_LIST.index(default_tab),
-        horizontal=True,
-        key="main_nav_radio"
-    )
+    _css_nav = "<style>"
+    for _i_nav, _t_nav in enumerate(TABS_LIST):
+        if _t_nav == tab_choisi:
+            _css_nav += (
+                f'div[class~="st-key-navbtn_{_i_nav}"] button {{'
+                'background: linear-gradient(180deg, #F6121D 0%, #C40812 100%) !important;'
+                'border: 1px solid #FF3B47 !important; border-radius: 10px !important;'
+                'box-shadow: 0 10px 22px -8px rgba(229, 9, 20, 0.55) !important;'
+                'padding: 10px 14px !important; justify-content: flex-start !important;'
+                '}'
+                f'div[class~="st-key-navbtn_{_i_nav}"] button p {{'
+                'color: #FFFFFF !important; font-weight: 800 !important; font-size: 15px !important;'
+                '}')
+        else:
+            _css_nav += (
+                f'div[class~="st-key-navbtn_{_i_nav}"] button {{'
+                'background: linear-gradient(180deg, #1E1E1E 0%, #141414 100%) !important;'
+                'border: 1px solid #2A2A2A !important; border-radius: 10px !important;'
+                'padding: 10px 14px !important; justify-content: flex-start !important;'
+                '}'
+                f'div[class~="st-key-navbtn_{_i_nav}"] button p {{'
+                'color: #D4D4D4 !important; font-weight: 600 !important; font-size: 15px !important;'
+                '}'
+                f'div[class~="st-key-navbtn_{_i_nav}"] button:hover {{'
+                'border-color: #4A4A4A !important;'
+                '}')
+    _css_nav += "</style>"
+
+    with st.sidebar:
+        st.markdown(
+            "<div style='font-family:\'Bebas Neue\',\'Work Sans\',sans-serif;font-size:1.45rem;letter-spacing:0.06em;color:#FFFFFF;line-height:1.05;'>MONDE <span style='color:#E50914;'>&</span> FINANCE</div>"
+            "<div style='color:#9CA3AF;font-size:0.8rem;margin:2px 0 14px;'>Simulation boursière</div>",
+            unsafe_allow_html=True)
+        st.markdown(_css_nav, unsafe_allow_html=True)
+        for _i_nav, _t_nav in enumerate(TABS_LIST):
+            if st.button(_t_nav, key=f"navbtn_{_i_nav}", use_container_width=True):
+                st.session_state["main_nav_radio"] = _t_nav
+                st.query_params["tab"] = _t_nav
+                st.rerun()
 
     st.query_params["tab"] = tab_choisi
 
     # --- ONGLET 1 : MARCHÉ & ANALYSE ---
     if tab_choisi == "Marché & Analyse":
+        afficher_missions(user)
         col_l1, col_l2, col_l3 = st.columns(3)
         col_l1.link_button("Les Affaires", "https://www.lesaffaires.com/?view=register&product_id=1898&plan_id=62962&utm_campaign=ABNT_PROMO30_ADSGOOGLE&utm_medium=ADS&utm_source=ADSGOOGLE&utm_term=landing&gad_source=1&gad_campaignid=24159803993&gbraid=0AAAAADel4hnhaUpWgv3yFaDiNmCZAJv32&gclid=CjwKCAjwrP3VBhBbEiwAnaqpQyOPax6Hc_HEcl3kWXH3NxC0aQVSEw-GAa87RTweJxM5yyasiT0W4RoCAVQQAvD_BwE", use_container_width=True)
         col_l2.link_button("Barchart", "https://www.barchart.com/", use_container_width=True)
@@ -4060,15 +4667,16 @@ else:
 
                 nouvelles = obtenir_nouvelles(selected_ticker)
                 if nouvelles:
-                    st.markdown("### Actualités")
+                    st.markdown("<div style='font-family:\'Bebas Neue\',\'Work Sans\',sans-serif;font-size:1.55rem;letter-spacing:0.06em;color:#FFFFFF;margin:14px 0 8px;'>ACTUALITÉS <span style='color:#E50914;'>" + html.escape(selected_ticker.upper()) + "</span></div>", unsafe_allow_html=True)
                     for n in nouvelles:
-                        nt, nl, npub = n.get('title'), n.get('link'), n.get('publisher', '')
+                        nt, nl, npub, ndate = n.get('title'), n.get('link'), n.get('publisher', ''), n.get('date', '')
                         if nt and nl:
+                            _meta_actu = " · ".join([x for x in [html.escape(str(npub)), ndate] if x])
                             st.markdown(
-                                "<div style='margin-bottom:10px;'>"
-                                f"<a href='{nl}' target='_blank' style='color:#FFFFFF;font-weight:600;text-decoration:none;'>{nt}</a>"
-                                f"<div style='color:#9CA3AF;font-size:12px;'>{npub}</div>"
-                                "</div>",
+                                "<div style='background:linear-gradient(180deg,#232323 0%,#171717 100%);border:1px solid rgba(255,255,255,0.10);border-left:3px solid #E50914;border-radius:10px;padding:11px 14px;margin-bottom:8px;'>"
+                                f"<a href='{html.escape(str(nl), quote=True)}' target='_blank' style='color:#FFFFFF;font-weight:600;font-size:15px;text-decoration:none;line-height:1.35;'>{html.escape(str(nt))}</a>"
+                                + (f"<div style='color:#9CA3AF;font-size:12px;margin-top:3px;'>{_meta_actu}</div>" if _meta_actu else "")
+                                + "</div>",
                                 unsafe_allow_html=True)
 
             with col_order:
@@ -4077,29 +4685,31 @@ else:
 
                 if mode_ordre == "Par quantité":
                     qty_achat = st.number_input("Quantité", min_value=1, step=1, value=1, key=f"qty_{selected_ticker}")
-                    if devise_titre == "USD":
-                        st.write(f"Total estimé : **{fmt_prix(prix*qty_achat, 'USD')}** (≈ **${prix_cad*qty_achat:,.2f} CAD** débités)")
-                    else:
-                        st.write(f"Total estimé : **${prix*qty_achat:,.2f}**")
+                    _cout_a = prix_cad * qty_achat
+                    _lignes_a = [(f"{qty_achat} action(s) à {fmt_prix(prix, devise_titre)}", f"${_cout_a:,.2f}")]
+                    _tot_a = _cout_a
                     if not compte_exempte_frais(user):
-                        _cout_est = prix_cad * qty_achat
-                        _fconv_est = round(FRAIS_CONVERSION_PCT * _cout_est, 2) if devise_titre == "USD" else 0.0
-                        _txt_conv = f" + conversion (1,5 %) **${_fconv_est:,.2f}**" if devise_titre == "USD" else ""
-                        st.write(f"Frais : transaction **$10.00**{_txt_conv} → total débité : **${_cout_est + FRAIS_TRANSACTION + _fconv_est:,.2f} CAD**")
+                        _fc_a = round(FRAIS_CONVERSION_PCT * _cout_a, 2) if devise_titre == "USD" else 0.0
+                        _lignes_a.append(("Frais de transaction", f"${FRAIS_TRANSACTION:,.2f}"))
+                        if _fc_a > 0:
+                            _lignes_a.append(("Conversion (1,5 %, titre américain)", f"${_fc_a:,.2f}"))
+                        _tot_a = _cout_a + FRAIS_TRANSACTION + _fc_a
+                    st.markdown(_html_recu({"genre": "apercu", "titre": "TON ORDRE", "sous": f"{selected_ticker.upper()} · estimation au prix actuel", "lignes": _lignes_a, "total": ("Total débité", f"${_tot_a:,.2f}"), "pied": "Estimation : le prix d'exécution est celui du moment où tu confirmes."}), unsafe_allow_html=True)
                     qty_vente = qty_achat
                 else:
                     montant = st.number_input("Montant à investir ($ CAD)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
                     qty_achat = int(montant // prix_cad) if prix_cad and prix_cad > 0 else 0
                     if qty_achat >= 1:
-                        if devise_titre == "USD":
-                            st.write(f"Vous pouvez acheter **{qty_achat}** actions à **{fmt_prix(prix, 'USD')}** pour **${qty_achat*prix_cad:,.2f} CAD**")
-                        else:
-                            st.write(f"Vous pouvez acheter **{qty_achat}** actions pour **${qty_achat*prix_cad:,.2f}**")
+                        _cout_b = qty_achat * prix_cad
+                        _lignes_b = [(f"{qty_achat} action(s) à {fmt_prix(prix, devise_titre)}", f"${_cout_b:,.2f}")]
+                        _tot_b = _cout_b
                         if not compte_exempte_frais(user):
-                            _cout_est2 = qty_achat * prix_cad
-                            _fconv_est2 = round(FRAIS_CONVERSION_PCT * _cout_est2, 2) if devise_titre == "USD" else 0.0
-                            _txt_conv2 = f" + conversion (1,5 %) **${_fconv_est2:,.2f}**" if devise_titre == "USD" else ""
-                            st.write(f"Frais : transaction **$10.00**{_txt_conv2} → total débité : **${_cout_est2 + FRAIS_TRANSACTION + _fconv_est2:,.2f} CAD**")
+                            _fc_b = round(FRAIS_CONVERSION_PCT * _cout_b, 2) if devise_titre == "USD" else 0.0
+                            _lignes_b.append(("Frais de transaction", f"${FRAIS_TRANSACTION:,.2f}"))
+                            if _fc_b > 0:
+                                _lignes_b.append(("Conversion (1,5 %, titre américain)", f"${_fc_b:,.2f}"))
+                            _tot_b = _cout_b + FRAIS_TRANSACTION + _fc_b
+                        st.markdown(_html_recu({"genre": "apercu", "titre": "TON ORDRE", "sous": f"{selected_ticker.upper()} · ce que ton montant peut acheter, au prix actuel", "lignes": _lignes_b, "total": ("Total débité", f"${_tot_b:,.2f}"), "pied": "Estimation : le prix d'exécution est celui du moment où tu confirmes."}), unsafe_allow_html=True)
                     else:
                         st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
                     qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
@@ -4111,7 +4721,7 @@ else:
 
                 st.caption("Règle : ta position sur un titre ne peut pas dépasser 5 % de son volume d'échange quotidien.")
                 if not compte_exempte_frais(user):
-                    st.caption("Mode vraie bourse : 10 $ de frais par transaction (aussi retenus sur les ventes), 1,5 % de conversion sur les titres américains, maximum 25 % de ton compte sur un seul titre, coupe-circuit si un titre bouge de plus de 30 % dans une journée.")
+                    st.caption("Frais réels : 10 $ par transaction et 1,5 % de conversion sur les titres américains. Chaque achat vaut entre 2 % et 25 % de ton compte, maximum 5 achats par jour. Le détail complet est dans les règles du jeu, en haut de la page.")
                 vol_jour_cap = obtenir_volume_quotidien_moyen(selected_ticker)
                 if vol_jour_cap and LIMITE_VOLUME_PCT * vol_jour_cap < 1000000:
                     st.caption(f"Position maximale sur {selected_ticker.upper()} : {LIMITE_VOLUME_PCT * vol_jour_cap:,.0f} $")
@@ -4119,9 +4729,6 @@ else:
                     st.caption("Revente possible 1 h après l'achat (ETF).")
                 else:
                     st.caption("Revente possible 30 minutes après l'achat.")
-
-                if achat_penny_stock_bloque(selected_ticker):
-                    st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
 
                 # --- GARDE-FOU JUMEAU .TO ---
                 # Si le symbole nu a un jumeau à Toronto (DOL le FNB
@@ -4134,23 +4741,25 @@ else:
                 if achat_bloque_jumeau:
                     jb1, jb2 = st.columns(2)
                     if jumeau['nom_base'] == jumeau['nom_to']:
-                        # Même entreprise des deux côtés (double cotation ou
-                        # certificat canadien) : le choix est la devise.
-                        st.warning(
-                            f"**Ce titre existe aussi à Toronto, en dollars canadiens.**\n\n"
-                            f"Tu regardes **{selected_ticker}** : {jumeau['nom_base']}, le titre américain, en dollars US.\n\n"
-                            f"La même entreprise se vend aussi sous **{selected_ticker}.TO** à la Bourse de Toronto, en dollars canadiens.\n\n"
-                            f"Lequel préfères-tu ?")
+                        _titre_j = "LE MÊME TITRE, DEUX DEVISES"
+                        _desc_j = "La même entreprise se vend des deux côtés de la frontière. La différence : la devise, et la conversion de 1,5 % sur le titre américain, à l'achat et à la vente."
                         lib_jb1 = f"{selected_ticker}, en dollars US"
                         lib_jb2 = f"{selected_ticker}.TO, en dollars canadiens"
                     else:
-                        st.warning(
-                            f"**Attention : deux titres se ressemblent.**\n\n"
-                            f"Tu regardes **{selected_ticker}** : {jumeau['nom_base']}, un titre américain, en dollars US.\n\n"
-                            f"Il existe aussi **{selected_ticker}.TO** : {jumeau['nom_to']}, à la Bourse de Toronto, en dollars canadiens.\n\n"
-                            f"Lequel veux-tu acheter ?")
+                        _titre_j = "DEUX TITRES SE RESSEMBLENT"
+                        _desc_j = "Deux entreprises différentes portent presque le même symbole. Choisis le bon avant d'acheter."
                         lib_jb1 = f"{selected_ticker}, le titre américain"
                         lib_jb2 = f"{selected_ticker}.TO, le titre de Toronto"
+                    _carte_j = (
+                        "<div style='background:linear-gradient(180deg,#262626 0%,#1A1A1A 100%);border:1px solid rgba(255,255,255,0.12);border-top:6px solid #E50914;border-radius:14px;padding:18px 20px 14px;margin:10px 0 6px;box-shadow:0 16px 32px -14px rgba(0,0,0,0.9);'>"
+                        f"<div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.7rem;letter-spacing:0.05em;color:#FFFFFF;line-height:1;\">{_titre_j}</div>"
+                        f"<div style='color:#D1D5DB;font-size:0.95rem;margin:6px 0 12px;'>{_desc_j}</div>"
+                        "<div style='display:flex;gap:12px;flex-wrap:wrap;'>"
+                        f"<div style='flex:1;min-width:190px;background:#0D0D0D;border:1.5px solid #3A3A3A;border-radius:10px;padding:12px 14px;'><div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.5rem;color:#FFFFFF;letter-spacing:0.04em;\">{html.escape(selected_ticker.upper())}</div><div style='color:#FFFFFF;font-weight:700;font-size:0.95rem;'>{html.escape(str(jumeau['nom_base']))}</div><div style='color:#9CA3AF;font-size:0.88rem;margin-top:2px;'>Bourse des États-Unis · en dollars US · conversion de 1,5 %</div></div>"
+                        f"<div style='flex:1;min-width:190px;background:#0D0D0D;border:1.5px solid #3A3A3A;border-radius:10px;padding:12px 14px;'><div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.5rem;color:#FFFFFF;letter-spacing:0.04em;\">{html.escape(selected_ticker.upper())}.TO</div><div style='color:#FFFFFF;font-weight:700;font-size:0.95rem;'>{html.escape(str(jumeau['nom_to']))}</div><div style='color:#9CA3AF;font-size:0.88rem;margin-top:2px;'>Bourse de Toronto · en dollars canadiens · aucune conversion</div></div>"
+                        "</div>"
+                        "<div style='color:#9CA3AF;font-size:0.88rem;margin-top:10px;'>Lequel préfères-tu ? Choisis ci-dessous : l'achat se débloque aussitôt.</div></div>")
+                    st.markdown(_carte_j, unsafe_allow_html=True)
                     if jb1.button(lib_jb1, key=f"jb_us_{selected_ticker}", use_container_width=True):
                         st.session_state[f"jumeau_ok_{selected_ticker}"] = True
                         st.rerun()
@@ -4165,19 +4774,17 @@ else:
                     if plafond_achats_atteint(user):
                         dialogue_pause_bourse()
                     elif not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
-                        st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                        afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
                     elif titre_suspendu(selected_ticker):
-                        st.error(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                        afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
                     elif compte_en_verification(user):
-                        st.error("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                        afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
                     elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
-                        st.error(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
-                    elif achat_penny_stock_bloque(selected_ticker):
-                        st.warning("BIEN ESSAYÉ! MAIS ATTENDS À 9H30!")
+                        afficher_refus(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
                     elif qty_achat < 1:
-                        st.warning("Augmentez le montant pour acheter au moins une action.")
+                        afficher_refus("Augmentez le montant pour acheter au moins une action.")
                     elif not verifier_cooldown(user, delai_secondes=3):
-                        st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
+                        afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
                         cost_real = prix_instantane * qty_achat
@@ -4191,39 +4798,39 @@ else:
                         total_debit = cost_real + frais_fixe + frais_conv
                         bloque_cc, var_cc = (False, None) if exempte else coupe_circuit_actif(selected_ticker)
                         part_apres = 0.0 if exempte else part_titre_apres_achat(user, selected_ticker, prix_instantane, qty_achat)
-                        bloque_hh = achat_hors_heures_bloque(user, cost_real)
+                        plancher_min = None if exempte else plancher_achat_minimum(user)
                         if msg_limite:
-                            st.error(msg_limite)
-                        elif bloque_hh:
-                            st.error("Marché fermé : hors des heures de marché (9 h 30 à 16 h), un achat est limité à 500 $. Réduis la quantité, ou attends l'ouverture pour investir davantage. Tes ventes restent toujours possibles.")
+                            afficher_refus(msg_limite)
                         elif bloque_cc:
-                            st.error(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
+                            afficher_refus(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
                         elif part_apres > PLAFOND_TITRE_PCT:
-                            st.error(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
+                            afficher_refus(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
+                        elif plancher_min is not None and cost_real < plancher_min:
+                            afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_min:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
                         elif ordres_ouverture_actif(user) and not _marche_ouvert() and mode_ordre == "Par quantité":
                             # Décision de Mathieu (3 nov. 2026) : le soir, un ordre en
                             # attente se place par montant seulement. En quantité, le
                             # nombre d'actions choisi au prix gelé ne peut pas être
                             # garanti à l'ouverture ; le montant, lui, l'est toujours.
-                            st.error("Marché fermé : le soir, un ordre en attente se place par montant seulement. Passe en mode « Par montant ($) » ci-dessus : le montant que tu choisis est réservé, et le nombre d'actions sera fixé à l'ouverture, au prix d'ouverture.")
+                            afficher_refus("Marché fermé : le soir, un ordre en attente se place par montant seulement. Passe en mode « Par montant ($) » ci-dessus : le montant que tu choisis est réservé, et le nombre d'actions sera fixé à l'ouverture, au prix d'ouverture.")
                         elif ordres_ouverture_actif(user) and not _marche_ouvert():
                             # Hors heures, l'achat devient un ordre en
                             # attente exécuté au prix d'ouverture de la
                             # prochaine séance, pas au prix gelé.
                             if prix_instantane is None or prix_instantane <= 0:
-                                st.error("Prix indisponible pour le moment : impossible de placer l'ordre. Réessaie plus tard.")
+                                afficher_refus("Prix indisponible pour le moment : impossible de placer l'ordre. Réessaie plus tard.")
                             elif cash_actuel_db < total_debit:
-                                st.error("Fonds insuffisants.")
+                                afficher_refus("Fonds insuffisants.")
                             elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
-                                st.error(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                                afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
                             elif achat_hors_heures_deja_fait(user, selected_ticker, _prochaine_seance_execution(datetime.now(ZoneInfo("America/Toronto")))):
-                                st.error(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
+                                afficher_refus(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
                             else:
                                 session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
                                 if session_exec is None:
-                                    st.error("Fonds insuffisants.")
+                                    afficher_refus("Fonds insuffisants.")
                                 else:
-                                    st.session_state['flash_msg'] = ("success", f"Ordre en attente : ${total_debit:,.2f} sur {selected_ticker.upper()} sont réservés. L'ordre s'exécutera à l'ouverture du {session_exec} au prix d'ouverture (pas au prix de fermeture d'hier), et le nombre d'actions sera fixé à ce moment-là, selon ce prix. Tu peux l'annuler d'ici là dans « Mes ordres en attente ».")
+                                    st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE EN ATTENTE", "sous": f"{selected_ticker.upper()}", "lignes": [("Montant réservé", f"${total_debit:,.2f}")], "total": None, "pied": f"S'exécute à l'ouverture du {session_exec}, au prix d'ouverture, jamais au prix de fermeture d'hier. Le nombre d'actions sera fixé à ce moment-là. Annulable dans « Mes ordres en attente »."})
                                     st.rerun()
                         elif cash_actuel_db >= total_debit:
                             now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
@@ -4253,33 +4860,35 @@ else:
                                 else:
                                     session.rollback()
                             if not achat_ok:
-                                st.error("Fonds insuffisants.")
+                                afficher_refus("Fonds insuffisants.")
                             else:
-                                _frais_tot = frais_fixe + frais_conv
-                                _note_frais = f" Frais : ${_frais_tot:,.2f}." if _frais_tot > 0 else ""
+                                _prix_affiche_a = fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD') if devise_titre == "USD" else f"${prix_instantane:,.2f}"
+                                _lignes_a = [(f"{qty_achat} actions à {_prix_affiche_a}", f"${cost_real:,.2f}"), ("Frais de transaction", f"${frais_fixe:,.2f}")]
+                                if frais_conv > 0:
+                                    _lignes_a.append(("Conversion (1,5 %, titre américain)", f"${frais_conv:,.2f}"))
+                                _pied_a = f"Il te reste ${cash_actuel_db - total_debit:,.2f} en argent comptant."
                                 if devise_titre == "USD":
                                     _taux_fx = obtenir_taux_usdcad()
-                                    _msg_fx = f" (débité : ${total_debit:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (débité : ${total_debit:,.2f} CAD)"
-                                    st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectué !{_msg_fx}{_note_frais}")
-                                else:
-                                    st.session_state['flash_msg'] = ("success", f"Achat de {qty_achat} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectué !{_note_frais}")
+                                    if _taux_fx:
+                                        _pied_a += f" Montants en dollars canadiens, au taux {_taux_fx:.4f}."
+                                st.session_state['flash_msg'] = ("recu", {"genre": "achat", "titre": "ACHAT CONFIRMÉ", "sous": f"{selected_ticker.upper()} - {qty_achat} actions", "lignes": _lignes_a, "total": ("Total débité", f"${total_debit:,.2f}"), "pied": _pied_a})
                                 st.rerun()
-                        else: st.error("Fonds insuffisants.")
+                        else: afficher_refus("Fonds insuffisants.")
 
                 # VENTE
                 if col_s.button("Vendre", use_container_width=True):
                     if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
-                        st.error(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                        afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
                     elif titre_suspendu(selected_ticker):
-                        st.error(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                        afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
                     elif compte_en_verification(user):
-                        st.error("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                        afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
                     elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
-                        st.error(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
+                        afficher_refus(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
                     elif vente_avant_delai_bloquee(user, selected_ticker):
-                        st.warning(message_delai_detention(selected_ticker))
+                        afficher_refus(message_delai_detention(selected_ticker))
                     elif not verifier_cooldown(user, delai_secondes=3):
-                        st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
+                        afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
                     else:
                         prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
                         cost_real = prix_instantane * qty_vente
@@ -4287,7 +4896,25 @@ else:
                         p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                         shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
-                        if shares_dispo >= qty_vente:
+                        if not _marche_ouvert() and ordres_ouverture_actif(user):
+                            # Étape 2 (6 nov. 2026) : marché fermé, la vente
+                            # devient un ordre en attente exécuté à
+                            # l'ouverture, au prix d'ouverture, exactement
+                            # comme les achats. Fini les ventes au prix gelé.
+                            if shares_dispo < qty_vente:
+                                afficher_refus("Vous ne possédez pas cette quantité d'actions.")
+                            elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
+                                afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                            elif ordre_vente_en_attente_sur(user, selected_ticker):
+                                afficher_refus(f"Tu as déjà un ordre de vente en attente sur {selected_ticker.upper()}. Annule-le si tu veux changer la quantité.")
+                            else:
+                                session_exec_v = creer_ordre_vente_en_attente(user, selected_ticker, qty_vente, devise_titre)
+                                if session_exec_v is None:
+                                    afficher_refus("Vous ne possédez plus cette quantité d'actions.")
+                                else:
+                                    st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE DE VENTE EN ATTENTE", "sous": f"{selected_ticker.upper()}", "lignes": [("Actions réservées", f"{qty_vente} actions")], "total": None, "pied": f"Elles seront vendues à l'ouverture du {session_exec_v}, au prix d'ouverture. Annulable dans « Mes ordres en attente »."})
+                                    st.rerun()
+                        elif shares_dispo >= qty_vente:
                             exempte_s = compte_exempte_frais(user)
                             frais_fixe_s, frais_conv_s = (0.0, 0.0) if exempte_s else frais_pour_ordre(devise_titre, cost_real)
                             credit_net = cost_real - frais_fixe_s - frais_conv_s
@@ -4316,18 +4943,20 @@ else:
                                 else:
                                     session.rollback()
                             if not vente_ok:
-                                st.error("Vous ne possédez pas cette quantité d'actions.")
+                                afficher_refus("Vous ne possédez pas cette quantité d'actions.")
                             else:
-                                _frais_tot_s = frais_fixe_s + frais_conv_s
-                                _note_frais_s = f" Frais : ${_frais_tot_s:,.2f}." if _frais_tot_s > 0 else ""
+                                _prix_affiche_v = fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD') if devise_titre == "USD" else f"${prix_instantane:,.2f}"
+                                _lignes_v = [(f"{qty_vente} actions à {_prix_affiche_v}", f"${cost_real:,.2f}"), ("Frais de transaction", f"${frais_fixe_s:,.2f}")]
+                                if frais_conv_s > 0:
+                                    _lignes_v.append(("Conversion (1,5 %, titre américain)", f"${frais_conv_s:,.2f}"))
+                                _pied_v = f"Il te reste ${cash_actuel + credit_net:,.2f} en argent comptant."
                                 if devise_titre == "USD":
                                     _taux_fx = obtenir_taux_usdcad()
-                                    _msg_fx = f" (crédité : ${credit_net:,.2f} CAD au taux {_taux_fx:.4f})" if _taux_fx else f" (crédité : ${credit_net:,.2f} CAD)"
-                                    st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à {fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD')} effectuée !{_msg_fx}{_note_frais_s}")
-                                else:
-                                    st.session_state['flash_msg'] = ("success", f"Vente de {qty_vente} {selected_ticker.upper()} à ${prix_instantane:,.2f} effectuée !{_note_frais_s}")
+                                    if _taux_fx:
+                                        _pied_v += f" Montants en dollars canadiens, au taux {_taux_fx:.4f}."
+                                st.session_state['flash_msg'] = ("recu", {"genre": "vente", "titre": "VENTE CONFIRMÉE", "sous": f"{selected_ticker.upper()} - {qty_vente} actions", "lignes": _lignes_v, "total": ("Net crédité", f"${credit_net:,.2f}"), "pied": _pied_v})
                                 st.rerun()
-                        else: st.error("Vous ne possédez pas cette quantité d'actions.")
+                        else: afficher_refus("Vous ne possédez pas cette quantité d'actions.")
 
                 # FAVORIS (bouton jaune via type="primary")
                 def _retirer_favori(tk):
@@ -4352,30 +4981,28 @@ else:
                 # Liste des favoris sous le bouton jaune
                 fav_q = conn.query("SELECT ticker FROM favoris WHERE username=:u ORDER BY ticker", params={"u": user}, ttl=0)
                 if not fav_q.empty:
-                    st.markdown("<div style='color:#9CA3AF;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;'>Mes favoris</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 7px;'><span style='color:#FFD700;'>★</span> Mes favoris</div>", unsafe_allow_html=True)
                     fav_tickers = fav_q['ticker'].tolist()
                     fav_data = obtenir_donnees_favoris(tuple(fav_tickers))
-                    chip_css = (
-                        "<style>"
-                        "@keyframes neonPulseJaune {"
-                        "0%,100% {box-shadow: 0 0 6px 1px rgba(255,215,0,0.55), 0 0 18px 4px rgba(255,215,0,0.22);}"
-                        "50% {box-shadow: 0 0 16px 3px rgba(255,215,0,1), 0 0 40px 10px rgba(255,215,0,0.45);}"
-                        "}"
-                    )
+                    chip_css = "<style>"
                     for i, tk in enumerate(fav_tickers):
                         px, vp, dv_fav = fav_data.get(tk.upper(), (None, None, devise_naturelle(tk)))
-                        couleur_txt = "#10B981" if (vp or 0) >= 0 else "#EF4444"
                         cle = f"favchip_{i}"
                         chip_css += (
                             f'div[class~="st-key-{cle}"] button {{'
-                            f'background: #161616 !important;'
-                            f'border: 1px solid #FFD700 !important;'
-                            f'padding: 5px 6px !important;'
-                            f'animation: neonPulseJaune 2.4s ease-in-out infinite;'
-                            f'}}'
+                            'background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%) !important;'
+                            'border: 1px solid rgba(255, 215, 0, 0.45) !important;'
+                            'border-top: 2px solid #FFD700 !important;'
+                            'border-radius: 10px !important;'
+                            'padding: 7px 8px !important;'
+                            'box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.85) !important;'
+                            '}'
                             f'div[class~="st-key-{cle}"] button p {{'
-                            f'color: {couleur_txt} !important; font-weight: 700 !important; font-size: 13px !important;'
-                            f'}}'
+                            'color: #FFFFFF !important; font-weight: 700 !important; font-size: 13.5px !important;'
+                            '}'
+                            f'div[class~="st-key-{cle}"] button:hover {{'
+                            'border-color: #FFD700 !important;'
+                            '}'
                         )
                     chip_css += "</style>"
                     st.markdown(chip_css, unsafe_allow_html=True)
@@ -4383,12 +5010,12 @@ else:
                     for i, tk in enumerate(fav_tickers):
                         px, vp, dv_fav = fav_data.get(tk.upper(), (None, None, devise_naturelle(tk)))
                         if px is None:
-                            chip_label = f"{tk}"
+                            chip_label = f"**{tk}**"
                         else:
                             fmt_px = fmt_prix(px, dv_fav)
                             signe = "+" if (vp or 0) >= 0 else ""
                             fleche = "▲" if (vp or 0) >= 0 else "▼"
-                            chip_label = f"{tk} {fmt_px} {fleche} {signe}{vp:.2f}%"
+                            chip_label = f"**{tk}** · {fmt_px} · {fleche} {signe}{vp:.2f} %"
                         with fav_cols[i % 2]:
                             st.button(chip_label, key=f"favchip_{i}", use_container_width=True, on_click=_choisir_favori, args=(tk,))
         else:
@@ -4566,10 +5193,12 @@ else:
                     fmt_pa = fmt_prix(pa_aff, dv_pos)
                     fmt_pm = fmt_prix(pm_aff, dv_pos)
 
-                    html_rows += f"<tr><td><b>{tk}</b></td><td>{sh}</td><td>{fmt_pm}</td><td>{fmt_pa}</td><td>${val:,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>${pnl:+,.2f}</td><td style='color:{pnl_color}; font-weight:700;'>{pnl_pct:+.2f}%</td></tr>"
+                    html_rows += (f"<div class='pos-carte'><div style='display:flex;justify-content:space-between;align-items:baseline;'>"
+                                  f"<span class='pos-sym'>{tk}</span><span class='pos-val'>${val:,.2f}</span></div>"
+                                  f"<div class='pos-detail'><b>{sh}</b> actions · prix moyen <b>{fmt_pm}</b> · actuel <b>{fmt_pa}</b></div>"
+                                  f"<div class='pos-gain' style='color:{pnl_color};'>${pnl:+,.2f} ({pnl_pct:+.2f} %)</div></div>")
 
-                table_html = f"<table class='custom-table'><thead><tr><th>Action</th><th>Quantité</th><th>Prix Moyen</th><th>Prix Actuel</th><th>Valeur</th><th>Gain / Perte</th><th>Rendement</th></tr></thead><tbody>{html_rows}</tbody></table>"
-                st.markdown(table_html, unsafe_allow_html=True)
+                st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:12px;'>{html_rows}</div>", unsafe_allow_html=True)
                 st.caption("Prix moyen et prix actuel : devise naturelle du titre (prix moyen converti au taux du jour). Valeur, gain/perte et rendement : dollars canadiens.")
 
                 # --- CAMEMBERT : RÉPARTITION DU PORTEFEUILLE ---
@@ -4663,26 +5292,48 @@ else:
                                 _ff_carte, _fc_carte = frais_pour_ordre(_dv_carte, tot_c)
                                 frais_carte = _ff_carte + _fc_carte
                                 tot_affiche = tot_c - frais_carte
+                            if not _marche_ouvert():
+                                libelle_recois = f"Ordre de vente à l'ouverture : environ <b>${tot_affiche:,.2f}</b> au prix de fermeture"
+                            else:
+                                libelle_recois = f"Je reçois : <b>${tot_affiche:,.2f}</b>" + (f" <span style='color:#9CA3AF;font-size:12px;'>(après {frais_carte:,.2f} $ de frais)</span>" if frais_carte > 0 else "")
                             st.markdown(
-                                f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>Je reçois : <b>${tot_affiche:,.2f}</b>" + (f" <span style='color:#9CA3AF;font-size:12px;'>(après {frais_carte:,.2f} $ de frais)</span>" if frais_carte > 0 else "") + "</div>",
+                                f"<div style='color:#FFFFFF;font-size:15px;margin:4px 0 10px;'>{libelle_recois}</div>",
                                 unsafe_allow_html=True)
                             if st.button(f"Vendre {qty_c} {tk}", use_container_width=True, key=f"vndcarte_{tk}"):
                                 if not _marche_ouvert() and _prix_gele_ou_none(tk) is None:
-                                    st.error(f"Marché fermé : le prix de clôture de {tk} n'a pas pu être figé pour cette séance. Vente refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                                    afficher_refus(f"Marché fermé : le prix de clôture de {tk} n'a pas pu être figé pour cette séance. Vente refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
                                 elif titre_suspendu(tk):
-                                    st.error(f"{tk} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                                    afficher_refus(f"{tk} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
                                 elif compte_en_verification(user):
-                                    st.error("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                                    afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
                                 elif prix_incoherent(tk, obtenir_prix_actuel(tk))[0]:
-                                    st.error(f"Transaction refusée : le prix de {tk} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
+                                    afficher_refus(f"Transaction refusée : le prix de {tk} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
                                 elif vente_avant_delai_bloquee(user, tk):
-                                    st.warning(message_delai_detention(tk))
+                                    afficher_refus(message_delai_detention(tk))
                                 elif not verifier_cooldown(user, delai_secondes=3):
-                                    st.warning("Veuillez attendre 3 secondes entre chaque transaction.")
+                                    afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
                                 else:
                                     check_p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND ticker=:t", params={"u": user, "t": tk}, ttl=0)
                                     sh_real = int(check_p.iloc[0]['shares']) if not check_p.empty else 0
-                                    if sh_real >= qty_c:
+                                    if not _marche_ouvert() and ordres_ouverture_actif(user):
+                                        # Étape 2 : marché fermé, la vente rapide
+                                        # devient elle aussi un ordre en attente
+                                        # à l'ouverture, jamais une vente au
+                                        # prix gelé.
+                                        if sh_real < qty_c:
+                                            afficher_refus("Vous ne possédez plus ces actions.")
+                                        elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
+                                            afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                                        elif ordre_vente_en_attente_sur(user, tk):
+                                            afficher_refus(f"Tu as déjà un ordre de vente en attente sur {tk}. Annule-le si tu veux changer la quantité.")
+                                        else:
+                                            session_exec_v = creer_ordre_vente_en_attente(user, tk, qty_c, devise_naturelle(tk))
+                                            if session_exec_v is None:
+                                                afficher_refus("Vous ne possédez plus ces actions.")
+                                            else:
+                                                st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE DE VENTE EN ATTENTE", "sous": f"{str(tk).upper()}", "lignes": [("Actions réservées", f"{qty_c} actions")], "total": None, "pied": f"Elles seront vendues à l'ouverture du {session_exec_v}, au prix d'ouverture. Annulable dans « Mes ordres en attente »."})
+                                                st.rerun()
+                                    elif sh_real >= qty_c:
                                         prix_v_instantane = obtenir_prix_actuel(tk) or pa
                                         total_v_instantane = qty_c * prix_v_instantane
                                         if exempte_vente_rapide:
@@ -4715,17 +5366,17 @@ else:
                                             else:
                                                 session.rollback()
                                         if not vente_c_ok:
-                                            st.error("Vous ne possédez plus ces actions.")
+                                            afficher_refus("Vous ne possédez plus ces actions.")
                                         else:
-                                            _frais_c_tot = frais_fixe_c + frais_conv_c
-                                            _note_frais_c = f" Frais : ${_frais_c_tot:,.2f}." if _frais_c_tot > 0 else ""
-                                            if devise_naturelle(tk) == "USD":
-                                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à {fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD')} effectuée ! (crédité : ${credit_net_c:,.2f} CAD){_note_frais_c}")
-                                            else:
-                                                st.session_state['flash_msg'] = ("success", f"Vente de {qty_c} {tk} à ${prix_v_instantane:,.2f} effectuée !{_note_frais_c}")
+                                            _devise_c = devise_naturelle(tk)
+                                            _prix_affiche_c = fmt_prix(vers_natif(prix_v_instantane, 'USD'), 'USD') if _devise_c == "USD" else f"${prix_v_instantane:,.2f}"
+                                            _lignes_c = [(f"{qty_c} actions à {_prix_affiche_c}", f"${total_v_instantane:,.2f}"), ("Frais de transaction", f"${frais_fixe_c:,.2f}")]
+                                            if frais_conv_c > 0:
+                                                _lignes_c.append(("Conversion (1,5 %, titre américain)", f"${frais_conv_c:,.2f}"))
+                                            st.session_state['flash_msg'] = ("recu", {"genre": "vente", "titre": "VENTE CONFIRMÉE", "sous": f"{str(tk).upper()} - {qty_c} actions", "lignes": _lignes_c, "total": ("Net crédité", f"${credit_net_c:,.2f}"), "pied": f"Il te reste ${cash_actuel + credit_net_c:,.2f} en argent comptant."})
                                             st.rerun()
                                     else:
-                                        st.error("Vous ne possédez plus ces actions.")
+                                        afficher_refus("Vous ne possédez plus ces actions.")
             else: st.info("Vous n'avez aucune position ouverte actuellement.")
 
         afficher_positions_live()
@@ -4734,8 +5385,25 @@ else:
     elif tab_choisi == "Mon Historique":
         tx_all = conn.query("SELECT timestamp, CASE WHEN shares > 0 THEN 'ACHAT' ELSE 'VENTE' END as type, ticker, ABS(shares) as shares, price, total FROM transactions WHERE username=:u ORDER BY id DESC", params={"u": user}, ttl=0)
         if not tx_all.empty:
-            tx_all.columns = ["Date & Heure", "Type", "Action", "Quantité", "Prix ($ CAD)", "Total ($ CAD)"]
-            st.dataframe(tx_all, use_container_width=True, hide_index=True)
+            _nb_tx = len(tx_all)
+            _lignes_hist = ""
+            for _, _rtx in tx_all.head(120).iterrows():
+                _est_achat = str(_rtx['type']) == 'ACHAT'
+                _pastille = ("<span style='background:#E50914;color:#FFFFFF;font-weight:800;font-size:0.72rem;"
+                             "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>ACHAT</span>") if _est_achat else (
+                             "<span style='border:1.5px solid #E5E7EB;color:#FFFFFF;font-weight:800;font-size:0.72rem;"
+                             "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>VENTE</span>")
+                _lignes_hist += (
+                    "<div style='display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#262626 0%,#1A1A1A 100%);"
+                    "border:1px solid rgba(255,255,255,0.10);border-radius:12px;padding:10px 16px;margin-bottom:8px;'>"
+                    f"<div style='color:#9CA3AF;font-size:0.82rem;min-width:118px;'>{str(_rtx['timestamp'])[:16]}</div>"
+                    f"<div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.45rem;color:#FFFFFF;letter-spacing:0.04em;min-width:86px;\">{html.escape(str(_rtx['ticker']))}</div>"
+                    f"{_pastille}"
+                    f"<div style='flex:1;color:#D1D5DB;font-size:0.94rem;'>{int(_rtx['shares'])} actions à ${float(_rtx['price']):,.2f}</div>"
+                    f"<div style='color:#FFFFFF;font-weight:800;font-size:1rem;font-variant-numeric:tabular-nums;'>${abs(float(_rtx['total'])):,.2f}</div></div>")
+            st.markdown(_lignes_hist, unsafe_allow_html=True)
+            if _nb_tx > 120:
+                st.caption(f"Tes 120 transactions les plus récentes, sur {_nb_tx} au total.")
         else: st.info("Aucune transaction.")
 
     # --- ONGLET 4 : CLASSEMENT (AVEC RECHERCHE & SURGLIGNAGE JAUNE) ---
@@ -4777,6 +5445,26 @@ else:
                 _susp_html = "<div><span class='podium-suspendu'>SUSPENDU</span></div>" if str(r_pod.get('Statut', '')) == 'SUSPENDU' else ""
                 cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div>{_susp_html}<div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
 
+            # MENEUR DU JOUR (étape 2, affichage seulement) : la plus
+            # forte hausse du jour, sur les positions comparées à la
+            # clôture de la veille, avec les données du classement.
+            # Calcul direct sur le tableau (aucune requête ajoutée) :
+            # les comptes enseignants et les suspendus sont exclus.
+            _cand = df_classement[
+                (df_classement['GainJourPct'] > 0)
+                & (df_classement['Statut'] != 'SUSPENDU')
+                & (~df_classement['Groupe'].astype(str).str.contains('enseignant', case=False, na=False))
+                & (df_classement['Élève'] != 'MathieuSavary')]
+            if not _cand.empty:
+                _meneur = _cand.loc[_cand['GainJourPct'].idxmax()]
+                st.markdown(
+                    f"<div class='meneur-card'><div class='meneur-titre'>Meneur du jour</div>"
+                    f"<div class='meneur-nom' style='font-size:2.15rem;'>{_meneur['Élève']}</div>"
+                    f"<div class='meneur-val'>+{float(_meneur['GainJourPct']):.1f} % aujourd'hui</div>"
+                    f"<div class='meneur-detail'>Calculé sur ses positions, comparées à la clôture d'hier. "
+                    f"Un titre d'affichage seulement : il ne donne rien, sauf le droit de s'en vanter jusqu'à demain.</div></div>",
+                    unsafe_allow_html=True)
+
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
                 r_moi = moi.iloc[0]
@@ -4811,6 +5499,7 @@ else:
         else:
             pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off")
         if _pin_attendu and pin == _pin_attendu:
+            st.markdown("<div style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:2.2rem;letter-spacing:0.06em;color:#FFFFFF;line-height:1;margin:4px 0 2px;\'>SUPERVISION</div><div style='color:#9CA3AF;font-size:0.92rem;margin-bottom:12px;'>La console des enseignants, organisée par tâche : comptes, règles, argent et affichage.</div>", unsafe_allow_html=True)
             # --- KRACH BOURSIER : panneau en haut de la Supervision (refonte du 3 nov. :
             # enseigne néon jaune pulsante, visible dès l'ouverture de l'onglet) ---
             st.markdown("""
@@ -4894,156 +5583,12 @@ else:
                         st.rerun()
 
             # --- SUSPENSION D'UN JOUEUR ---
-            st.subheader("Suspension d'un joueur")
-            st.caption("Un joueur suspendu peut se connecter et voir son portefeuille, mais aucun bouton ne fonctionne sur sa page, sauf Déconnexion. La suspension dure jusqu'à ce que tu la lèves ici.")
-            try:
-                susp_df = conn.query("SELECT username, depuis FROM joueurs_suspendus ORDER BY depuis", ttl=0)
-            except Exception:
-                susp_df = pd.DataFrame(columns=["username", "depuis"])
-            susp_noms = set(susp_df['username'].tolist()) if not susp_df.empty else set()
-            if susp_noms:
-                st.markdown("**Suspendus en ce moment :** " + " · ".join(
-                    f"{r['username']} (depuis le {r['depuis']})" for _, r in susp_df.iterrows()))
-            else:
-                st.caption("Aucun joueur suspendu en ce moment.")
-            users_susp = conn.query("SELECT username, groupe FROM users ORDER BY groupe, username", ttl=0)
-            choix_susp = [r['username'] for _, r in users_susp.iterrows()
-                          if r['username'] != "MathieuSavary"
-                          and not str(r['groupe'] or "").strip().lower().startswith("enseignant")]
-            sel_susp = st.selectbox("Joueur :", choix_susp, key="sel_suspension")
-            if sel_susp in susp_noms:
-                st.warning(f"{sel_susp} est suspendu en ce moment.")
-                if st.button("Lever la suspension", key="btn_lever_suspension", use_container_width=True):
-                    lever_suspension_joueur(sel_susp)
-                    st.success(f"Suspension levée pour {sel_susp}.")
-                    st.rerun()
-            elif st.button("Suspendre ce joueur", key="btn_suspendre", use_container_width=True):
-                suspendre_joueur(sel_susp)
-                st.success(f"{sel_susp} est suspendu. Il peut se connecter et voir son portefeuille, mais ne peut plus rien faire sauf se déconnecter.")
-                st.rerun()
+            st.markdown("<div style='background:linear-gradient(180deg,#1E1E1E,#131313);border:1px solid #2A2A2A;border-left:3px solid #E50914;border-radius:10px;padding:9px 16px;margin:22px 0 12px;'><span style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.3rem;letter-spacing:0.08em;color:#FFFFFF;\'>EN CE MOMENT</span></div>", unsafe_allow_html=True)
+            st.subheader("Aperçu enseignant de l'étape 2")
+            st.caption("Simule la séance pour l'affichage seulement, sur ton écran : la bande de cotation défile comme en pleine séance et l'écran « le marché dort » disparaît. Les transactions, les prix et ce que les élèves voient ne changent pas.")
+            st.toggle("Simuler la séance (affichage seulement)", key="demo_jour")
 
-            with st.expander("Gestion des mots de passe (Supabase)"):
-                st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
-                code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase", autocomplete="off")
-                try:
-                    _code_attendu = st.secrets.get("CODE_SUPABASE")
-                except Exception:
-                    _code_attendu = None
-                if _code_attendu and code_supabase == _code_attendu:
-                    st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
-                elif code_supabase:
-                    st.error("Code incorrect.")
-
-            with st.expander("Frais du mode vraie bourse (par élève)"):
-                st.info("Frais prélevés depuis le passage au mode vraie bourse : 10 $ par transaction, 1,5 % de conversion sur les titres américains, 0,5 % de frais de gestion le 1er de chaque mois (dès le 1er novembre).")
-                frais_sup = conn.query(
-                    "SELECT f.username AS username, u.groupe AS groupe, f.type AS type, SUM(f.montant) AS tot "
-                    "FROM frais f JOIN users u ON u.username = f.username GROUP BY f.username, u.groupe, f.type",
-                    ttl=0)
-                if frais_sup.empty:
-                    st.write("Aucun frais prélevé pour le moment.")
-                else:
-                    piv = frais_sup.pivot_table(index=["username", "groupe"], columns="type", values="tot", aggfunc="sum", fill_value=0.0).reset_index()
-                    for col_f in ["transaction", "conversion", "gestion"]:
-                        if col_f not in piv.columns:
-                            piv[col_f] = 0.0
-                    piv["total"] = piv["transaction"] + piv["conversion"] + piv["gestion"]
-                    piv = piv.sort_values("total", ascending=False)
-                    tot_tx = float(piv["transaction"].sum())
-                    tot_cv = float(piv["conversion"].sum())
-                    tot_ge = float(piv["gestion"].sum())
-                    st.markdown(f"**Total de la classe : {tot_tx + tot_cv + tot_ge:,.2f} $** (transactions {tot_tx:,.2f} $ • conversion {tot_cv:,.2f} $ • gestion {tot_ge:,.2f} $)")
-                    aff = piv.rename(columns={"username": "Élève", "groupe": "Groupe", "transaction": "Transactions ($)", "conversion": "Conversion ($)", "gestion": "Gestion ($)", "total": "Total ($)"})
-                    st.dataframe(aff[["Élève", "Groupe", "Transactions ($)", "Conversion ($)", "Gestion ($)", "Total ($)"]], use_container_width=True, hide_index=True)
-
-            with st.expander("Photos des meneurs (podium du classement)"):
-                st.info("Choisis un élève, dépose sa photo officielle : elle apparaîtra dans sa carte du podium s'il est dans les 3 premiers. Sans photo, la carte affiche ses initiales.")
-                _df_users_ph = conn.query("SELECT username FROM users ORDER BY username", ttl=0)
-                _liste_eleves_ph = _df_users_ph['username'].tolist() if not _df_users_ph.empty else []
-                if _liste_eleves_ph:
-                    eleve_photo = st.selectbox("Élève :", _liste_eleves_ph, key="eleve_photo_podium")
-                    photo_existante = obtenir_photo(eleve_photo)
-                    if photo_existante:
-                        st.image(f"data:image/jpeg;base64,{photo_existante}", width=90)
-                        st.caption("Photo actuelle de cet élève.")
-                    fichier_meneur = st.file_uploader("Photo de l'élève (jpg ou png)", type=["jpg", "jpeg", "png"], key="uploader_photo_meneur")
-                    col_ph1, col_ph2 = st.columns(2)
-                    if fichier_meneur and col_ph1.button("Enregistrer la photo", use_container_width=True):
-                        try:
-                            b64_meneur = traiter_photo(fichier_meneur.getvalue())
-                            with conn.session as session:
-                                session.execute(text("INSERT INTO photos (username, image, maj) VALUES (:u, :i, :d) ON CONFLICT (username) DO UPDATE SET image=:i, maj=:d"),
-                                                {"u": eleve_photo, "i": b64_meneur, "d": datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")})
-                                session.commit()
-                            obtenir_photo.clear()
-                            st.success(f"Photo enregistrée pour {eleve_photo}.")
-                            st.rerun()
-                        except Exception:
-                            st.error("Cette image n'a pas pu être traitée. Essaie un autre fichier.")
-                    if photo_existante and col_ph2.button("Retirer la photo", use_container_width=True):
-                        with conn.session as session:
-                            session.execute(text("DELETE FROM photos WHERE username=:u"), {"u": eleve_photo})
-                            session.commit()
-                        obtenir_photo.clear()
-                        st.rerun()
-
-            with st.expander("Correction règle 9h30 (achats pré-marché)"):
-                st.info(
-                    "Détecte automatiquement les achats avant 9h30 sur une période donnée, "
-                    "pour des actions dont la clôture du jour de bourse précédent était sous 5 $, "
-                    "puis annule d'un coup toutes les transactions du jour fautif pour ces actions "
-                    "(achats et ventes), comme si elles n'avaient jamais existé : cash remboursé, "
-                    "portefeuille recalculé."
-                )
-                from datetime import date as _date, timedelta as _td
-                _auj = _date.today()
-                col_d1, col_d2 = st.columns(2)
-                with col_d1:
-                    date_debut = st.date_input("Du", value=_auj - _td(days=7), key="d9_debut")
-                with col_d2:
-                    date_fin = st.date_input("Au", value=_auj, key="d9_fin")
-                if st.button("Analyser la période", key="btn_analyse_9h30"):
-                    ds0, ds1 = date_debut.isoformat(), date_fin.isoformat()
-                    with st.spinner(f"Analyse du {ds0} au {ds1} en cours..."):
-                        viol = analyser_violations_9h30(ds0, ds1)
-                        if not viol.empty:
-                            viol = calculer_gains_9h30(viol)
-                    if viol.empty:
-                        st.success(f"Aucun achat fautif détecté entre le {ds0} et le {ds1} avant 9h30.")
-                        st.session_state.pop('violations_9h30', None)
-                    else:
-                        st.session_state['violations_9h30'] = viol
-                        st.rerun()
-                viol = st.session_state.get('violations_9h30')
-                if viol is not None and not viol.empty:
-                    resume = viol.groupby(['date', 'username', 'ticker']).agg(
-                        total_achats=('total', 'sum'),
-                        prix_achat=('prix_achat', 'first'),
-                        cloture_veille=('cloture_veille', 'first'),
-                        gain_estime=('gain_estime', 'first'),
-                        heures_achat=('heures_achat', 'first'),
-                        heures_vente=('heures_vente', 'first')
-                    ).reset_index()
-                    resume.columns = ["Date", "Élève", "Action", "Total achats ($)", "Prix achat ($)", "Clôture veille ($)", "Gain estimé ($)", "Achat à", "Revente à"]
-                    resume["Sélectionner"] = True
-                    st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.** Coche les cas à annuler.")
-                    edited = st.data_editor(
-                        resume,
-                        column_config={"Sélectionner": st.column_config.CheckboxColumn("Sélectionner")},
-                        disabled=[c for c in resume.columns if c != "Sélectionner"],
-                        hide_index=True, use_container_width=True, key="editor_9h30"
-                    )
-                    sel = edited[edited["Sélectionner"]]
-                    st.markdown(f"**{len(sel)} cas sélectionnés.**")
-                    if st.button("Annuler la sélection", key="btn_exec_9h30", disabled=sel.empty):
-                        cles = set(zip(sel["Date"], sel["Élève"], sel["Action"]))
-                        viol_sel = viol[viol.apply(lambda r: (r['date'], r['username'], r['ticker']) in cles, axis=1)]
-                        with st.spinner("Annulation en cours..."):
-                            nb_c, nb_tx, tot_cash = executer_annulation_9h30(viol_sel)
-                        st.session_state.pop('violations_9h30', None)
-                        st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} cas. Cash total réajusté : ${tot_cash:+,.2f}.")
-                        st.rerun()
-
+            st.markdown("<div style='background:linear-gradient(180deg,#1E1E1E,#131313);border:1px solid #2A2A2A;border-left:3px solid #E50914;border-radius:10px;padding:9px 16px;margin:22px 0 12px;'><span style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.3rem;letter-spacing:0.08em;color:#FFFFFF;\'>COMPTES ET GROUPES</span></div>", unsafe_allow_html=True)
             with st.expander("Groupes : inscriptions et changements de groupe"):
                 st.info(
                     "Fermez un groupe quand tous ses élèves sont inscrits : plus personne "
@@ -5193,3 +5738,156 @@ else:
             else:
                 st.info("Aucun élève trouvé dans ce groupe.")
 
+
+            with st.expander("Gestion des mots de passe (Supabase)"):
+                st.warning("Ce lien ouvre la console Supabase, où les mots de passe des élèves peuvent être modifiés directement. À utiliser avec prudence.")
+                code_supabase = st.text_input("Code d'accès :", type="password", key="code_supabase", autocomplete="off")
+                try:
+                    _code_attendu = st.secrets.get("CODE_SUPABASE")
+                except Exception:
+                    _code_attendu = None
+                if _code_attendu and code_supabase == _code_attendu:
+                    st.link_button("Ouvrir la console Supabase", "https://supabase.com/dashboard/project/pixbjedmpvvjqswltzkq/editor/17585?schema=public")
+                elif code_supabase:
+                    st.error("Code incorrect.")
+
+            st.markdown("<div style='background:linear-gradient(180deg,#1E1E1E,#131313);border:1px solid #2A2A2A;border-left:3px solid #E50914;border-radius:10px;padding:9px 16px;margin:22px 0 12px;'><span style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.3rem;letter-spacing:0.08em;color:#FFFFFF;\'>RÈGLES ET SANCTIONS</span></div>", unsafe_allow_html=True)
+            st.subheader("Suspension d'un joueur")
+            st.caption("Un joueur suspendu peut se connecter et voir son portefeuille, mais aucun bouton ne fonctionne sur sa page, sauf Déconnexion. La suspension dure jusqu'à ce que tu la lèves ici.")
+            try:
+                susp_df = conn.query("SELECT username, depuis FROM joueurs_suspendus ORDER BY depuis", ttl=0)
+            except Exception:
+                susp_df = pd.DataFrame(columns=["username", "depuis"])
+            susp_noms = set(susp_df['username'].tolist()) if not susp_df.empty else set()
+            if susp_noms:
+                st.markdown("**Suspendus en ce moment :** " + " · ".join(
+                    f"{r['username']} (depuis le {r['depuis']})" for _, r in susp_df.iterrows()))
+            else:
+                st.caption("Aucun joueur suspendu en ce moment.")
+            users_susp = conn.query("SELECT username, groupe FROM users ORDER BY groupe, username", ttl=0)
+            choix_susp = [r['username'] for _, r in users_susp.iterrows()
+                          if r['username'] != "MathieuSavary"
+                          and not str(r['groupe'] or "").strip().lower().startswith("enseignant")]
+            sel_susp = st.selectbox("Joueur :", choix_susp, key="sel_suspension")
+            if sel_susp in susp_noms:
+                st.warning(f"{sel_susp} est suspendu en ce moment.")
+                if st.button("Lever la suspension", key="btn_lever_suspension", use_container_width=True):
+                    lever_suspension_joueur(sel_susp)
+                    st.success(f"Suspension levée pour {sel_susp}.")
+                    st.rerun()
+            elif st.button("Suspendre ce joueur", key="btn_suspendre", use_container_width=True):
+                suspendre_joueur(sel_susp)
+                st.success(f"{sel_susp} est suspendu. Il peut se connecter et voir son portefeuille, mais ne peut plus rien faire sauf se déconnecter.")
+                st.rerun()
+
+            with st.expander("Correction règle 9h30 (achats pré-marché)"):
+                st.info(
+                    "Détecte automatiquement les achats avant 9h30 sur une période donnée, "
+                    "pour des actions dont la clôture du jour de bourse précédent était sous 5 $, "
+                    "puis annule d'un coup toutes les transactions du jour fautif pour ces actions "
+                    "(achats et ventes), comme si elles n'avaient jamais existé : cash remboursé, "
+                    "portefeuille recalculé."
+                )
+                from datetime import date as _date, timedelta as _td
+                _auj = _date.today()
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    date_debut = st.date_input("Du", value=_auj - _td(days=7), key="d9_debut")
+                with col_d2:
+                    date_fin = st.date_input("Au", value=_auj, key="d9_fin")
+                if st.button("Analyser la période", key="btn_analyse_9h30"):
+                    ds0, ds1 = date_debut.isoformat(), date_fin.isoformat()
+                    with st.spinner(f"Analyse du {ds0} au {ds1} en cours..."):
+                        viol = analyser_violations_9h30(ds0, ds1)
+                        if not viol.empty:
+                            viol = calculer_gains_9h30(viol)
+                    if viol.empty:
+                        st.success(f"Aucun achat fautif détecté entre le {ds0} et le {ds1} avant 9h30.")
+                        st.session_state.pop('violations_9h30', None)
+                    else:
+                        st.session_state['violations_9h30'] = viol
+                        st.rerun()
+                viol = st.session_state.get('violations_9h30')
+                if viol is not None and not viol.empty:
+                    resume = viol.groupby(['date', 'username', 'ticker']).agg(
+                        total_achats=('total', 'sum'),
+                        prix_achat=('prix_achat', 'first'),
+                        cloture_veille=('cloture_veille', 'first'),
+                        gain_estime=('gain_estime', 'first'),
+                        heures_achat=('heures_achat', 'first'),
+                        heures_vente=('heures_vente', 'first')
+                    ).reset_index()
+                    resume.columns = ["Date", "Élève", "Action", "Total achats ($)", "Prix achat ($)", "Clôture veille ($)", "Gain estimé ($)", "Achat à", "Revente à"]
+                    resume["Sélectionner"] = True
+                    st.markdown(f"**{len(resume)} cas élève/action/jour concernés, {len(viol)} achats fautifs au total.** Coche les cas à annuler.")
+                    edited = st.data_editor(
+                        resume,
+                        column_config={"Sélectionner": st.column_config.CheckboxColumn("Sélectionner")},
+                        disabled=[c for c in resume.columns if c != "Sélectionner"],
+                        hide_index=True, use_container_width=True, key="editor_9h30"
+                    )
+                    sel = edited[edited["Sélectionner"]]
+                    st.markdown(f"**{len(sel)} cas sélectionnés.**")
+                    if st.button("Annuler la sélection", key="btn_exec_9h30", disabled=sel.empty):
+                        cles = set(zip(sel["Date"], sel["Élève"], sel["Action"]))
+                        viol_sel = viol[viol.apply(lambda r: (r['date'], r['username'], r['ticker']) in cles, axis=1)]
+                        with st.spinner("Annulation en cours..."):
+                            nb_c, nb_tx, tot_cash = executer_annulation_9h30(viol_sel)
+                        st.session_state.pop('violations_9h30', None)
+                        st.success(f"Terminé : {nb_tx} transactions annulées pour {nb_c} cas. Cash total réajusté : ${tot_cash:+,.2f}.")
+                        st.rerun()
+
+            st.markdown("<div style='background:linear-gradient(180deg,#1E1E1E,#131313);border:1px solid #2A2A2A;border-left:3px solid #E50914;border-radius:10px;padding:9px 16px;margin:22px 0 12px;'><span style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.3rem;letter-spacing:0.08em;color:#FFFFFF;\'>ARGENT</span></div>", unsafe_allow_html=True)
+            with st.expander("Frais du mode vraie bourse (par élève)"):
+                st.info("Frais prélevés depuis le passage au mode vraie bourse : 10 $ par transaction, 1,5 % de conversion sur les titres américains, 0,5 % de frais de gestion le 1er de chaque mois (dès le 1er novembre).")
+                frais_sup = conn.query(
+                    "SELECT f.username AS username, u.groupe AS groupe, f.type AS type, SUM(f.montant) AS tot "
+                    "FROM frais f JOIN users u ON u.username = f.username GROUP BY f.username, u.groupe, f.type",
+                    ttl=0)
+                if frais_sup.empty:
+                    st.write("Aucun frais prélevé pour le moment.")
+                else:
+                    piv = frais_sup.pivot_table(index=["username", "groupe"], columns="type", values="tot", aggfunc="sum", fill_value=0.0).reset_index()
+                    for col_f in ["transaction", "conversion", "gestion"]:
+                        if col_f not in piv.columns:
+                            piv[col_f] = 0.0
+                    piv["total"] = piv["transaction"] + piv["conversion"] + piv["gestion"]
+                    piv = piv.sort_values("total", ascending=False)
+                    tot_tx = float(piv["transaction"].sum())
+                    tot_cv = float(piv["conversion"].sum())
+                    tot_ge = float(piv["gestion"].sum())
+                    st.markdown(f"**Total de la classe : {tot_tx + tot_cv + tot_ge:,.2f} $** (transactions {tot_tx:,.2f} $ • conversion {tot_cv:,.2f} $ • gestion {tot_ge:,.2f} $)")
+                    aff = piv.rename(columns={"username": "Élève", "groupe": "Groupe", "transaction": "Transactions ($)", "conversion": "Conversion ($)", "gestion": "Gestion ($)", "total": "Total ($)"})
+                    st.dataframe(aff[["Élève", "Groupe", "Transactions ($)", "Conversion ($)", "Gestion ($)", "Total ($)"]], use_container_width=True, hide_index=True)
+
+            st.markdown("<div style='background:linear-gradient(180deg,#1E1E1E,#131313);border:1px solid #2A2A2A;border-left:3px solid #E50914;border-radius:10px;padding:9px 16px;margin:22px 0 12px;'><span style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.3rem;letter-spacing:0.08em;color:#FFFFFF;\'>AFFICHAGE DU CLASSEMENT</span></div>", unsafe_allow_html=True)
+            with st.expander("Photos des meneurs (podium du classement)"):
+                st.info("Choisis un élève, dépose sa photo officielle : elle apparaîtra dans sa carte du podium s'il est dans les 3 premiers. Sans photo, la carte affiche ses initiales.")
+                _df_users_ph = conn.query("SELECT username FROM users ORDER BY username", ttl=0)
+                _liste_eleves_ph = _df_users_ph['username'].tolist() if not _df_users_ph.empty else []
+                if _liste_eleves_ph:
+                    eleve_photo = st.selectbox("Élève :", _liste_eleves_ph, key="eleve_photo_podium")
+                    photo_existante = obtenir_photo(eleve_photo)
+                    if photo_existante:
+                        st.image(f"data:image/jpeg;base64,{photo_existante}", width=90)
+                        st.caption("Photo actuelle de cet élève.")
+                    fichier_meneur = st.file_uploader("Photo de l'élève (jpg ou png)", type=["jpg", "jpeg", "png"], key="uploader_photo_meneur")
+                    col_ph1, col_ph2 = st.columns(2)
+                    if fichier_meneur and col_ph1.button("Enregistrer la photo", use_container_width=True):
+                        try:
+                            b64_meneur = traiter_photo(fichier_meneur.getvalue())
+                            with conn.session as session:
+                                session.execute(text("INSERT INTO photos (username, image, maj) VALUES (:u, :i, :d) ON CONFLICT (username) DO UPDATE SET image=:i, maj=:d"),
+                                                {"u": eleve_photo, "i": b64_meneur, "d": datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")})
+                                session.commit()
+                            obtenir_photo.clear()
+                            st.success(f"Photo enregistrée pour {eleve_photo}.")
+                            st.rerun()
+                        except Exception:
+                            st.error("Cette image n'a pas pu être traitée. Essaie un autre fichier.")
+                    if photo_existante and col_ph2.button("Retirer la photo", use_container_width=True):
+                        with conn.session as session:
+                            session.execute(text("DELETE FROM photos WHERE username=:u"), {"u": eleve_photo})
+                            session.commit()
+                        obtenir_photo.clear()
+                        st.rerun()
