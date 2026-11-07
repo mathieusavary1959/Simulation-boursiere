@@ -1943,6 +1943,8 @@ st.markdown("""
        Même famille que les cartes KPI, accent cyan : une couleur
        réservée aux ordres en attente sur la plateforme. */
     section[data-testid="stSidebar"] { background: #0A0A0A; border-right: 1px solid #262626; }
+    button[data-testid="stSidebarCollapseButton"], div[data-testid="stSidebarCollapseButton"] { display: none !important; }
+    div[data-testid="stSidebarCollapsedControl"], div[data-testid="collapsedControl"] { visibility: visible !important; display: flex !important; position: fixed !important; top: 58px !important; left: 0 !important; z-index: 1000001 !important; background: #E50914 !important; color: #FFFFFF !important; border-radius: 0 10px 10px 0 !important; padding: 10px 12px !important; box-shadow: 0 10px 22px -6px rgba(229, 9, 20, 0.65) !important; opacity: 1 !important; }
     .ordre-card {
         background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
         border: 1px solid rgba(34, 211, 238, 0.35);
@@ -4472,7 +4474,6 @@ else:
 
     # --- ONGLET 1 : MARCHÉ & ANALYSE ---
     if tab_choisi == "Marché & Analyse":
-        afficher_missions(user)
         col_l1, col_l2, col_l3 = st.columns(3)
         col_l1.link_button("Les Affaires", "https://www.lesaffaires.com/?view=register&product_id=1898&plan_id=62962&utm_campaign=ABNT_PROMO30_ADSGOOGLE&utm_medium=ADS&utm_source=ADSGOOGLE&utm_term=landing&gad_source=1&gad_campaignid=24159803993&gbraid=0AAAAADel4hnhaUpWgv3yFaDiNmCZAJv32&gclid=CjwKCAjwrP3VBhBbEiwAnaqpQyOPax6Hc_HEcl3kWXH3NxC0aQVSEw-GAa87RTweJxM5yyasiT0W4RoCAVQQAvD_BwE", use_container_width=True)
         col_l2.link_button("Barchart", "https://www.barchart.com/", use_container_width=True)
@@ -5023,6 +5024,7 @@ else:
 
     # --- ONGLET 2 : POSITIONS ET IMPRESSION PRO ---
     elif tab_choisi == "Mes Positions":
+        afficher_missions(user)
         st.markdown("""
             <style>
             @media print {
