@@ -4676,7 +4676,12 @@ else:
     TABS_LIST = ["Marché & Analyse", "Mes Positions", "Mon Historique", "Classement"]
     if est_compte_enseignant(user):
         TABS_LIST.append("Supervision Prof")
-    if st.session_state.get("main_nav_radio") not in TABS_LIST:
+    # La validation se fait contre TOUS les onglets connus, pas contre
+    # la liste du moment : si la verification du compte enseignant
+    # hoquette pendant un passage, l'onglet Supervision ne doit pas
+    # etre purge (bogue signale le 6 nov. au soir : retour subit a
+    # Mes Positions et PIN a retaper).
+    if st.session_state.get("main_nav_radio") not in TABS_LIST + ["Supervision Prof"]:
         st.session_state.pop("main_nav_radio", None)
     default_tab = st.query_params.get("tab", "Marché & Analyse")
     if default_tab not in TABS_LIST:
@@ -5918,8 +5923,10 @@ else:
             st.warning("Supervision non configurée : le PIN enseignant n'est pas défini dans les secrets de l'application.")
             pin = ""
         else:
-            pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off")
+            pin = st.text_input("PIN Enseignant :", type="password", autocomplete="off", key="pin_sup")
         if _pin_attendu and pin == _pin_attendu:
+            st.session_state["sup_ok"] = True
+        if _pin_attendu and st.session_state.get("sup_ok"):
             st.markdown("<div style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:2.2rem;letter-spacing:0.06em;color:#FFFFFF;line-height:1;margin:4px 0 2px;\'>SUPERVISION</div><div style='color:#9CA3AF;font-size:0.92rem;margin-bottom:12px;'>La console des enseignants, organisée par tâche : comptes, règles, argent et affichage.</div>", unsafe_allow_html=True)
             # --- KRACH BOURSIER : panneau en haut de la Supervision (refonte du 3 nov. :
             # enseigne néon jaune pulsante, visible dès l'ouverture de l'onglet) ---
@@ -6011,12 +6018,41 @@ else:
             if st.session_state.get("sup_section") not in _SECTIONS_SUP:
                 st.session_state["sup_section"] = "Comptes"
             _sup_actuelle = st.session_state["sup_section"]
+            # Couleurs de la console : la section active en bleu acier,
+            # les autres en cartes sombres (le rouge reste la couleur
+            # des actions, pas de la navigation de la console).
+            _css_sup = "<style>"
+            for _i_css, _n_css in enumerate(_SECTIONS_SUP):
+                if _n_css == _sup_actuelle:
+                    _css_sup += (
+                        f'div[class~="st-key-supsec_{_i_css}"] button {{'
+                        'background: linear-gradient(180deg, #2B6CB0 0%, #1A4E79 100%) !important;'
+                        'border: 1px solid #63B3ED !important; border-radius: 10px !important;'
+                        'box-shadow: 0 10px 22px -10px rgba(43, 108, 176, 0.65) !important;'
+                        '}'
+                        f'div[class~="st-key-supsec_{_i_css}"] button p {{'
+                        'color: #FFFFFF !important; font-weight: 800 !important;'
+                        '}')
+                else:
+                    _css_sup += (
+                        f'div[class~="st-key-supsec_{_i_css}"] button {{'
+                        'background: linear-gradient(180deg, #1E1E1E 0%, #141414 100%) !important;'
+                        'border: 1px solid #2A2A2A !important; border-radius: 10px !important;'
+                        '}'
+                        f'div[class~="st-key-supsec_{_i_css}"] button p {{'
+                        'color: #D4D4D4 !important; font-weight: 600 !important;'
+                        '}'
+                        f'div[class~="st-key-supsec_{_i_css}"] button:hover {{'
+                        'border-color: #4A4A4A !important;'
+                        '}')
+            _css_sup += "</style>"
+            st.markdown(_css_sup, unsafe_allow_html=True)
             _cols_sup = st.columns(len(_SECTIONS_SUP))
             for _i_sup, _nom_sup in enumerate(_SECTIONS_SUP):
                 with _cols_sup[_i_sup]:
-                    if st.button(_nom_sup, key=f"supsec_{_i_sup}", use_container_width=True, type="primary" if _nom_sup == _sup_actuelle else "secondary"):
+                    if st.button(_nom_sup, key=f"supsec_{_i_sup}", use_container_width=True):
                         st.session_state["sup_section"] = _nom_sup
-                        st.rerun()
+            _sup_actuelle = st.session_state["sup_section"]
             if _sup_actuelle == "Comptes":
                 sup_fiche(user)
             elif _sup_actuelle == "Groupes et accès":
