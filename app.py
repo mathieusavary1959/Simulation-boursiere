@@ -2316,9 +2316,8 @@ st.markdown("""
     /* --- CARTES ORDRES EN ATTENTE (prix d'ouverture) ---
        Même famille que les cartes KPI, accent cyan : une couleur
        réservée aux ordres en attente sur la plateforme. */
-    section[data-testid="stSidebar"] { background: #0A0A0A; border-right: 1px solid #262626; min-width: 206px !important; max-width: 206px !important; width: 206px !important; }
-    button[data-testid="stSidebarCollapseButton"], div[data-testid="stSidebarCollapseButton"] { display: none !important; }
-    div[data-testid="stSidebarCollapsedControl"], div[data-testid="collapsedControl"] { visibility: visible !important; display: flex !important; position: fixed !important; top: 58px !important; left: 0 !important; z-index: 1000001 !important; background: #E50914 !important; color: #FFFFFF !important; border-radius: 0 10px 10px 0 !important; padding: 10px 12px !important; box-shadow: 0 10px 22px -6px rgba(229, 9, 20, 0.65) !important; opacity: 1 !important; }
+    /* Barre laterale native : plus utilisee depuis le retour des onglets du haut (6 nov. 2026 au soir). */
+    section[data-testid="stSidebar"], button[data-testid="stSidebarCollapseButton"], div[data-testid="stSidebarCollapseButton"], div[data-testid="stSidebarCollapsedControl"], div[data-testid="collapsedControl"] { display: none !important; }
     .ordre-card {
         background: linear-gradient(180deg, #262626 0%, #1A1A1A 100%);
         border: 1px solid rgba(34, 211, 238, 0.35);
@@ -4690,45 +4689,62 @@ else:
         st.session_state["main_nav_radio"] = default_tab
     tab_choisi = st.session_state["main_nav_radio"]
 
+    # --- NAVIGATION DU HAUT (6 nov. 2026, retour apres l'essai 4) :
+    # la barre laterale native passait en panneau par-dessus le
+    # contenu dans le navigateur de Mathieu (un clic sur deux tombait
+    # sur le panneau). Les onglets vivent donc en haut de la page, en
+    # grandes cartes avec un sous-titre qui dit ce qu'on trouve dans
+    # chaque page, pour que l'oeil les trouve du premier coup. Aucun
+    # element n'est mis dans st.sidebar : elle ne se rend pas.
+    _SOUS_TITRES_NAV = {
+        "Marché & Analyse": "Cours, graphiques et achats",
+        "Mes Positions": "Ton portefeuille et tes missions",
+        "Mon Historique": "Toutes tes transactions",
+        "Classement": "Les meneurs et ton rang",
+        "Supervision Prof": "Console des enseignants",
+    }
     _css_nav = "<style>"
     for _i_nav, _t_nav in enumerate(TABS_LIST):
         if _t_nav == tab_choisi:
             _css_nav += (
                 f'div[class~="st-key-navbtn_{_i_nav}"] button {{'
                 'background: linear-gradient(180deg, #F6121D 0%, #C40812 100%) !important;'
-                'border: 1px solid #FF3B47 !important; border-radius: 10px !important;'
-                'box-shadow: 0 10px 22px -8px rgba(229, 9, 20, 0.55) !important;'
-                'padding: 10px 14px !important; justify-content: flex-start !important;'
+                'border: 1px solid #FF3B47 !important; border-radius: 12px !important;'
+                'box-shadow: 0 12px 24px -8px rgba(229, 9, 20, 0.55) !important;'
+                'padding: 13px 8px !important; justify-content: center !important;'
                 '}'
                 f'div[class~="st-key-navbtn_{_i_nav}"] button p {{'
-                'color: #FFFFFF !important; font-weight: 800 !important; font-size: 15px !important;'
+                'color: #FFFFFF !important; font-weight: 800 !important; font-size: 16.5px !important;'
+                'letter-spacing: 0.02em !important;'
                 '}')
         else:
             _css_nav += (
                 f'div[class~="st-key-navbtn_{_i_nav}"] button {{'
-                'background: linear-gradient(180deg, #1E1E1E 0%, #141414 100%) !important;'
-                'border: 1px solid #2A2A2A !important; border-radius: 10px !important;'
-                'padding: 10px 14px !important; justify-content: flex-start !important;'
+                'background: linear-gradient(180deg, #262626 0%, #171717 100%) !important;'
+                'border: 1px solid #3A3A3A !important; border-radius: 12px !important;'
+                'padding: 13px 8px !important; justify-content: center !important;'
                 '}'
                 f'div[class~="st-key-navbtn_{_i_nav}"] button p {{'
-                'color: #D4D4D4 !important; font-weight: 600 !important; font-size: 15px !important;'
+                'color: #F3F4F6 !important; font-weight: 700 !important; font-size: 16.5px !important;'
+                'letter-spacing: 0.02em !important;'
                 '}'
                 f'div[class~="st-key-navbtn_{_i_nav}"] button:hover {{'
-                'border-color: #4A4A4A !important;'
+                'border-color: #E50914 !important;'
                 '}')
     _css_nav += "</style>"
-
-    with st.sidebar:
-        st.markdown(
-            "<div style='font-family:\'Bebas Neue\',\'Work Sans\',sans-serif;font-size:1.45rem;letter-spacing:0.06em;color:#FFFFFF;line-height:1.05;'>MONDE <span style='color:#E50914;'>&</span> FINANCE</div>"
-            "<div style='color:#9CA3AF;font-size:0.8rem;margin:2px 0 14px;'>Simulation boursière</div>",
-            unsafe_allow_html=True)
-        st.markdown(_css_nav, unsafe_allow_html=True)
-        for _i_nav, _t_nav in enumerate(TABS_LIST):
+    st.markdown(_css_nav, unsafe_allow_html=True)
+    _cols_nav = st.columns(len(TABS_LIST))
+    for _i_nav, _t_nav in enumerate(TABS_LIST):
+        with _cols_nav[_i_nav]:
             if st.button(_t_nav, key=f"navbtn_{_i_nav}", use_container_width=True):
                 st.session_state["main_nav_radio"] = _t_nav
                 st.query_params["tab"] = _t_nav
                 st.rerun()
+            _st_nav = _SOUS_TITRES_NAV.get(_t_nav, "")
+            _coul_st = "#FCA5A5" if _t_nav == tab_choisi else "#9CA3AF"
+            st.markdown(
+                f"<div style='text-align:center;color:{_coul_st};font-size:0.8rem;"
+                f"margin-top:-6px;'>{_st_nav}</div>", unsafe_allow_html=True)
 
     st.query_params["tab"] = tab_choisi
 
