@@ -3491,6 +3491,30 @@ def jumeau_to(symbole):
         return None
 
 
+def titre_est_cdr(symbole):
+    """Vrai si le titre .TO affiche est un CDR (certificat qui suit une
+    action americaine sans en etre une). Detection par le nom court
+    Yahoo (« APPLE CDR (CAD HEDGED) »), resultat garde en session pour
+    ne pas rappeler Yahoo a chaque passage."""
+    s = str(symbole).strip().upper()
+    if not s.endswith('.TO'):
+        return False
+    try:
+        cache = st.session_state.setdefault('_cdr_cache', {})
+    except Exception:
+        cache = {}
+    if s in cache:
+        return cache[s]
+    res = False
+    try:
+        court = str((yf.Ticker(s).info or {}).get('shortName') or '')
+        res = 'CDR' in court.upper()
+    except Exception:
+        res = False
+    cache[s] = res
+    return res
+
+
 def compte_en_verification(username):
     """Vrai si le comptant du compte est illisible (NaN). Les comptes
     exemptés (enseignant) ne sont jamais bloqués par ce garde-fou."""
@@ -5147,6 +5171,18 @@ else:
                 else:
                     st.caption("Revente possible 30 minutes après l'achat.")
 
+                # Mention CDR : si le titre affiche est lui-meme un
+                # certificat (AAPL.TO choisi directement, ou apres le
+                # choix Toronto), l'eleve doit le voir dans le panneau,
+                # pas seulement au moment du choix de provenance.
+                if selected_ticker.upper().endswith('.TO') and titre_est_cdr(selected_ticker):
+                    st.markdown(
+                        "<div style='background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.55);"
+                        "border-radius:10px;padding:9px 13px;color:#FDE68A;font-size:0.93rem;margin:8px 0;'>"
+                        f"Tu regardes un <b>certificat (CDR)</b> : il copie le prix de l'action {html.escape(selected_ticker.upper()[:-3])}, "
+                        "en argent canadien. Ce n'est pas l'action elle-m\u00eame : une part vaut un morceau d'une action.</div>",
+                        unsafe_allow_html=True)
+
                 # --- GARDE-FOU JUMEAU .TO ---
                 # Si le symbole nu a un jumeau à Toronto (DOL le FNB
                 # américain contre DOL.TO Dollarama), l'élève confirme
@@ -5156,33 +5192,38 @@ else:
                 jumeau_ok = bool(st.session_state.get(f"jumeau_ok_{selected_ticker}"))
                 achat_bloque_jumeau = bool(jumeau and not jumeau_ok)
                 if achat_bloque_jumeau:
-                    # Bande compacte (essai 4, 6 nov. au soir) : le choix
-                    # de provenance vit dans le panneau, en une phrase et
-                    # deux pastilles, au lieu d'une grande carte a lire.
+                    # Bande compacte : la provenance en mots simples.
+                    # Jamais de codes nus dans les pastilles : un eleve
+                    # doit comprendre sans connaitre les suffixes.
                     if jumeau.get('cdr_to'):
                         st.markdown(
-                            "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 2px;'>"
-                            "Cette entreprise se vend \u00e0 New York et \u00e0 Toronto. Choisis o\u00f9 tu l'ach\u00e8tes.</div>"
-                            "<div style='color:#FBBF24;font-size:0.92rem;margin-bottom:8px;'>"
-                            "Attention : \u00e0 Toronto, c'est un certificat (CDR) qui suit l'action, pas l'action elle-m\u00eame.</div>",
+                            f"<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 8px;'>"
+                            f"Attention, pi\u00e8ge : \u00e0 Toronto, ce n'est pas la vraie action de {html.escape(str(jumeau['nom_base']))}. "
+                            "C'est un certificat qui copie son prix, en argent canadien.</div>",
                             unsafe_allow_html=True)
-                        lib_jb1 = f"New York : {selected_ticker.upper()} \u00b7 $ US"
-                        lib_jb2 = f"Toronto : {selected_ticker.upper()}.TO \u00b7 $ CA (certificat)"
+                        lib_jb1 = "New York \u00b7 la vraie action"
+                        lib_jb2 = "Toronto \u00b7 le certificat"
                     elif jumeau['nom_base'] == jumeau['nom_to']:
                         st.markdown(
                             "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 8px;'>"
-                            "Cette entreprise se vend \u00e0 New York et \u00e0 Toronto. Choisis o\u00f9 tu l'ach\u00e8tes.</div>",
+                            "M\u00eame entreprise des deux c\u00f4t\u00e9s de la fronti\u00e8re. "
+                            "Tu l'ach\u00e8tes en argent am\u00e9ricain \u00e0 New York, ou en argent canadien \u00e0 Toronto ?</div>",
                             unsafe_allow_html=True)
-                        lib_jb1 = f"New York : {selected_ticker.upper()} \u00b7 $ US"
-                        lib_jb2 = f"Toronto : {selected_ticker.upper()}.TO \u00b7 $ CA"
+                        lib_jb1 = "New York \u00b7 argent am\u00e9ricain"
+                        lib_jb2 = "Toronto \u00b7 argent canadien"
                     else:
+                        _nom_a = str(jumeau['nom_base'])
+                        _nom_b = str(jumeau['nom_to'])
+                        if _nom_a.strip().upper() == selected_ticker.upper():
+                            _nom_a = "le titre am\u00e9ricain"
+                        if _nom_b.strip().upper() == (selected_ticker.upper() + ".TO"):
+                            _nom_b = "le titre canadien"
                         st.markdown(
-                            "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 2px;'>"
-                            "Deux entreprises diff\u00e9rentes portent presque le m\u00eame symbole. Choisis la bonne.</div>"
-                            f"<div style='color:#9CA3AF;font-size:0.9rem;margin-bottom:8px;'>{html.escape(selected_ticker.upper())} = {html.escape(str(jumeau['nom_base']))} \u00b7 {html.escape(selected_ticker.upper())}.TO = {html.escape(str(jumeau['nom_to']))}</div>",
+                            "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 8px;'>"
+                            "Deux entreprises diff\u00e9rentes ont presque le m\u00eame code. Choisis la bonne.</div>",
                             unsafe_allow_html=True)
-                        lib_jb1 = f"New York : {selected_ticker.upper()} \u00b7 $ US"
-                        lib_jb2 = f"Toronto : {selected_ticker.upper()}.TO \u00b7 $ CA"
+                        lib_jb1 = f"{_nom_a[:32]} \u00b7 \u00c9tats-Unis"
+                        lib_jb2 = f"{_nom_b[:32]} \u00b7 Toronto"
                     jb1, jb2 = st.columns(2)
                     if jb1.button(lib_jb1, key=f"jb_us_{selected_ticker}", use_container_width=True):
                         st.session_state[f"jumeau_ok_{selected_ticker}"] = True
