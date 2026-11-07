@@ -1517,6 +1517,15 @@ def sup_groupes(user):
 
 
 
+def _cle_tri_nom(nom):
+    """Cle de tri alphabetique humain : ignore la casse et les accents
+    (Élodie se classe avec les E, pas apres les Z). Le tri SQL brut
+    melange les eleves dans les listes de la console."""
+    import unicodedata as _ud
+    n = _ud.normalize('NFKD', str(nom))
+    return ''.join(c for c in n if not _ud.combining(c)).casefold()
+
+
 def sup_fiche(user):
     grp_p = st.selectbox("Groupe :", ["Tous les groupes"] + LISTE_GROUPES, key="prof_grp")
 
@@ -1526,6 +1535,7 @@ def sup_fiche(user):
         e_list = conn.query("SELECT username FROM users WHERE groupe=:g ORDER BY username", params={"g": grp_p}, ttl=0)['username'].tolist()
 
     if e_list:
+        e_list = sorted(e_list, key=_cle_tri_nom)
         e_sel = st.selectbox("Élève à inspecter :", e_list)
         e_data_df = conn.query("SELECT cash, groupe FROM users WHERE username=:u", params={"u": e_sel}, ttl=0)
 
@@ -1668,9 +1678,9 @@ def sup_suspension(user):
     else:
         st.caption("Aucun joueur suspendu en ce moment.")
     users_susp = conn.query("SELECT username, groupe FROM users ORDER BY groupe, username", ttl=0)
-    choix_susp = [r['username'] for _, r in users_susp.iterrows()
+    choix_susp = sorted([r['username'] for _, r in users_susp.iterrows()
                   if r['username'] != "MathieuSavary"
-                  and not str(r['groupe'] or "").strip().lower().startswith("enseignant")]
+                  and not str(r['groupe'] or "").strip().lower().startswith("enseignant")], key=_cle_tri_nom)
     sel_susp = st.selectbox("Joueur :", choix_susp, key="sel_suspension")
     if sel_susp in susp_noms:
         st.warning(f"{sel_susp} est suspendu en ce moment.")
@@ -1774,7 +1784,7 @@ def sup_photos(user):
     st.markdown("<div style=\'font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.25rem;letter-spacing:0.06em;color:#FFFFFF;margin:14px 0 6px;\'>PHOTOS DES MENEURS (PODIUM DU CLASSEMENT)</div>", unsafe_allow_html=True)
     st.info("Choisis un élève, dépose sa photo officielle : elle apparaîtra dans sa carte du podium s'il est dans les 3 premiers. Sans photo, la carte affiche ses initiales.")
     _df_users_ph = conn.query("SELECT username FROM users ORDER BY username", ttl=0)
-    _liste_eleves_ph = _df_users_ph['username'].tolist() if not _df_users_ph.empty else []
+    _liste_eleves_ph = sorted(_df_users_ph['username'].tolist(), key=_cle_tri_nom) if not _df_users_ph.empty else []
     if _liste_eleves_ph:
         eleve_photo = st.selectbox("Élève :", _liste_eleves_ph, key="eleve_photo_podium")
         photo_existante = obtenir_photo(eleve_photo)
@@ -5146,41 +5156,34 @@ else:
                 jumeau_ok = bool(st.session_state.get(f"jumeau_ok_{selected_ticker}"))
                 achat_bloque_jumeau = bool(jumeau and not jumeau_ok)
                 if achat_bloque_jumeau:
-                    jb1, jb2 = st.columns(2)
+                    # Bande compacte (essai 4, 6 nov. au soir) : le choix
+                    # de provenance vit dans le panneau, en une phrase et
+                    # deux pastilles, au lieu d'une grande carte a lire.
                     if jumeau.get('cdr_to'):
-                        _titre_j = "ATTENTION : CE N'EST PAS LA MÊME ACTION"
-                        _desc_j = (f"{selected_ticker.upper()}.TO n'est pas l'action {jumeau['nom_base']}. C'est un CDR, un certificat qui suit son cours : "
-                                   "une part vaut beaucoup moins cher parce qu'elle ne représente qu'un morceau d'une action. Elle se paie en dollars canadiens, "
-                                   "sans conversion, et son prix est protégé contre les hauts et les bas du taux de change. Son rendement suit l'action, "
-                                   "mais pas exactement, et de petits frais sont prélevés à l'intérieur du certificat.")
-                        _nom_affiche_to = jumeau.get('court_to') or jumeau['nom_to']
-                        _detail_to = "Certificat (CDR) · Toronto · en dollars canadiens · suit l'action, sans en être une"
-                        lib_jb1 = f"New York : {selected_ticker}, la vraie action, en dollars US"
-                        lib_jb2 = f"Toronto : {selected_ticker}.TO, le certificat (CDR), en dollars canadiens"
+                        st.markdown(
+                            "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 2px;'>"
+                            "Cette entreprise se vend \u00e0 New York et \u00e0 Toronto. Choisis o\u00f9 tu l'ach\u00e8tes.</div>"
+                            "<div style='color:#FBBF24;font-size:0.92rem;margin-bottom:8px;'>"
+                            "Attention : \u00e0 Toronto, c'est un certificat (CDR) qui suit l'action, pas l'action elle-m\u00eame.</div>",
+                            unsafe_allow_html=True)
+                        lib_jb1 = f"New York : {selected_ticker.upper()} \u00b7 $ US"
+                        lib_jb2 = f"Toronto : {selected_ticker.upper()}.TO \u00b7 $ CA (certificat)"
                     elif jumeau['nom_base'] == jumeau['nom_to']:
-                        _titre_j = "TON ACTION VIENT D'OÙ ?"
-                        _desc_j = "La même entreprise se vend à New York et à Toronto. Choisis sa provenance : la devise change, et la conversion de 1,5 % s'applique sur le titre américain, à l'achat et à la vente."
-                        lib_jb1 = f"New York : {selected_ticker}, en dollars US"
-                        lib_jb2 = f"Toronto : {selected_ticker}.TO, en dollars canadiens"
-                        _nom_affiche_to = jumeau['nom_to']
-                        _detail_to = "Bourse de Toronto · en dollars canadiens · aucune conversion"
+                        st.markdown(
+                            "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 8px;'>"
+                            "Cette entreprise se vend \u00e0 New York et \u00e0 Toronto. Choisis o\u00f9 tu l'ach\u00e8tes.</div>",
+                            unsafe_allow_html=True)
+                        lib_jb1 = f"New York : {selected_ticker.upper()} \u00b7 $ US"
+                        lib_jb2 = f"Toronto : {selected_ticker.upper()}.TO \u00b7 $ CA"
                     else:
-                        _titre_j = "DEUX TITRES SE RESSEMBLENT"
-                        _desc_j = "Deux entreprises différentes portent presque le même symbole. Choisis le bon avant d'acheter."
-                        lib_jb1 = f"New York : {selected_ticker}, le titre américain"
-                        lib_jb2 = f"Toronto : {selected_ticker}.TO, le titre canadien"
-                        _nom_affiche_to = jumeau['nom_to']
-                        _detail_to = "Bourse de Toronto · en dollars canadiens · aucune conversion"
-                    _carte_j = (
-                        "<div style='background:linear-gradient(180deg,#262626 0%,#1A1A1A 100%);border:1px solid rgba(255,255,255,0.12);border-top:6px solid #E50914;border-radius:14px;padding:18px 20px 14px;margin:10px 0 6px;box-shadow:0 16px 32px -14px rgba(0,0,0,0.9);'>"
-                        f"<div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.7rem;letter-spacing:0.05em;color:#FFFFFF;line-height:1;\">{_titre_j}</div>"
-                        f"<div style='color:#D1D5DB;font-size:0.95rem;margin:6px 0 12px;'>{_desc_j}</div>"
-                        "<div style='display:flex;gap:12px;flex-wrap:wrap;'>"
-                        f"<div style='flex:1;min-width:190px;background:#0D0D0D;border:1.5px solid #3A3A3A;border-radius:10px;padding:12px 14px;'><div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.5rem;color:#FFFFFF;letter-spacing:0.04em;\">{html.escape(selected_ticker.upper())}</div><div style='color:#FFFFFF;font-weight:700;font-size:0.95rem;'>{html.escape(str(jumeau['nom_base']))}</div><div style='color:#9CA3AF;font-size:0.88rem;margin-top:2px;'>Bourse des États-Unis · en dollars US · conversion de 1,5 %</div></div>"
-                        f"<div style='flex:1;min-width:190px;background:#0D0D0D;border:1.5px solid #3A3A3A;border-radius:10px;padding:12px 14px;'><div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.5rem;color:#FFFFFF;letter-spacing:0.04em;\">{html.escape(selected_ticker.upper())}.TO</div><div style='color:#FFFFFF;font-weight:700;font-size:0.95rem;'>{html.escape(str(_nom_affiche_to))}</div><div style='color:#9CA3AF;font-size:0.88rem;margin-top:2px;'>{_detail_to}</div></div>"
-                        "</div>"
-                        "<div style='color:#9CA3AF;font-size:0.88rem;margin-top:10px;'>Choisis la provenance ci-dessous : l'achat se débloque aussitôt.</div></div>")
-                    st.markdown(_carte_j, unsafe_allow_html=True)
+                        st.markdown(
+                            "<div style='color:#F3F4F6;font-size:0.95rem;margin:8px 0 2px;'>"
+                            "Deux entreprises diff\u00e9rentes portent presque le m\u00eame symbole. Choisis la bonne.</div>"
+                            f"<div style='color:#9CA3AF;font-size:0.9rem;margin-bottom:8px;'>{html.escape(selected_ticker.upper())} = {html.escape(str(jumeau['nom_base']))} \u00b7 {html.escape(selected_ticker.upper())}.TO = {html.escape(str(jumeau['nom_to']))}</div>",
+                            unsafe_allow_html=True)
+                        lib_jb1 = f"New York : {selected_ticker.upper()} \u00b7 $ US"
+                        lib_jb2 = f"Toronto : {selected_ticker.upper()}.TO \u00b7 $ CA"
+                    jb1, jb2 = st.columns(2)
                     if jb1.button(lib_jb1, key=f"jb_us_{selected_ticker}", use_container_width=True):
                         st.session_state[f"jumeau_ok_{selected_ticker}"] = True
                         st.rerun()
