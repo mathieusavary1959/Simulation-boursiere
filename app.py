@@ -5902,7 +5902,7 @@ else:
                 st.markdown(
                     f"<div class='meneur-card'><div class='meneur-titre'>Meneur du jour</div>"
                     f"<div class='meneur-nom' style='font-size:2.15rem;'>{_meneur['Élève']}</div>"
-                    f"<div class='meneur-val'>+{float(_meneur['GainJourPct']):.1f} % aujourd'hui</div>"
+                    f"<div class='meneur-val'>+{float(_meneur['GainJourPct']):.1f} % aujourd'hui · +{float(_meneur['GainJour']):,.2f} $</div>"
                     f"<div class='meneur-detail'>Calculé sur ses positions, comparées à la clôture d'hier. "
                     f"Un titre d'affichage seulement : il ne donne rien, sauf le droit de s'en vanter jusqu'à demain.</div></div>",
                     unsafe_allow_html=True)
@@ -6068,6 +6068,7 @@ else:
                 with _cols_sup[_i_sup]:
                     if st.button(_nom_sup, key=f"supsec_{_i_sup}", use_container_width=True):
                         st.session_state["sup_section"] = _nom_sup
+                        st.rerun()
             _sup_actuelle = st.session_state["sup_section"]
             if _sup_actuelle == "Comptes":
                 sup_fiche(user)
