@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 import xml.etree.ElementTree as ET
 import requests
 import uuid
+import html
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
