@@ -2549,6 +2549,37 @@ st.markdown("""
     .pos-detail { color: #9CA3AF; font-size: 0.88rem; margin-top: 5px; line-height: 1.5; }
     .pos-detail b { color: #E5E7EB; }
     .pos-gain { font-size: 1rem; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .podium-centre { border-width: 2px; }
+    .podium-centre .podium-nom { font-size: 1.3rem; }
+    .podium-centre .podium-val { font-size: 1.9rem; }
+    .podium-centre .podium-photo-wrap { width: 96px; }
+    .podium-centre .podium-photo, .podium-centre .podium-initiales { width: 96px; height: 96px; }
+    .rang-carte {
+        background: linear-gradient(180deg, #242424 0%, #191919 100%);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        border-radius: 12px;
+        padding: 10px 16px 12px;
+        margin-bottom: 8px;
+    }
+    .rang-carte.moi { border: 2px solid #E50914; box-shadow: 0 0 24px -6px rgba(229, 9, 20, 0.55); }
+    .rang-carte.trouve { background: linear-gradient(180deg, #F6121D 0%, #C40812 100%); border-color: #FF3B47; }
+    .rang-haut { display: flex; align-items: center; gap: 14px; }
+    .rang-num { font-family: 'Bebas Neue', 'Work Sans', sans-serif; font-size: 1.7rem; line-height: 1; color: #FFFFFF; min-width: 52px; }
+    .rang-num.r1 { color: #FFD700; } .rang-num.r2 { color: #E8E8E8; } .rang-num.r3 { color: #E09A5A; }
+    .rang-nom { color: #FFFFFF; font-weight: 800; font-size: 1.02rem; }
+    .rang-groupe { color: #9CA3AF; font-size: 0.82rem; }
+    .rang-carte.trouve .rang-groupe { color: #FECACA; }
+    .rang-toi { background: #E50914; color: #FFFFFF; font-weight: 800; font-size: 0.7rem; letter-spacing: 0.1em; padding: 2px 8px; border-radius: 999px; margin-left: 8px; }
+    .rang-susp { color: #FF5147; font-weight: 800; font-size: 0.78rem; letter-spacing: 0.08em; margin-left: 8px; }
+    .rang-val { margin-left: auto; text-align: right; }
+    .rang-montant { color: #FFFFFF; font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+    .rang-perf { font-weight: 800; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+    .rang-jour { color: #9CA3AF; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+    .rang-carte.trouve .rang-jour { color: #FECACA; }
+    .rang-barre-fond { background: rgba(255,255,255,0.10); border-radius: 999px; height: 8px; margin-top: 9px; overflow: hidden; }
+    .rang-barre { height: 8px; border-radius: 999px; background: linear-gradient(90deg, #7F1D1D, #E50914); }
+    .rang-carte.moi .rang-barre { background: linear-gradient(90deg, #E50914, #FF6B6B); }
+    .rang-ecart { color: #FCA5A5; font-size: 0.82rem; margin-top: 5px; font-weight: 700; }
     .meneur-card {
         border: 1px solid rgba(255, 215, 0, 0.35);
         border-top: 3px solid #FFD700;
@@ -5910,7 +5941,11 @@ else:
             top3 = df_classement.head(3)
             classes_podium = ["podium-or", "podium-argent", "podium-bronze"]
             cols_podium = st.columns(len(top3))
-            for i, (_, r_pod) in enumerate(top3.iterrows()):
+            # Mise en scene (essai 4) : le numero 1 au centre, plus
+            # grand, flanque du 2e et du 3e, comme un vrai podium.
+            _ordre_pod = [1, 0, 2] if len(top3) >= 3 else list(range(len(top3)))
+            for i in _ordre_pod:
+                r_pod = top3.iloc[i]
                 _gj = float(r_pod['GainJour'])
                 _gjp = float(r_pod['GainJourPct'])
                 _classe_jour = 'hausse' if _gj >= 0 else 'baisse'
@@ -5929,7 +5964,9 @@ else:
                                f"<div class='podium-initiales'>{initiales_de(_nom_pod)}</div>"
                                f"<span class='podium-badge'>{int(r_pod['Rang'])}</span></div>")
                 _susp_html = "<div><span class='podium-suspendu'>SUSPENDU</span></div>" if str(r_pod.get('Statut', '')) == 'SUSPENDU' else ""
-                cols_podium[i].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div>{_susp_html}<div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
+                _col_pod = {0: 1, 1: 0, 2: 2}[i] if len(top3) >= 3 else i
+                _centre_pod = " podium-centre" if int(r_pod['Rang']) == 1 else ""
+                cols_podium[_col_pod].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}{_centre_pod}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div>{_susp_html}<div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
 
             # MENEUR DU JOUR (étape 2, affichage seulement) : la plus
             # forte hausse du jour, sur les positions comparées à la
@@ -5954,20 +5991,50 @@ else:
             moi = df_classement[df_classement['Élève'] == user]
             if not moi.empty:
                 r_moi = moi.iloc[0]
-                st.markdown(f"<div class='mon-rang'><span class='mon-rang-label'>Ton rang</span><span class='mon-rang-val'>#{int(r_moi['Rang'])}</span><span class='mon-rang-detail'>{r_moi['Portefeuille']} · {r_moi['Performance']}</span></div>", unsafe_allow_html=True)
+                _val_moi = float(str(r_moi['Portefeuille']).replace('$', '').replace(',', ''))
+                _val_top = float(str(df_classement.iloc[0]['Portefeuille']).replace('$', '').replace(',', ''))
+                _ecart_txt = "" if _val_top - _val_moi <= 0 else f" · à {_val_top - _val_moi:,.2f} $ du premier"
+                st.markdown(f"<div class='mon-rang'><span class='mon-rang-label'>Ton rang</span><span class='mon-rang-val'>#{int(r_moi['Rang'])}</span><span class='mon-rang-detail'>{r_moi['Portefeuille']} · {r_moi['Performance']}{_ecart_txt}</span></div>", unsafe_allow_html=True)
 
-            def highlight_row(row):
-                styles = [''] * len(row)
-                if str(row['Élève']) == user:
-                    styles = ['background-color: rgba(229, 9, 20, 0.30); color: #FFFFFF; font-weight: 700;'] * len(row)
-                if search_user_rank and search_user_rank.strip() and search_user_rank.strip().lower() in str(row['Élève']).lower():
-                    styles = ['background-color: rgba(229, 9, 20, 0.95); color: #FFFFFF; font-weight: 700;'] * len(row)
-                if str(row.get('Statut', '')) == 'SUSPENDU':
-                    styles[list(row.index).index('Statut')] = 'color: #FF5147; font-weight: 800; letter-spacing: 0.08em;'
-                return styles
+            # Liste en lignes-cartes (fusion des idees 1 et 3 validee
+            # a l'essai 4) : chaque eleve a sa carte, avec la barre de
+            # course qui montre sa valeur par rapport a celle du
+            # premier du classement affiche.
+            def _valeur_num(chaine):
+                try:
+                    return float(str(chaine).replace('$', '').replace(',', '').strip())
+                except Exception:
+                    return 0.0
+            _val_premier = _valeur_num(df_classement.iloc[0]['Portefeuille']) or 1.0
+            _rech = (search_user_rank or "").strip().lower()
+            _cartes_rang = ""
+            for _, _r in df_classement.iterrows():
+                _val = _valeur_num(_r['Portefeuille'])
+                _pct_barre = max(2.0, min(100.0, 100.0 * _val / _val_premier))
+                _est_moi = str(_r['Élève']) == user
+                _est_trouve = bool(_rech) and _rech in str(_r['Élève']).lower()
+                _classes = "rang-carte" + (" moi" if _est_moi else "") + (" trouve" if _est_trouve else "")
+                _rang_int = int(_r['Rang'])
+                _classe_num = f" r{_rang_int}" if _rang_int <= 3 else ""
+                _perf = str(_r['Performance'])
+                _coul_perf = "#4ADE80" if _perf.startswith('+') else ("#FF6B6B" if _perf.startswith('-') or _perf.startswith('−') else "#FFFFFF")
+                _gj_r = float(_r['GainJour'])
+                _coul_jour = "#4ADE80" if _gj_r >= 0 else "#FF6B6B"
+                _toi = "<span class='rang-toi'>TOI</span>" if _est_moi else ""
+                _susp_r = "<span class='rang-susp'>SUSPENDU</span>" if str(_r.get('Statut', '')) == 'SUSPENDU' else ""
+                _ecart_ligne = f"<div class='rang-ecart'>Plus que {_val_premier - _val:,.2f} $ pour rejoindre le premier.</div>" if _est_moi and _val_premier - _val > 0 else ""
+                _cartes_rang += (
+                    f"<div class='{_classes}'><div class='rang-haut'>"
+                    f"<div class='rang-num{_classe_num}'>#{_rang_int}</div>"
+                    f"<div><span class='rang-nom'>{html.escape(str(_r['Élève']))}</span>{_toi}{_susp_r}"
+                    f"<div class='rang-groupe'>{html.escape(str(_r['Groupe']))}</div></div>"
+                    f"<div class='rang-val'><div class='rang-montant'>{_r['Portefeuille']}</div>"
+                    f"<div class='rang-perf' style='color:{_coul_perf};'>{_perf}</div>"
+                    f"<div class='rang-jour'>Aujourd'hui : <span style='color:{_coul_jour};font-weight:700;'>{_gj_r:+,.2f} $</span></div></div></div>"
+                    f"<div class='rang-barre-fond'><div class='rang-barre' style='width:{_pct_barre:.1f}%;'></div></div>"
+                    f"{_ecart_ligne}</div>")
+            st.markdown(_cartes_rang, unsafe_allow_html=True)
 
-            styled_df = df_classement[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance', 'Statut']].style.apply(highlight_row, axis=1)
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
         else:
             st.info("Aucun élève trouvé pour ce classement.")
 
