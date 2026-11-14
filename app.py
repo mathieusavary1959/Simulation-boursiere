@@ -283,6 +283,7 @@ def journaliser_connexion(nom_utilisateur, evenement):
 # --- KRACH BOURSIER (16 novembre 2026) : reset complet + page du journal ---
 KRACH_EXEMPT_UTILISATEUR = "MathieuSavary"
 KRACH_EXEMPT_GROUPE = "Enseignants"
+KRACH_HEURE_REVELATION = (9, 25)  # le journal du krach devient visible a 9 h 25 le jour du declenchement
 
 def krach_fin_fenetre(declenche):
     """La page du journal reste en place jusqu'au minuit (Toronto) suivant le declenchement."""
@@ -382,6 +383,31 @@ def terminer_krach():
         s.execute(text("UPDATE krach_etat SET actif=FALSE WHERE id=1"))
         s.commit()
     _krach_etat_lu.clear()
+
+
+def krach_page_visible():
+    """Le journal ne devient visible qu'a l'heure de revelation (9 h 25, heure
+    de Toronto, le jour du declenchement). Avant, page rideau neutre. Si le
+    krach est declenche apres 9 h 25, la page est visible immediatement."""
+    if not krach_est_actif():
+        return False
+    etat = _krach_etat_lu()
+    try:
+        decl = datetime.strptime(etat["declenche_le"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("America/Toronto"))
+    except Exception:
+        return True
+    h, m = KRACH_HEURE_REVELATION
+    revelation = decl.replace(hour=h, minute=m, second=0)
+    return datetime.now(ZoneInfo("America/Toronto")) >= max(decl, revelation)
+
+def afficher_page_rideau():
+    st.markdown("""
+    <style>
+      #MainMenu, header, footer, section[data-testid="stSidebar"] { display: none !important; }
+      .block-container { padding-top: 0 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown("## Le marché est fermé\nReviens à l'ouverture, à 9 h 30.")
 
 def afficher_page_krach():
     st.markdown("""
@@ -3643,7 +3669,10 @@ if st.session_state['user'] is None:
 else:
     user = st.session_state['user']
     if user != KRACH_EXEMPT_UTILISATEUR and krach_est_actif():
-        afficher_page_krach()
+        if krach_page_visible():
+            afficher_page_krach()
+        else:
+            afficher_page_rideau()
         st.stop()
     appliquer_frais_gestion(user)
     executer_ordres_en_attente(user)
