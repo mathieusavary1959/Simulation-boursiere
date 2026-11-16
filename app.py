@@ -283,7 +283,7 @@ def journaliser_connexion(nom_utilisateur, evenement):
 # --- KRACH BOURSIER (16 novembre 2026) : reset complet + page du journal ---
 KRACH_EXEMPT_UTILISATEUR = "MathieuSavary"
 KRACH_EXEMPT_GROUPE = "Enseignants"
-KRACH_HEURE_REVELATION = (9, 25)  # le journal du krach devient visible a 9 h 25 le jour du declenchement
+KRACH_HEURE_REVELATION = (0, 0)  # revelation immediate : journal visible des le declenchement (decision de Mathieu, 16 nov. 2026)
 
 def krach_fin_fenetre(declenche):
     """La page du journal reste en place jusqu'au minuit (Toronto) suivant le declenchement."""
