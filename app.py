@@ -417,7 +417,12 @@ def afficher_page_krach():
     </style>
     """, unsafe_allow_html=True)
     if PAGE_KRACH_HTML:
-        st.markdown(PAGE_KRACH_HTML, unsafe_allow_html=True)
+        # st.html plutot que st.markdown : le parseur markdown
+        # transforme des lignes du SVG en bloc de code (vu le 16 nov. 2026).
+        if hasattr(st, "html"):
+            st.html(PAGE_KRACH_HTML)
+        else:
+            st.markdown(PAGE_KRACH_HTML, unsafe_allow_html=True)
     else:
         st.markdown("## Krash boursier\nLa Bourse est fermée pour la journée. Tout recommence mardi 17 novembre à 0 h 00 : chaque compte repart à 10 000 $.")
 
