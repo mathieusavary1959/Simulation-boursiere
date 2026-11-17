@@ -520,19 +520,31 @@ def afficher_popup_regles(username):
         "Lis ça une fois. Après, tu ne pourras plus dire que tu ne savais pas.</div>"
         "</div>",
         unsafe_allow_html=True)
+    st.markdown(
+        "<div class='reg-carte'><div class='reg-carte-texte'>"
+        "<b>Bienvenue dans l'étape 2.</b><br><br>"
+        "Un mot avant les règles, et il est important. Cette simulation est une évaluation, mais c'est d'abord une chance "
+        "d'apprendre comment la bourse fonctionne pour vrai. Joue le jeu : informe-toi, prends des décisions, assume tes "
+        "résultats. C'est comme ça que tu vas progresser, et c'est exactement ce qui est évalué.<br><br>"
+        "Je te le dis clairement, une seule fois : si tu tentes de jouer le système au lieu de jouer la bourse, ton accès "
+        "à la simulation sera fermé et ta note sera de 0. Pas de deuxième avertissement.<br><br>"
+        "Concentre-toi sur l'essentiel : comprendre, décider, apprendre. Bonne étape 2."
+        "</div></div>",
+        unsafe_allow_html=True)
     _balises = [
         "Le marché ouvre à 9 h 30 et ferme à 16 h ; en dehors, on prépare des ordres, on ne transige pas.",
         "Un ordre préparé à l'avance s'exécute à l'ouverture, au prix d'ouverture, le même pour tout le monde.",
         "Chaque achat vaut entre 2 % et 25 % de ton compte.",
         "Maximum 5 achats par jour. Le marché sera encore là demain.",
         "Un titre acheté se garde au moins 30 minutes, 1 h pour un fonds (ETF).",
+        "Un seul fonds (ETF) à la fois dans ton portefeuille.",
         "Si un titre bouge de plus de 30 % dans une journée, ses achats s'arrêtent jusqu'au lendemain.",
         "Vrais frais : 10 $, conversion sur les titres américains, 0,5 % de gestion le 1er du mois.",
         "Ce qui est inscrit est final. Un bogue n'est pas un gain.",
     ]
     _html_balises = ("<div class='reg-carte'>"
                      "<div class='reg-carte-titre' style='font-size:1.15rem;'>LES BALISES DU MARCHÉ</div>"
-                     "<div style='color:#9CA3AF;font-size:0.9rem;margin-bottom:6px;'>Les 8 règles à retenir. Tout le reste, c'est du détail.</div>")
+                     "<div style='color:#9CA3AF;font-size:0.9rem;margin-bottom:6px;'>Les 9 règles à retenir. Tout le reste, c'est du détail.</div>")
     for _n, _b in enumerate(_balises, start=1):
         _html_balises += (f"<div class='reg-balise'><span class='reg-num'>{_n}</span>"
                           f"<span class='reg-balise-texte'>{_b}</span></div>")
@@ -569,6 +581,10 @@ def afficher_popup_regles(username):
          "Tu peux annuler un ordre tant qu'il est en attente. En vrai, personne n'achète une action à 21 h au prix de la fermeture de 16 h."),
         ("Tu gardes ton titre un minimum de temps : 30 minutes pour une action, 1 h pour un ETF.",
          "Acheter et revendre deux minutes plus tard sans réfléchir, ce n'est pas investir."),
+        ("Un seul ETF à la fois dans ton portefeuille.",
+         "Un fonds, c'est déjà un panier complet d'entreprises : un seul suffit pour être diversifié. "
+         "Si tu veux changer de fonds, vends celui que tu détiens d'abord. "
+         "Ça ferme aussi la porte à l'empilement de fonds à levier, le raccourci le plus risqué du marché."),
         ("Chaque achat vaut entre 2 % et 25 % de la valeur de ton compte.",
          "Fini les positions décorations achetées avec de la petite monnaie pour cocher une case. "
          "Et aucun vrai conseiller ne te laisserait miser plus du quart de ton argent sur une seule entreprise."),
@@ -941,6 +957,32 @@ def plancher_achat_minimum(username):
     if not total or float(total) <= 0:
         return None
     return round(float(total) * PLANCHER_TITRE_PCT / 100.0, 2)
+
+
+def autre_etf_detenu(username, ticker_symbol):
+    """Etape 2 (regle de Mathieu, 16 nov. 2026) : un seul ETF a la
+    fois dans un portefeuille. Retourne le symbole d'un AUTRE ETF
+    deja detenu (parts > 0) si l'achat vise en ajouterait un
+    deuxieme, sinon None. Le controle repose sur les positions
+    reelles et il est refait a l'execution des ordres en attente
+    et conditionnels : les ordres croises ne peuvent pas le
+    contourner. Portefeuille illisible : on ne bloque pas (None)."""
+    try:
+        if not est_etf(ticker_symbol):
+            return None
+        r = conn.query(
+            "SELECT ticker FROM portfolio WHERE username=:u AND shares > 0",
+            params={"u": username}, ttl=0)
+        if r.empty:
+            return None
+        cible = str(ticker_symbol).upper()
+        for t in r['ticker']:
+            t = str(t).upper()
+            if t != cible and est_etf(t):
+                return t
+    except Exception:
+        return None
+    return None
 
 
 def coupe_circuit_actif(ticker_symbol):
@@ -1755,6 +1797,12 @@ def _executer_ordres_en_attente_sous_verrou(username):
                                      "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé.")
                 session.commit()
             continue
+        if not exempte and (autre_etf_o := autre_etf_detenu(username, ticker_o)):
+            with conn.session as session:
+                _regler_ordre_annule(session, ordre, "annule_etf_unique",
+                                     f"Un seul ETF à la fois : tu détenais déjà {autre_etf_o} à l'exécution. Montant remboursé.")
+                session.commit()
+            continue
         total_o = cout + frais_fixe_o + frais_conv_o
         reste = round(montant - total_o, 2)
         with conn.session as session:
@@ -2098,6 +2146,12 @@ def _regler_conditionnel_achat(username, ordre, prix_marche, maintenant, exempte
         with conn.session as session:
             _regler_conditionnel_achat_annule(session, ordre, "annule_concentration",
                 "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé au complet.")
+            session.commit()
+        return
+    if not exempte and (autre_etf_o := autre_etf_detenu(username, ticker_o)):
+        with conn.session as session:
+            _regler_conditionnel_achat_annule(session, ordre, "annule_etf_unique",
+                f"Un seul ETF à la fois : tu détenais déjà {autre_etf_o} à l'exécution. Montant remboursé au complet.")
             session.commit()
         return
     now_str = maintenant.strftime("%Y-%m-%d %H:%M:%S")
@@ -6520,6 +6574,7 @@ else:
                         bloque_cc, var_cc = (False, None) if exempte else coupe_circuit_actif(selected_ticker)
                         part_apres = 0.0 if exempte else part_titre_apres_achat(user, selected_ticker, prix_instantane, qty_achat)
                         plancher_min = None if exempte else plancher_achat_minimum(user)
+                        autre_etf = None if exempte else autre_etf_detenu(user, selected_ticker)
                         if msg_limite:
                             afficher_refus(msg_limite)
                         elif bloque_cc:
@@ -6528,6 +6583,8 @@ else:
                             afficher_refus(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
                         elif plancher_min is not None and cost_real < plancher_min:
                             afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_min:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
+                        elif autre_etf:
+                            afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
                         elif ordres_ouverture_actif(user) and not _marche_ouvert() and mode_ordre == "Par quantité":
                             # Décision de Mathieu (3 nov. 2026) : le soir, un ordre en
                             # attente se place par montant seulement. En quantité, le
@@ -6722,6 +6779,8 @@ else:
                             afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_cond:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
                         elif not exempte_cond and part_titre_apres_achat(user, selected_ticker, seuil_cond, sh_cond) > PLAFOND_TITRE_PCT:
                             afficher_refus(f"Maximum 25 % sur un seul titre : à ton prix visé, cet achat ferait passer {selected_ticker.upper()} au-dessus du quart de ton compte. Réduis le montant.")
+                        elif not exempte_cond and (autre_etf_c := autre_etf_detenu(user, selected_ticker)):
+                            afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf_c}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
                         elif cash_cond_db < total_res_cond:
                             afficher_refus("Fonds insuffisants : le montant de l'ordre est réservé dès maintenant, il doit être dans ton compte.")
                         elif creer_ordre_conditionnel_achat(user, selected_ticker, seuil_cond, total_res_cond):
