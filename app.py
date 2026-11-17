@@ -5809,6 +5809,56 @@ def obtenir_donnees_classement(grp_filter):
         return df_lb[['Rang', 'Élève', 'Groupe', 'Portefeuille', 'Performance', 'Statut', 'GainJour', 'GainJourPct']]
     return pd.DataFrame()
 
+@st.cache_data(ttl=120, show_spinner=False)
+def obtenir_ventes_du_jour():
+    """Ventes gagnantes d'aujourd'hui, enrichies du gain realise (FIFO,
+    memes chiffres que l'historique de l'eleve). Une entree par vente :
+    eleve, ticker, gain, cout d'achat moyen, prix de vente, parts, heure.
+    Enseignants et suspendus exclus. Liste vide si rien a signaler."""
+    try:
+        auj = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
+        ventes = conn.query("SELECT DISTINCT username FROM transactions WHERE shares < 0 AND timestamp LIKE :p",
+                            params={"p": auj + "%"}, ttl=0)
+        if ventes is None or ventes.empty:
+            return []
+        groupes = {}
+        try:
+            df_u = conn.query("SELECT username, groupe FROM users", ttl=0)
+            groupes = {str(r["username"]): str(r["groupe"]) for _, r in df_u.iterrows()}
+        except Exception:
+            groupes = {}
+        susp = _joueurs_suspendus()
+        sortie = []
+        for nom in ventes["username"].tolist():
+            nom = str(nom)
+            if nom == "MathieuSavary" or nom in susp:
+                continue
+            if "enseignant" in groupes.get(nom, "").lower():
+                continue
+            try:
+                tx = conn.query("SELECT timestamp, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id ASC",
+                                params={"u": nom}, ttl=0)
+            except Exception:
+                continue
+            if tx is None or tx.empty:
+                continue
+            for lig in enrichir_historique_fifo(tx.to_dict("records")):
+                if float(lig["shares"]) >= 0:
+                    continue
+                if not str(lig["timestamp"]).startswith(auj):
+                    continue
+                g = lig.get("gain_realise")
+                if g is None or float(g) <= 0:
+                    continue
+                sortie.append({"eleve": nom, "ticker": str(lig["ticker"]).upper(),
+                               "gain": float(g), "cout": float(lig["cout_achat_moyen"]),
+                               "prix": float(lig["price"]), "parts": int(abs(float(lig["shares"]))),
+                               "heure": str(lig["timestamp"])[11:16]})
+        return sortie
+    except Exception:
+        return []
+
+
 # --- SÉCURITÉ ET PERSISTENCE PAR JETON DE SESSION ---
 if 'user' not in st.session_state:
     st.session_state['user'] = None
@@ -7358,24 +7408,23 @@ else:
                 _centre_pod = " podium-centre" if int(r_pod['Rang']) == 1 else ""
                 cols_podium[_col_pod].markdown(f"<div class='podium-card {classes_podium[i]} podium-{i + 1}{_centre_pod}'>{_avatar}<div class='podium-nom'>{r_pod['Élève']}</div>{_susp_html}<div class='podium-val'>{r_pod['Portefeuille']}</div><div class='podium-perf'>{r_pod['Performance']}</div>{_jour_html}</div>", unsafe_allow_html=True)
 
-            # MENEUR DU JOUR (étape 2, affichage seulement) : la plus
-            # forte hausse du jour, sur les positions comparées à la
-            # clôture de la veille, avec les données du classement.
-            # Calcul direct sur le tableau (aucune requête ajoutée) :
-            # les comptes enseignants et les suspendus sont exclus.
-            _cand = df_classement[
-                (df_classement['GainJourPct'] > 0)
-                & (df_classement['Statut'] != 'SUSPENDU')
-                & (~df_classement['Groupe'].astype(str).str.contains('enseignant', case=False, na=False))
-                & (df_classement['Élève'] != 'MathieuSavary')]
-            if not _cand.empty:
-                _meneur = _cand.loc[_cand['GainJourPct'].idxmax()]
+            # COUP DU JOUR (étape 2, affichage seulement) : la meilleure
+            # vente UNIQUE de la journée, en direct. Le profit le plus
+            # élevé sur une seule vente d'aujourd'hui (gain réalisé
+            # FIFO, le même chiffre que dans l'historique de l'élève),
+            # jamais un cumul de ventes. Restreint aux élèves du
+            # classement affiché, comme l'ancien meneur.
+            _coups = [c for c in obtenir_ventes_du_jour()
+                      if c["eleve"] in set(df_classement['Élève'].astype(str))]
+            if _coups:
+                _coup = max(_coups, key=lambda c: c["gain"])
                 st.markdown(
-                    f"<div class='meneur-card'><div class='meneur-titre'>Meneur du jour</div>"
-                    f"<div class='meneur-nom' style='font-size:2.15rem;'>{_meneur['Élève']}</div>"
-                    f"<div class='meneur-val'>+{float(_meneur['GainJourPct']):.1f} % aujourd'hui · +{float(_meneur['GainJour']):,.2f} $</div>"
-                    f"<div class='meneur-detail'>Calculé sur ses positions, comparées à la clôture d'hier. "
-                    f"Un titre d'affichage seulement : il ne donne rien, sauf le droit de s'en vanter jusqu'à demain.</div></div>",
+                    f"<div class='meneur-card'><div class='meneur-titre'>Coup du jour</div>"
+                    f"<div class='meneur-nom' style='font-size:2.15rem;'>{_coup['eleve']}</div>"
+                    f"<div class='meneur-val'>+{_coup['gain']:,.2f} $ sur {_coup['ticker']}</div>"
+                    f"<div class='meneur-detail'>La meilleure vente de la journée, en direct : "
+                    f"{_coup['parts']} actions vendues à {_coup['prix']:,.2f} $ (coût d'achat moyen {_coup['cout']:,.2f} $), à {_coup['heure']}. "
+                    f"Une seule vente, pas un cumul. Un titre d'affichage seulement : il ne donne rien, sauf le droit de s'en vanter jusqu'à demain.</div></div>",
                     unsafe_allow_html=True)
 
             moi = df_classement[df_classement['Élève'] == user]
