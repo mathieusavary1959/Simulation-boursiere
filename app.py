@@ -973,25 +973,53 @@ def plancher_achat_minimum(username):
 
 def autre_etf_detenu(username, ticker_symbol):
     """Etape 2 (regle de Mathieu, 16 nov. 2026) : un seul ETF a la
-    fois dans un portefeuille. Retourne le symbole d'un AUTRE ETF
-    deja detenu (parts > 0) si l'achat vise en ajouterait un
-    deuxieme, sinon None. Le controle repose sur les positions
-    reelles et il est refait a l'execution des ordres en attente
-    et conditionnels : les ordres croises ne peuvent pas le
-    contourner. Portefeuille illisible : on ne bloque pas (None)."""
+    fois dans un portefeuille. Retourne :
+    - le symbole d'un AUTRE ETF confirme deja detenu (parts > 0)
+      si l'achat vise en ajouterait un deuxieme ;
+    - "VERIFICATION" si un deuxieme ETF ne peut pas etre exclu
+      parce qu'une classification n'a pas pu etre obtenue alors
+      qu'un doute reel existe : l'appelant refuse temporairement
+      (achat direct, ordre conditionnel) ou remet l'execution a
+      plus tard (ordres en attente et conditionnels), jamais une
+      annulation definitive pour un simple hoquet de Yahoo ;
+    - None si l'achat est libre.
+    Le controle repose sur les positions reelles et il est refait
+    a l'execution des ordres en attente et conditionnels : les
+    ordres croises ne peuvent pas le contourner. Portefeuille
+    illisible : on ne bloque pas (None).
+    Correctif du 17 nov. 2026 : la premiere version reposait sur
+    est_etf, dont un echec Yahoo etait mis en cache 24 h comme un
+    « pas un ETF » ; l'achat de TQQQ.TO d'Alexis Girard est passe
+    a 10 h 00 alors qu'il detenait deja ZGLD.TO (achat rembourse
+    le meme jour)."""
     try:
-        if not est_etf(ticker_symbol):
+        cible = str(ticker_symbol).upper()
+        statut_cible = etf_statut(cible)
+        if statut_cible is False:
             return None
         r = conn.query(
             "SELECT ticker FROM portfolio WHERE username=:u AND shares > 0",
             params={"u": username}, ttl=0)
         if r.empty:
             return None
-        cible = str(ticker_symbol).upper()
+        etf_detenu = None
+        doute = False
         for t in r['ticker']:
             t = str(t).upper()
-            if t != cible and est_etf(t):
-                return t
+            if t == cible:
+                continue
+            s = etf_statut(t)
+            if s is True:
+                etf_detenu = t
+            elif s is None:
+                doute = True
+        if etf_detenu is not None and statut_cible is True:
+            return etf_detenu
+        if etf_detenu is not None or doute:
+            # Un ETF est détenu mais la cible n'a pas pu être
+            # classée, ou un titre détenu est inclassable :
+            # impossible de conclure, on fait vérifier.
+            return "VERIFICATION"
     except Exception:
         return None
     return None
@@ -1809,7 +1837,13 @@ def _executer_ordres_en_attente_sous_verrou(username):
                                      "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé.")
                 session.commit()
             continue
-        if not exempte and (autre_etf_o := autre_etf_detenu(username, ticker_o)):
+        autre_etf_o = None if exempte else autre_etf_detenu(username, ticker_o)
+        if autre_etf_o == "VERIFICATION":
+            # Classification momentanément impossible : l'ordre
+            # reste en attente et sera réévalué à la prochaine
+            # connexion, jamais annulé pour un hoquet de Yahoo.
+            continue
+        if autre_etf_o:
             with conn.session as session:
                 _regler_ordre_annule(session, ordre, "annule_etf_unique",
                                      f"Un seul ETF à la fois : tu détenais déjà {autre_etf_o} à l'exécution. Montant remboursé.")
@@ -2160,7 +2194,13 @@ def _regler_conditionnel_achat(username, ordre, prix_marche, maintenant, exempte
                 "Maximum 25 % sur un seul titre à l'exécution. Montant remboursé au complet.")
             session.commit()
         return
-    if not exempte and (autre_etf_o := autre_etf_detenu(username, ticker_o)):
+    autre_etf_o = None if exempte else autre_etf_detenu(username, ticker_o)
+    if autre_etf_o == "VERIFICATION":
+        # Classification momentanément impossible : l'ordre reste
+        # actif et sera réévalué au prochain cycle, jamais annulé
+        # pour un simple hoquet de Yahoo.
+        return
+    if autre_etf_o:
         with conn.session as session:
             _regler_conditionnel_achat_annule(session, ordre, "annule_etf_unique",
                 f"Un seul ETF à la fois : tu détenais déjà {autre_etf_o} à l'exécution. Montant remboursé au complet.")
@@ -4973,27 +5013,56 @@ _MOTS_NOM_FONDS = ('ETF', 'FUND', 'TRUST', 'INDEX', 'FONDS', 'SHARES')
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def est_etf(ticker_symbol):
-    """Vrai si le titre est un FNB. Yahoo donne quoteType « ETF »,
-    mais il classe aussi dans les ETF les certificats de dépôt (CDR)
-    d'entreprises américaines cotés au Canada (VISA.TO, NKE.TO,
-    PEP.TO, UPS.TO, WMT.TO, LMT.TO), qui sont des actions ordinaires :
-    la détention de 24 h ne doit pas s'y appliquer (balayage des
-    618 titres détenus, 3 nov. 2026 : 6 CDR pris à tort). Un vrai FNB
+def _determiner_etf(ticker_symbol):
+    """Classification FNB d'un titre chez Yahoo, deux essais.
+    Yahoo donne quoteType « ETF », mais il classe aussi dans les
+    ETF les certificats de dépôt (CDR) d'entreprises américaines
+    cotés au Canada (VISA.TO, NKE.TO, PEP.TO, UPS.TO, WMT.TO,
+    LMT.TO), qui sont des actions ordinaires (balayage des 618
+    titres détenus, 3 nov. 2026 : 6 CDR pris à tort). Un vrai FNB
     se confirme par sa catégorie, sa famille de fonds ou son nom
-    (ETF, Fund, Trust, Index...). En cas de doute ou d'échec de
-    lecture, ce n'est pas un FNB : le délai léger de 1 h s'applique.
-    Type quasi fixe : cache 24 h."""
+    (ETF, Fund, Trust, Index...).
+    Lève une exception si Yahoo ne répond pas : st.cache_data ne
+    met pas les exceptions en cache, donc un hoquet ne fige pas
+    une mauvaise réponse pour 24 h. Correctif du 17 nov. 2026 :
+    la première version retournait False sur échec DANS la
+    fonction cachée, et ce False restait en cache 24 h, ce qui a
+    éteint le contrôle « un seul ETF » (cas Alexis Girard)."""
+    derniere = None
+    for _ in range(2):
+        try:
+            t = yf.Ticker(ticker_symbol)
+            if str(t.fast_info.get('quoteType') or '').upper() != 'ETF':
+                return False
+            info = t.info
+            nom = str(info.get('longName') or '').upper()
+            return bool(info.get('category') or info.get('fundFamily')
+                        or any(m in nom for m in _MOTS_NOM_FONDS))
+        except Exception as e:
+            derniere = e
+    raise derniere
+
+
+def est_etf(ticker_symbol):
+    """Vrai si le titre est un FNB. En cas d'échec de lecture,
+    ce n'est pas un FNB : le délai léger s'applique (détention).
+    Type quasi fixe : cache 24 h sur les lectures réussies."""
     try:
-        t = yf.Ticker(ticker_symbol)
-        if str(t.fast_info.get('quoteType') or '').upper() != 'ETF':
-            return False
-        info = t.info
-        nom = str(info.get('longName') or '').upper()
-        return bool(info.get('category') or info.get('fundFamily')
-                    or any(m in nom for m in _MOTS_NOM_FONDS))
+        return bool(_determiner_etf(str(ticker_symbol).upper()))
     except Exception:
         return False
+
+
+def etf_statut(ticker_symbol):
+    """True si le titre est un FNB confirmé, False s'il est
+    confirmé ne pas en être un, None si la classification n'a
+    pas pu être obtenue (Yahoo injoignable après deux essais).
+    Sert au contrôle « un seul ETF », qui ne doit jamais
+    s'éteindre en silence sur un échec de lecture."""
+    try:
+        return bool(_determiner_etf(str(ticker_symbol).upper()))
+    except Exception:
+        return None
 
 
 def delai_detention_requis(ticker_symbol):
@@ -6645,6 +6714,8 @@ else:
                             afficher_refus(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
                         elif plancher_min is not None and cost_real < plancher_min:
                             afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_min:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
+                        elif autre_etf == "VERIFICATION":
+                            afficher_refus("Je n'arrive pas à vérifier si tu détiens déjà un ETF en ce moment (données de classification inaccessibles). Réessaie dans une minute.")
                         elif autre_etf:
                             afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
                         elif ordres_ouverture_actif(user) and not _marche_ouvert() and mode_ordre == "Par quantité":
@@ -6841,7 +6912,9 @@ else:
                             afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_cond:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
                         elif not exempte_cond and part_titre_apres_achat(user, selected_ticker, seuil_cond, sh_cond) > PLAFOND_TITRE_PCT:
                             afficher_refus(f"Maximum 25 % sur un seul titre : à ton prix visé, cet achat ferait passer {selected_ticker.upper()} au-dessus du quart de ton compte. Réduis le montant.")
-                        elif not exempte_cond and (autre_etf_c := autre_etf_detenu(user, selected_ticker)):
+                        elif not exempte_cond and (autre_etf_c := autre_etf_detenu(user, selected_ticker)) == "VERIFICATION":
+                            afficher_refus("Je n'arrive pas à vérifier si tu détiens déjà un ETF en ce moment (données de classification inaccessibles). Réessaie dans une minute.")
+                        elif not exempte_cond and autre_etf_c:
                             afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf_c}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
                         elif cash_cond_db < total_res_cond:
                             afficher_refus("Fonds insuffisants : le montant de l'ordre est réservé dès maintenant, il doit être dans ton compte.")
