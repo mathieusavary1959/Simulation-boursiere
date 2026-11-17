@@ -936,8 +936,20 @@ def valeur_reservations(username):
 
 
 def part_titre_apres_achat(username, ticker_symbol, prix_unitaire_cad, quantite):
-    """Part (%) qu'occuperait le titre dans le compte après un achat."""
+    """Part (%) qu'occuperait le titre dans le compte après un achat.
+    Le dénominateur inclut l'argent et les actions réservés par les
+    ordres en attente et conditionnels : cet argent appartient encore
+    à l'élève, donc le plafond de concentration se mesure sur la même
+    valeur du compte à la création de l'ordre et à son exécution
+    (correctif du 17 nov. 2026 : un ordre en attente de 2 488,49 $ sur
+    un compte de 10 000 $ était refusé à l'exécution parce que le
+    montant réservé, déjà sorti du comptant, rétrécissait le compte
+    à 7 511,51 $ et faisait passer l'achat à environ 33 %)."""
     _, _, total = valeur_totale_compte(username)
+    try:
+        total += valeur_reservations(username)
+    except Exception:
+        pass
     if total <= 0:
         return 100.0
     p = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)",
