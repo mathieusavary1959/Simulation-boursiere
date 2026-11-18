@@ -7497,10 +7497,10 @@ else:
             # vente UNIQUE de la journée, en direct. Le profit le plus
             # élevé sur une seule vente d'aujourd'hui (gain réalisé
             # FIFO, le même chiffre que dans l'historique de l'élève),
-            # jamais un cumul de ventes. Restreint aux élèves du
-            # classement affiché, comme l'ancien meneur.
-            _coups = [c for c in obtenir_ventes_du_jour()
-                      if c["eleve"] in set(df_classement['Élève'].astype(str))]
+            # jamais un cumul de ventes. Tous groupes confondus
+            # (décision de Mathieu, 18 nov. 2026) : la meilleure vente
+            # de toute la simulation, peu importe le groupe affiché.
+            _coups = obtenir_ventes_du_jour()
             if _coups:
                 _coup = max(_coups, key=lambda c: c["gain"])
                 st.markdown(
