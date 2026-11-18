@@ -2525,9 +2525,10 @@ def _html_recu(d):
 
 
 def afficher_refus(raison):
-    """Un refus d'ordre, dans la même forme éteinte que le reçu,
-    plutôt que le bloc bourgogne par défaut. La raison reste en une
-    phrase, dans le panneau, comme Mathieu l'a demandé le 30 oct."""
+    """Un refus d'ordre, dans la forme du reçu mais en ambre vif,
+    impossible à manquer (Mathieu, 18 nov. 2026 ; la forme éteinte
+    du 30 oct. passait inaperçue). La raison reste en une phrase,
+    dans le panneau."""
     st.markdown(_html_recu({"genre": "refus", "titre": "ORDRE REFUSÉ",
                             "sous": str(raison), "lignes": [],
                             "total": None, "pied": ""}),
@@ -3608,12 +3609,23 @@ st.markdown("""
         margin: 10px 0 14px 0;
     }
     .recu.ordre { border-top-color: #22D3EE; }
-    .recu.refus, .recu.annulation { border-top-color: #6B7280; }
+    .recu.annulation { border-top-color: #6B7280; }
+    /* Refus : ambre vif, impossible à manquer (Mathieu, 18 nov. 2026).
+       Ni rouge (reçus confirmés) ni vert : la couleur d'avertissement. */
+    .recu.refus {
+        border-top: 8px solid #FFB020;
+        border-left-color: rgba(255, 176, 32, 0.55);
+        border-right-color: rgba(255, 176, 32, 0.55);
+        border-bottom-color: rgba(255, 176, 32, 0.55);
+        box-shadow: 0 0 0 1px rgba(255, 176, 32, 0.35), 0 16px 32px -14px rgba(0, 0, 0, 0.9);
+    }
     .recu-titre {
         font-family: 'Bebas Neue', 'Work Sans', sans-serif;
         font-size: 2.2rem; line-height: 1; color: #FFFFFF; letter-spacing: 0.05em;
     }
-    .recu.refus .recu-titre, .recu.annulation .recu-titre { color: #D1D5DB; }
+    .recu.annulation .recu-titre { color: #D1D5DB; }
+    .recu.refus .recu-titre { color: #FFB020; }
+    .recu.refus .recu-sous { color: #FFFFFF; }
     .recu-sous { color: #D1D5DB; font-size: 0.98rem; font-weight: 700; margin-top: 3px; }
     .recu-lignes { width: 100%; border-collapse: collapse; margin-top: 8px; }
     .recu-lignes td { padding: 3px 0; color: #E5E7EB; font-size: 0.97rem; }
