@@ -185,14 +185,24 @@ def init_db():
             session.execute(text("ALTER TABLE ordres_en_attente ADD COLUMN IF NOT EXISTS avg_reserve DOUBLE PRECISION"))
             # Étape 2 (6 nov. 2026) : les ordres CONDITIONNELS vivent
             # dans leur propre table. sens = 'ACHAT' ou 'VENTE' ;
-            # seuil = le prix visé, en dollars canadiens (le prix
-            # affiché de l'application) ; montant_cad = le montant
+            # seuil = le prix déclencheur, en dollars canadiens (le
+            # prix affiché de l'application) ; montant_cad = le montant
             # réservé (achat) ; parts = les parts réservées (vente),
             # rempli aussi à l'exécution d'un achat (actions achetées) ;
             # avg_reserve = le prix moyen gardé pour restaurer la
             # position si la vente est annulée ou échoue ;
             # statut = 'actif', 'execute', 'annule_eleve', 'echec',
             # 'annule_circuit', 'annule_volume', 'annule_concentration'.
+            # 19 nov. 2026 : les NOUVEAUX ordres se posent en
+            # POURCENTAGE de baisse (décision de Mathieu, après le
+            # test du compte Bandit : un seuil tapé en pensant au prix
+            # américain ne se déclenchait jamais, le prix affiché
+            # étant en $ CAD). pct = la baisse visée en % ; prix_ref =
+            # le prix de référence en $ CAD (prix actuel pour un
+            # achat, prix d'achat moyen pour une vente) ; seuil garde
+            # le prix déclencheur calculé, donc le moteur d'exécution
+            # ne change pas et les anciens ordres (pct NULL) restent
+            # valides tels quels.
             session.execute(text('''
                 CREATE TABLE IF NOT EXISTS ordres_conditionnels (
                     id SERIAL PRIMARY KEY,
@@ -210,6 +220,8 @@ def init_db():
                     note TEXT
                 );
             '''))
+            session.execute(text("ALTER TABLE ordres_conditionnels ADD COLUMN IF NOT EXISTS pct DOUBLE PRECISION"))
+            session.execute(text("ALTER TABLE ordres_conditionnels ADD COLUMN IF NOT EXISTS prix_ref DOUBLE PRECISION"))
             # Étape 2 (6 nov. 2026) : les DIVIDENDES. Deux tables.
             # dividendes_evenements = le cache partage des dividendes
             # annonces par titre (la serie Yahoo), rafraichi au plus
@@ -552,8 +564,8 @@ def afficher_popup_regles(username):
     st.markdown(_html_balises, unsafe_allow_html=True)
     _nouveautes = [
         ("LES ORDRES CONDITIONNELS",
-         "Tu choisis un prix d'avance, et l'ordinateur surveille pour toi. "
-         "Si le prix atteint ton seuil, ton titre se vend ou s'achète tout seul, au prix du marché. "
+         "Tu choisis une baisse en pourcentage d'avance, et l'ordinateur surveille pour toi. "
+         "Si le prix descend de ta baisse visée, ton titre se vend ou s'achète tout seul, au prix du marché. "
          "Tu peux annuler n'importe quand, tant que ce n'est pas déclenché."),
         ("LES DIVIDENDES",
          "Certaines entreprises versent une partie de leurs profits à leurs actionnaires. "
@@ -602,7 +614,7 @@ def afficher_popup_regles(username):
         ("Toujours en vigueur : 4 titres différents minimum, 5 achats par mois.",
          "Les points perdus aux vérifications ne reviennent pas. C'est une évaluation, pas juste un jeu."),
         ("Les ordres conditionnels marchent seulement pendant les heures de bourse.",
-         "Le prix doit toucher ton seuil pendant la séance pour que l'ordre se déclenche, et le délai de détention "
+         "Le prix doit descendre de ta baisse visée pendant la séance pour que l'ordre se déclenche, et le délai de détention "
          "s'applique pareil : un titre acheté il y a 10 minutes ne peut pas être vendu par un ordre conditionnel."),
     ]
     for _n, (_titre_d, _texte_d) in enumerate(_details, start=1):
@@ -1889,6 +1901,12 @@ def _executer_ordres_en_attente_sous_verrou(username):
 # baisse qui continuerait. La fenêtre des règles annonce exactement
 # ça (carte « Les ordres conditionnels » et point 9 du détail) : ce
 # code ne fait que la mécanique promise, rien de plus.
+# 19 nov. 2026 : l'élève ne tape plus un prix ; il choisit une
+# BAISSE EN POURCENTAGE (sous le prix actuel pour un achat, sous
+# son prix d'achat moyen pour une vente) et le prix déclencheur
+# est calculé à la création (seuil_depuis_pct), puis stocké dans
+# seuil comme avant. Le moteur ci-dessous ne change pas ; les
+# ordres créés avant ce changement (pct NULL) gardent leur prix.
 # Réservations, comme les ordres en attente : l'achat RÉSERVE son
 # montant dans le comptant dès la création (l'ordre peut vivre
 # plusieurs jours ; l'argent n'est jamais promis deux fois), la vente
@@ -1912,6 +1930,24 @@ def _en_seance(moment):
         return False
     minutes = moment.hour * 60 + moment.minute
     return 9 * 60 + 30 <= minutes < 16 * 60
+
+
+def seuil_depuis_pct(prix_ref, pct):
+    """Prix déclencheur (en $ CAD affichés) d'un ordre conditionnel
+    posé en pourcentage de baisse : prix de référence × (1 − pct %).
+    Un pourcentage est le même dans toutes les devises : c'est ce
+    qui remplace le prix visé tapé à la main depuis le 19 nov. 2026.
+    Fonction pure, testable. Retourne None si les entrées sont
+    illisibles ou si la baisse est hors bornes (1 % à 90 %)."""
+    try:
+        p = float(prix_ref)
+        x = float(pct)
+    except (TypeError, ValueError):
+        return None
+    if p <= 0 or x < 1 or x > 90:
+        return None
+    s = round(p * (1 - x / 100.0), 2)
+    return s if s > 0 else None
 
 
 def _conditionnel_declenche(prix_cad, seuil):
@@ -1947,7 +1983,7 @@ def ordres_conditionnels_pour(username):
     plus ancien."""
     try:
         return conn.query(
-            "SELECT id, ticker, sens, seuil, montant_cad, parts "
+            "SELECT id, ticker, sens, seuil, montant_cad, parts, pct, prix_ref "
             "FROM ordres_conditionnels WHERE username=:u AND statut='actif' "
             "ORDER BY id DESC",
             params={"u": username}, ttl=0)
@@ -1969,21 +2005,25 @@ def ordre_conditionnel_vente_sur(username, ticker_symbol):
         return False
 
 
-def creer_ordre_conditionnel_achat(username, ticker_symbol, seuil, montant_reserve):
+def creer_ordre_conditionnel_achat(username, ticker_symbol, pct, montant_reserve, prix_ref):
     """Crée un ordre d'achat conditionnel et RÉSERVE le montant dans
-    le comptant (le débit total estimé au prix du seuil, frais
-    inclus, calculé par le panneau). À appeler seulement après les
-    vérifications d'usage. Le solde et le nombre d'ordres actifs
-    sont REVÉRIFIÉS sous le verrou par utilisateur, dans la
-    transaction d'écriture : des sessions simultanées du même
-    compte ne peuvent pas réserver deux fois le même argent.
+    le comptant (le débit total estimé au prix déclencheur, frais
+    inclus, calculé par le panneau). La baisse visée (pct, en %) se
+    mesure sous le prix actuel (prix_ref, en $ CAD affichés) ; le
+    prix déclencheur est calculé ici et stocké dans seuil. À appeler
+    seulement après les vérifications d'usage. Le solde et le nombre
+    d'ordres actifs sont REVÉRIFIÉS sous le verrou par utilisateur,
+    dans la transaction d'écriture : des sessions simultanées du
+    même compte ne peuvent pas réserver deux fois le même argent.
     Retourne True si l'ordre est créé, None sinon."""
     try:
         montant_r = round(float(montant_reserve), 2)
-        seuil_r = round(float(seuil), 2)
+        pct_r = float(pct)
+        ref_r = round(float(prix_ref), 2)
     except (TypeError, ValueError):
         return None
-    if montant_r <= 0 or seuil_r <= 0:
+    seuil_r = seuil_depuis_pct(ref_r, pct_r)
+    if montant_r <= 0 or seuil_r is None:
         return None
     now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
     with conn.session as session:
@@ -1999,30 +2039,33 @@ def creer_ordre_conditionnel_achat(username, ticker_symbol, seuil, montant_reser
         session.execute(text("UPDATE users SET cash = cash - :m WHERE username = :u"),
                         {"m": montant_r, "u": username})
         session.execute(
-            text("INSERT INTO ordres_conditionnels (username, ticker, sens, seuil, montant_cad, statut, cree_le) "
-                 "VALUES (:u, :t, 'ACHAT', :s, :m, 'actif', :c)"),
+            text("INSERT INTO ordres_conditionnels (username, ticker, sens, seuil, montant_cad, statut, cree_le, pct, prix_ref) "
+                 "VALUES (:u, :t, 'ACHAT', :s, :m, 'actif', :c, :pc, :pr)"),
             {"u": username, "t": str(ticker_symbol).upper(), "s": seuil_r,
-             "m": montant_r, "c": now_str})
+             "m": montant_r, "c": now_str, "pc": pct_r, "pr": ref_r})
         session.commit()
     return True
 
 
-def creer_ordre_conditionnel_vente(username, ticker_symbol, seuil, parts):
+def creer_ordre_conditionnel_vente(username, ticker_symbol, pct, parts):
     """Crée un ordre de vente conditionnel et RÉSERVE les parts :
     elles sortent du portefeuille dès la création et le prix moyen
     d'achat est gardé dans l'ordre, pour restaurer la position à
-    l'identique si l'ordre est annulé ou échoue. Un seul ordre de
-    vente conditionnel par titre à la fois : les parts sont déjà
-    réservées, un deuxième n'aurait rien de propre à réserver.
-    Parts disponibles, limite d'ordres et doublon sont REVÉRIFIÉS
-    sous le verrou, dans la transaction d'écriture. Retourne True
-    si l'ordre est créé, None sinon."""
+    l'identique si l'ordre est annulé ou échoue. La baisse visée
+    (pct, en %) se mesure sous le prix d'achat moyen de la position,
+    lu sous le verrou ; le prix déclencheur calculé est retourné au
+    panneau pour son reçu. Un seul ordre de vente conditionnel par
+    titre à la fois : les parts sont déjà réservées, un deuxième
+    n'aurait rien de propre à réserver. Parts disponibles, limite
+    d'ordres et doublon sont REVÉRIFIÉS sous le verrou, dans la
+    transaction d'écriture. Retourne le prix déclencheur si l'ordre
+    est créé, None sinon."""
     try:
         parts = int(parts)
-        seuil_r = round(float(seuil), 2)
+        pct_r = float(pct)
     except (TypeError, ValueError):
         return None
-    if parts < 1 or seuil_r <= 0:
+    if parts < 1 or pct_r < 1 or pct_r > 90:
         return None
     now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
     tk = str(ticker_symbol).upper()
@@ -2046,6 +2089,10 @@ def creer_ordre_conditionnel_vente(username, ticker_symbol, seuil, parts):
             session.rollback()
             return None
         anc_s, anc_p = int(p_row[0]), float(p_row[1] or 0.0)
+        seuil_r = seuil_depuis_pct(anc_p, pct_r)
+        if seuil_r is None:
+            session.rollback()
+            return None
         rem = anc_s - parts
         if rem > 0:
             session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
@@ -2054,12 +2101,12 @@ def creer_ordre_conditionnel_vente(username, ticker_symbol, seuil, parts):
             session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"),
                             {"u": username, "t": tk})
         session.execute(
-            text("INSERT INTO ordres_conditionnels (username, ticker, sens, seuil, montant_cad, parts, avg_reserve, statut, cree_le) "
-                 "VALUES (:u, :t, 'VENTE', :s, 0, :n, :a, 'actif', :c)"),
+            text("INSERT INTO ordres_conditionnels (username, ticker, sens, seuil, montant_cad, parts, avg_reserve, statut, cree_le, pct, prix_ref) "
+                 "VALUES (:u, :t, 'VENTE', :s, 0, :n, :a, 'actif', :c, :pc, :pr)"),
             {"u": username, "t": tk, "s": seuil_r, "n": parts,
-             "a": anc_p, "c": now_str})
+             "a": anc_p, "c": now_str, "pc": pct_r, "pr": anc_p})
         session.commit()
-    return True
+    return seuil_r
 
 
 def _regler_conditionnel_achat_annule(session, ordre, statut, note):
@@ -2234,7 +2281,7 @@ def _regler_conditionnel_achat(username, ordre, prix_marche, maintenant, exempte
             text("UPDATE ordres_conditionnels SET statut='execute', prix_execution=:p, "
                  "parts=:s, declenche_le=:e, note=:n WHERE id=:i"),
             {"p": prix_marche, "s": shares, "e": now_str,
-             "n": "Ton prix visé a été atteint : acheté au prix du marché de ce moment-là.",
+             "n": "Ton déclencheur a été atteint : acheté au prix du marché de ce moment-là.",
              "i": int(ordre['id'])})
         session.commit()
 
@@ -2293,14 +2340,14 @@ def _regler_conditionnel_vente(username, ordre, prix_marche, maintenant, exempte
             text("UPDATE ordres_conditionnels SET statut='execute', prix_execution=:p, "
                  "declenche_le=:e, note=:n WHERE id=:i"),
             {"p": prix_marche, "e": now_str,
-             "n": "Ton prix visé a été atteint : vendu au prix du marché de ce moment-là.",
+             "n": "Ton déclencheur a été atteint : vendu au prix du marché de ce moment-là.",
              "i": int(ordre['id'])})
         session.commit()
 
 
 def executer_ordres_conditionnels(username):
-    """Déclenche les ordres conditionnels dont le prix visé est
-    atteint. Appelée à la connexion, juste après les ordres en
+    """Déclenche les ordres conditionnels dont le prix déclencheur
+    est atteint. Appelée à la connexion, juste après les ordres en
     attente : en séance seulement, car le déclenchement se constate
     sur le prix affiché pendant les heures de bourse (fenêtre des
     règles, point 9). Verrou par utilisateur tenu pendant tout le
@@ -2350,8 +2397,9 @@ def afficher_ordres_conditionnels(username):
     """Bloc « Mes ordres conditionnels », juste sous les ordres en
     attente : une carte par ordre actif, cyan pour un achat et ambre
     pour une vente (la même famille que les ordres en attente), avec
-    le prix visé dit en toutes lettres dans le badge et un bouton
-    d'annulation. Cartes de résultat pendant 2 minutes après le
+    la baisse visée et le prix déclencheur dits en toutes lettres
+    dans le badge (les anciens ordres montrent leur prix seul) et
+    un bouton d'annulation. Cartes de résultat pendant 2 minutes après le
     déclenchement ou l'annulation, puis elles disparaissent.
     Le bloc ne paraît que s'il y a quelque chose à montrer."""
     actifs = ordres_conditionnels_pour(username)
@@ -2373,7 +2421,7 @@ def afficher_ordres_conditionnels(username):
         return
     st.markdown(
         "<div style='color:#E5E7EB;font-size:0.8rem;font-weight:800;letter-spacing:0.1em;"
-        "text-transform:uppercase;margin:6px 0 8px;'>Mes ordres conditionnels · si le prix descend à ton prix, ça se fait tout seul</div>",
+        "text-transform:uppercase;margin:6px 0 8px;'>Mes ordres conditionnels · si le prix descend à ton déclencheur, ça se fait tout seul</div>",
         unsafe_allow_html=True)
     if not actifs.empty:
         boutons_css = "<style>"
@@ -2384,14 +2432,23 @@ def afficher_ordres_conditionnels(username):
             seuil_o = float(o['seuil'])
             with cols[i]:
                 _est_vente = str(o.get('sens') or 'ACHAT').upper() == 'VENTE'
+                _pct_o = o.get('pct')
+                try:
+                    _pct_o = float(_pct_o) if _pct_o is not None and not pd.isna(_pct_o) else None
+                except (TypeError, ValueError):
+                    _pct_o = None
                 if _est_vente:
                     _montant_carte = f"VENTE · {int(o['parts'] or 0)} actions réservées"
                     _detail_carte = "Surveillé pendant les heures de bourse (9 h 30 à 16 h)"
-                    _lib_badge = f"Vente si le prix descend à ${seuil_o:,.2f}"
+                    _lib_badge = (f"Vente si baisse de {_pct_o:g} % · à ${seuil_o:,.2f}"
+                                  if _pct_o is not None else
+                                  f"Vente si le prix descend à ${seuil_o:,.2f}")
                 else:
                     _montant_carte = f"ACHAT · ${float(o['montant_cad']):,.2f} réservés"
                     _detail_carte = "Surveillé pendant les heures de bourse (9 h 30 à 16 h)"
-                    _lib_badge = f"Achat si le prix descend à ${seuil_o:,.2f}"
+                    _lib_badge = (f"Achat si baisse de {_pct_o:g} % · à ${seuil_o:,.2f}"
+                                  if _pct_o is not None else
+                                  f"Achat si le prix descend à ${seuil_o:,.2f}")
                 _classe_carte = "ordre-card vente" if _est_vente else "ordre-card"
                 _classe_badge = "ordre-badge vente" if _est_vente else "ordre-badge"
                 _coul_btn = "245, 158, 11" if _est_vente else "34, 211, 238"
@@ -2430,7 +2487,7 @@ def afficher_ordres_conditionnels(username):
                 _montant_regle = f"{_n_exec} actions vendues à ${float(o['prix_execution']):,.2f}"
             else:
                 _montant_regle = f"{_n_exec} actions achetées à ${float(o['prix_execution']):,.2f}"
-            _detail_regle = str(o['note'] or "Ton prix visé a été atteint.")
+            _detail_regle = str(o['note'] or "Ton déclencheur a été atteint.")
             st.markdown(
                 f"<div class='ordre-card exec'>"
                 f"<div class='ordre-ticker'>{tk}</div>"
@@ -6884,17 +6941,28 @@ else:
                         else: afficher_refus("Vous ne possédez pas cette quantité d'actions.")
 
                 # --- ORDRE CONDITIONNEL (étape 2) ---
-                # L'élève choisit un prix plus bas que le prix actuel :
-                # si le prix descend à son prix pendant les heures de
-                # bourse, l'achat ou la vente se fait tout seul, au
-                # prix du marché de ce moment-là. Le montant de l'achat
-                # est réservé tout de suite (au débit estimé à son prix
-                # visé) ; les parts de la vente sont réservées aussi.
-                st.markdown("<div style='color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 4px;'>Ordre conditionnel : à ton prix, tout seul</div>", unsafe_allow_html=True)
-                st.caption("Choisis un prix plus bas que le prix actuel et ce que tu veux y faire. L'ordre attend pendant les heures de bourse, aussi longtemps qu'il le faut. Tu peux l'annuler tant qu'il n'est pas déclenché, sans frais.")
-                seuil_cond = st.number_input("Prix visé ($ CAD)", min_value=0.0, step=0.5, value=0.0, format="%.2f", key=f"seuil_cond_{selected_ticker}")
-                p_res_cond = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
+                # L'élève choisit une BAISSE EN POURCENTAGE (19 nov.
+                # 2026) : si le prix descend de sa baisse pendant les
+                # heures de bourse, l'achat ou la vente se fait tout
+                # seul, au prix du marché de ce moment-là. Pour un
+                # achat, la baisse se mesure sous le prix actuel ;
+                # pour une vente, sous son prix d'achat moyen. Le
+                # montant de l'achat est réservé tout de suite (au
+                # débit estimé au prix déclencheur) ; les parts de la
+                # vente sont réservées aussi.
+                st.markdown("<div style='color:#9CA3AF;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 4px;'>Ordre conditionnel : une baisse, et ça se fait tout seul</div>", unsafe_allow_html=True)
+                st.caption("Choisis une baisse en pourcentage et ce que tu veux y faire. Pour un achat, la baisse se mesure sous le prix actuel ; pour une vente, sous ton prix d'achat moyen. L'ordre attend pendant les heures de bourse, aussi longtemps qu'il le faut. Tu peux l'annuler tant qu'il n'est pas déclenché, sans frais.")
+                pct_cond = st.number_input("Baisse visée (%)", min_value=1, max_value=90, step=1, value=10, key=f"pct_cond_{selected_ticker}")
+                p_res_cond = conn.query("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
                 shares_dispo_cond = int(p_res_cond.iloc[0]['shares']) if not p_res_cond.empty else 0
+                avg_cond = float(p_res_cond.iloc[0]['avg_price'] or 0.0) if not p_res_cond.empty else 0.0
+                seuil_cond = seuil_depuis_pct(prix_cad, pct_cond) if prix_cad else None
+                if seuil_cond is not None:
+                    st.caption(f"Achat : à −{float(pct_cond):g} %, l'ordre se déclenche à ${seuil_cond:,.2f} (prix actuel ${prix_cad:,.2f}).")
+                if shares_dispo_cond > 0 and avg_cond > 0:
+                    seuil_v_affiche = seuil_depuis_pct(avg_cond, pct_cond)
+                    if seuil_v_affiche is not None:
+                        st.caption(f"Vente : à −{float(pct_cond):g} %, l'ordre se déclenche à ${seuil_v_affiche:,.2f} (ton prix d'achat moyen ${avg_cond:,.2f}).")
                 montant_cond = st.number_input("Montant à réserver pour l'achat ($ CAD)", min_value=0.0, step=10.0, value=100.0, key=f"montant_cond_{selected_ticker}")
                 qty_cond_v = 0
                 if shares_dispo_cond > 0:
@@ -6905,10 +6973,8 @@ else:
                         afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
                     elif compte_en_verification(user):
                         afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
-                    elif seuil_cond <= 0:
-                        afficher_refus(f"Entre un prix visé : c'est le prix que tu attends. Il doit être plus bas que le prix actuel (${prix_cad:,.2f}).")
-                    elif prix_cad and seuil_cond >= prix_cad:
-                        afficher_refus(f"Ton prix visé doit être plus bas que le prix actuel (${prix_cad:,.2f}) : un ordre conditionnel attend que le prix descende. Pour acheter tout de suite, c'est le bouton Acheter ci-dessus.")
+                    elif seuil_cond is None:
+                        afficher_refus("Entre une baisse visée entre 1 % et 90 % : c'est la baisse que tu attends avant que l'ordre se déclenche.")
                     elif len(ordres_conditionnels_pour(user)) >= LIMITE_ORDRES_CONDITIONNELS:
                         afficher_refus(f"Tu as déjà {LIMITE_ORDRES_CONDITIONNELS} ordres conditionnels en surveillance. Annules-en un si tu veux en placer un autre.")
                     else:
@@ -6919,19 +6985,19 @@ else:
                         c_res_cond = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
                         cash_cond_db = float(c_res_cond.iloc[0]['cash']) if not c_res_cond.empty else 0.0
                         if sh_cond < 1:
-                            afficher_refus("Avec ce montant, même à ton prix visé, tu ne peux pas acheter une seule action. Augmente le montant ou vise un prix plus bas.")
+                            afficher_refus("Avec ce montant, même au prix déclencheur, tu ne peux pas acheter une seule action. Augmente le montant ou vise une baisse plus grande.")
                         elif plancher_cond is not None and cout_cond < plancher_cond:
                             afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_cond:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
                         elif not exempte_cond and part_titre_apres_achat(user, selected_ticker, seuil_cond, sh_cond) > PLAFOND_TITRE_PCT:
-                            afficher_refus(f"Maximum 25 % sur un seul titre : à ton prix visé, cet achat ferait passer {selected_ticker.upper()} au-dessus du quart de ton compte. Réduis le montant.")
+                            afficher_refus(f"Maximum 25 % sur un seul titre : au prix déclencheur, cet achat ferait passer {selected_ticker.upper()} au-dessus du quart de ton compte. Réduis le montant.")
                         elif not exempte_cond and (autre_etf_c := autre_etf_detenu(user, selected_ticker)) == "VERIFICATION":
                             afficher_refus("Je n'arrive pas à vérifier si tu détiens déjà un ETF en ce moment (données de classification inaccessibles). Réessaie dans une minute.")
                         elif not exempte_cond and autre_etf_c:
                             afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf_c}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
                         elif cash_cond_db < total_res_cond:
                             afficher_refus("Fonds insuffisants : le montant de l'ordre est réservé dès maintenant, il doit être dans ton compte.")
-                        elif creer_ordre_conditionnel_achat(user, selected_ticker, seuil_cond, total_res_cond):
-                            st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE CONDITIONNEL PLACÉ", "sous": f"{selected_ticker.upper()}", "lignes": [("Prix visé", f"${seuil_cond:,.2f}"), ("Montant réservé", f"${total_res_cond:,.2f}")], "total": None, "pied": "Si le prix descend à ton prix visé pendant les heures de bourse, l'achat se fera tout seul, au prix du marché de ce moment-là. Annulable dans « Mes ordres conditionnels », tant qu'il n'est pas déclenché."})
+                        elif creer_ordre_conditionnel_achat(user, selected_ticker, pct_cond, total_res_cond, prix_cad):
+                            st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE CONDITIONNEL PLACÉ", "sous": f"{selected_ticker.upper()}", "lignes": [("Baisse visée", f"−{float(pct_cond):g} %"), ("Prix déclencheur", f"${seuil_cond:,.2f}"), ("Montant réservé", f"${total_res_cond:,.2f}")], "total": None, "pied": "Si le prix baisse autant pendant les heures de bourse, l'achat se fera tout seul, au prix du marché de ce moment-là. Annulable dans « Mes ordres conditionnels », tant qu'il n'est pas déclenché."})
                             st.rerun()
                         else:
                             afficher_refus("Fonds insuffisants.")
@@ -6940,16 +7006,12 @@ else:
                         afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
                     elif compte_en_verification(user):
                         afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
-                    elif seuil_cond <= 0:
-                        afficher_refus(f"Entre un prix visé : c'est le prix que tu attends. Il doit être plus bas que le prix actuel (${prix_cad:,.2f}).")
-                    elif prix_cad and seuil_cond >= prix_cad:
-                        afficher_refus(f"Ton prix visé doit être plus bas que le prix actuel (${prix_cad:,.2f}) : un ordre conditionnel attend que le prix descende. Pour vendre tout de suite, c'est le bouton Vendre ci-dessus.")
                     elif len(ordres_conditionnels_pour(user)) >= LIMITE_ORDRES_CONDITIONNELS:
                         afficher_refus(f"Tu as déjà {LIMITE_ORDRES_CONDITIONNELS} ordres conditionnels en surveillance. Annules-en un si tu veux en placer un autre.")
                     elif ordre_conditionnel_vente_sur(user, selected_ticker):
-                        afficher_refus(f"Tu as déjà un ordre de vente conditionnel sur {selected_ticker.upper()}. Annule-le si tu veux changer le prix ou la quantité.")
-                    elif creer_ordre_conditionnel_vente(user, selected_ticker, seuil_cond, qty_cond_v):
-                        st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE CONDITIONNEL PLACÉ", "sous": f"{selected_ticker.upper()}", "lignes": [("Prix visé", f"${seuil_cond:,.2f}"), ("Actions réservées", f"{qty_cond_v} actions")], "total": None, "pied": "Si le prix descend à ton prix visé pendant les heures de bourse, la vente se fera toute seule, au prix du marché de ce moment-là. Annulable dans « Mes ordres conditionnels », tant qu'elle n'est pas déclenchée."})
+                        afficher_refus(f"Tu as déjà un ordre de vente conditionnel sur {selected_ticker.upper()}. Annule-le si tu veux changer la baisse ou la quantité.")
+                    elif (seuil_v_cond := creer_ordre_conditionnel_vente(user, selected_ticker, pct_cond, qty_cond_v)):
+                        st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE CONDITIONNEL PLACÉ", "sous": f"{selected_ticker.upper()}", "lignes": [("Baisse visée", f"−{float(pct_cond):g} % sous ton prix d'achat"), ("Prix déclencheur", f"${seuil_v_cond:,.2f}"), ("Actions réservées", f"{qty_cond_v} actions")], "total": None, "pied": "Si le prix baisse autant pendant les heures de bourse, la vente se fera toute seule, au prix du marché de ce moment-là. Annulable dans « Mes ordres conditionnels », tant qu'elle n'est pas déclenchée."})
                         st.rerun()
                     else:
                         afficher_refus("Vous ne possédez plus cette quantité d'actions.")
