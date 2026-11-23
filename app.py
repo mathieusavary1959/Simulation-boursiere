@@ -56,17 +56,20 @@ if MODE_MAINTENANCE:
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
-# Bassin élargi (23 nov. 2026) : le bassin par défaut de Streamlit (15 connexions)
-# saturait dès qu'une classe entière était connectée, les requêtes attendaient
-# 30 s puis plantaient (sqlalchemy.exc.TimeoutError au checkout, écran figé sur
-# « Running sql.query »). pool_pre_ping écarte les connexions mortes du pooler
-# Supabase avant usage ; pool_recycle les renouvelle avant leur expiration.
+# Plafond serveur : Supavisor en mode session limite ce projet à 15 connexions
+# (FATAL EMAXCONNSESSION au-delà, vu dans les journaux du 23 nov. 2026).
+# Le bassin par défaut de Streamlit (15) frôlait ce plafond et saturait quand
+# une classe se connectait en même temps (TimeoutError, « Running sql.query »
+# sans fin) ; un bassin de 50 dépassait le plafond et les nouvelles connexions
+# étaient refusées. On reste donc sous la limite : 10 + 4 = 14.
+# pool_pre_ping écarte les connexions mortes avant usage ; pool_recycle les
+# renouvelle avant leur expiration côté pooler.
 conn = st.connection(
     "postgres",
     type="sql",
-    pool_size=20,
-    max_overflow=30,
-    pool_timeout=20,
+    pool_size=10,
+    max_overflow=4,
+    pool_timeout=30,
     pool_recycle=280,
     pool_pre_ping=True,
 )
