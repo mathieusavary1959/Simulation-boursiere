@@ -56,7 +56,20 @@ if MODE_MAINTENANCE:
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
-conn = st.connection("postgres", type="sql")
+# Bassin élargi (23 nov. 2026) : le bassin par défaut de Streamlit (15 connexions)
+# saturait dès qu'une classe entière était connectée, les requêtes attendaient
+# 30 s puis plantaient (sqlalchemy.exc.TimeoutError au checkout, écran figé sur
+# « Running sql.query »). pool_pre_ping écarte les connexions mortes du pooler
+# Supabase avant usage ; pool_recycle les renouvelle avant leur expiration.
+conn = st.connection(
+    "postgres",
+    type="sql",
+    pool_size=20,
+    max_overflow=30,
+    pool_timeout=20,
+    pool_recycle=280,
+    pool_pre_ping=True,
+)
 
 @st.cache_resource
 def init_db():
