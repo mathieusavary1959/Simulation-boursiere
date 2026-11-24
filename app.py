@@ -56,19 +56,21 @@ if MODE_MAINTENANCE:
 LISTE_GROUPES = [f"Groupe {i}" for i in range(501, 511)] + ["Enseignants"]
 
 # --- CONNEXION BASE DE DONNÉES CLOUD (SUPABASE) ---
-# Plafond serveur : Supavisor en mode session limite ce projet à 15 connexions
-# (FATAL EMAXCONNSESSION au-delà, vu dans les journaux du 23 nov. 2026).
-# Le bassin par défaut de Streamlit (15) frôlait ce plafond et saturait quand
-# une classe se connectait en même temps (TimeoutError, « Running sql.query »
-# sans fin) ; un bassin de 50 dépassait le plafond et les nouvelles connexions
-# étaient refusées. On reste donc sous la limite : 10 + 4 = 14.
+# Plafond serveur : Supavisor en mode session limitait ce projet à 15
+# connexions (FATAL EMAXCONNSESSION au-delà, vu dans les journaux du
+# 23 nov. 2026) ; plafond relevé par Mathieu dans Supabase le 23 nov. 2026
+# au soir. Le bassin par défaut de Streamlit (15) frôlait l'ancien plafond
+# et saturait quand une classe se connectait en même temps (TimeoutError,
+# « Running sql.query » sans fin) ; un bassin de 50 dépassait le plafond
+# et les nouvelles connexions étaient refusées. On reste sous le nouveau
+# plafond : 18 + 6 = 24.
 # pool_pre_ping écarte les connexions mortes avant usage ; pool_recycle les
 # renouvelle avant leur expiration côté pooler.
 conn = st.connection(
     "postgres",
     type="sql",
-    pool_size=10,
-    max_overflow=4,
+    pool_size=18,
+    max_overflow=6,
     pool_timeout=30,
     pool_recycle=280,
     pool_pre_ping=True,
@@ -663,10 +665,19 @@ def verifier_popup_regles(username):
         from datetime import date as _date_garde
         if datetime.now(ZoneInfo("America/Toronto")).date() < _date_garde(2026, 11, 16):
             return
+    # Mémo de session (chantier fluidité, 23 nov. 2026) : une fois la
+    # version courante confirmée comme vue, on ne relit plus la table
+    # à chaque clic. La fenêtre reste affichée tant que la version
+    # n'est pas confirmée, exactement comme avant.
+    cle_regles = f"regles_ok_v{VERSION_REGLES}"
+    if st.session_state.get(cle_regles):
+        return
     try:
         r = conn.query("SELECT version FROM regles_vues WHERE username=:u", params={"u": username}, ttl=0)
         if r.empty or int(r.iloc[0]['version']) < VERSION_REGLES:
             afficher_popup_regles(username)
+        else:
+            st.session_state[cle_regles] = True
     except Exception:
         pass
 
@@ -766,10 +777,18 @@ def afficher_popup_correction(username, sens):
 
 def verifier_popup_correction(username):
     """Affiche l'avis de correction si l'élève en a un qu'il n'a pas encore vu."""
+    # Mémo de session (chantier fluidité, 23 nov. 2026) : quand aucun
+    # avis non vu n'existe, on ne relit plus la table à chaque clic.
+    # Un avis créé pendant que l'élève est connecté paraîtra à sa
+    # prochaine connexion.
+    if st.session_state.get("avis_correction_ok"):
+        return
     try:
         r = conn.query("SELECT sens, vu_le FROM avis_correction WHERE username=:u", params={"u": username}, ttl=0)
         if not r.empty and (r.iloc[0]['vu_le'] is None or str(r.iloc[0]['vu_le']).strip() == ""):
             afficher_popup_correction(username, str(r.iloc[0]['sens']))
+        else:
+            st.session_state["avis_correction_ok"] = True
     except Exception:
         pass
 
@@ -1786,6 +1805,21 @@ def executer_ordres_en_attente(username):
     sessions simultanées du même compte ne peuvent pas exécuter
     (ni rembourser) deux fois le même ordre.
     """
+    # Pré-vérification légère (chantier fluidité, 23 nov. 2026) : la
+    # grande majorité des comptes n'a aucun ordre en attente. Un seul
+    # comptage évite d'ouvrir une session et de prendre le verrou à
+    # chaque clic pour rien ; le balayage complet ne trouvait rien
+    # d'autre à faire dans ce cas. Si le comptage échoue, on laisse
+    # le balayage complet décider, exactement comme avant.
+    try:
+        _n_att = conn.query(
+            "SELECT COUNT(*) AS n FROM ordres_en_attente "
+            "WHERE username=:u AND statut='en_attente'",
+            params={"u": username}, ttl=0)
+        if _n_att.empty or int(_n_att.iloc[0]['n']) == 0:
+            return
+    except Exception:
+        pass
     try:
         with conn.session as verrou:
             _verrou_transaction(verrou, username)
@@ -2374,6 +2408,20 @@ def executer_ordres_conditionnels(username):
         maintenant = datetime.now(ZoneInfo("America/Toronto"))
         if not _en_seance(maintenant):
             return
+        # Pré-vérification légère (chantier fluidité, 23 nov. 2026) :
+        # même principe que pour les ordres en attente. Sans ordre
+        # conditionnel actif, le balayage n'a rien à déclencher ; on
+        # évite la session et le verrou à chaque clic. Si le comptage
+        # échoue, le balayage complet décide, comme avant.
+        try:
+            _n_cond = conn.query(
+                "SELECT COUNT(*) AS n FROM ordres_conditionnels "
+                "WHERE username=:u AND statut='actif'",
+                params={"u": username}, ttl=0)
+            if _n_cond.empty or int(_n_cond.iloc[0]['n']) == 0:
+                return
+        except Exception:
+            pass
         with conn.session as verrou:
             _verrou_transaction(verrou, username)
             _executer_conditionnels_sous_verrou(username, maintenant)
