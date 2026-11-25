@@ -6715,22 +6715,11 @@ else:
 
                 afficher_graphique_interactif(selected_ticker)
 
-                nouvelles = obtenir_nouvelles(selected_ticker)
-                if nouvelles:
-                    st.markdown("<div style='font-family:\'Bebas Neue\',\'Work Sans\',sans-serif;font-size:1.55rem;letter-spacing:0.06em;color:#FFFFFF;margin:14px 0 8px;'>ACTUALITÉS <span style='color:#E50914;'>" + html.escape(selected_ticker.upper()) + "</span></div>", unsafe_allow_html=True)
-                    for n in nouvelles:
-                        nt, nl, npub, ndate = n.get('title'), n.get('link'), n.get('publisher', ''), n.get('date', '')
-                        if nt and nl:
-                            _meta_actu = " · ".join([x for x in [html.escape(str(npub)), ndate] if x])
-                            st.markdown(
-                                "<div style='background:linear-gradient(180deg,#232323 0%,#171717 100%);border:1px solid rgba(255,255,255,0.10);border-left:3px solid #E50914;border-radius:10px;padding:11px 14px;margin-bottom:8px;'>"
-                                f"<a href='{html.escape(str(nl), quote=True)}' target='_blank' style='color:#FFFFFF;font-weight:600;font-size:15px;text-decoration:none;line-height:1.35;'>{html.escape(str(nt))}</a>"
-                                + (f"<div style='color:#9CA3AF;font-size:12px;margin-top:3px;'>{_meta_actu}</div>" if _meta_actu else "")
-                                + "</div>",
-                                unsafe_allow_html=True)
+                # Bloc actualités retiré le 24 nov. 2026 (décision de
+                # Mathieu : personne ne l'utilise, il alourdissait
+                # l'écran principal et coûtait un appel par titre).
 
             with col_order:
-                st.markdown("### Passer un ordre")
                 _cle_mode = f"mode_{selected_ticker}"
                 _soir = (not _marche_ouvert()) and ordres_ouverture_actif(user)
                 if _soir and st.session_state.get(_cle_mode) != "Par montant ($)":
@@ -6740,10 +6729,34 @@ else:
                     # montant, lui, l'est toujours). Aucun refus à recevoir :
                     # le seul chemin offert est le bon.
                     st.session_state[_cle_mode] = "Par montant ($)"
-                mode_ordre = st.radio("Mode d'achat", ["Par montant ($)"] if _soir else ["Par quantité", "Par montant ($)"], horizontal=True, key=_cle_mode)
+
+                # Refonte convivialité (aperçu validé par Mathieu le
+                # 24 nov. 2026) : trois étapes en gros chiffres, un
+                # seul champ, des boutons vert et rouge. Les petites
+                # lignes permanentes (frais, change, détention,
+                # volume) ont disparu du panneau : le détail des
+                # frais vit dans le reçu, après l'achat.
+                def _etape(num, titre):
+                    st.markdown(
+                        f"<div style='display:flex;align-items:center;gap:11px;margin:16px 0 9px;'>"
+                        f"<span style='flex:none;width:38px;height:38px;border-radius:50%;background:#E50914;color:#FFFFFF;font-weight:800;font-size:1.3rem;display:flex;align-items:center;justify-content:center;'>{num}</span>"
+                        f"<span style='font-weight:800;font-size:1.05rem;color:#FFFFFF;'>{titre}</span></div>",
+                        unsafe_allow_html=True)
+
+                def _resume_ordre(gauche, droite):
+                    return (
+                        f"<div style='display:flex;justify-content:space-between;align-items:baseline;gap:10px;background:#1A1A1A;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:12px 15px;'>"
+                        f"<span style='color:#D1D5DB;font-size:0.98rem;'>{gauche}</span>"
+                        f"<span style='color:#FFFFFF;font-size:1.2rem;font-weight:800;white-space:nowrap;'>{droite}</span></div>")
+
+                if _soir:
+                    mode_ordre = "Par montant ($)"
+                else:
+                    mode_ordre = st.radio("Mode d'achat", ["Par quantité", "Par montant ($)"], horizontal=True, key=_cle_mode, label_visibility="collapsed")
+                _etape(1, "Ton montant" if mode_ordre == "Par montant ($)" else "Ta quantité")
 
                 if mode_ordre == "Par quantité":
-                    qty_achat = st.number_input("Quantité", min_value=1, step=1, value=1, key=f"qty_{selected_ticker}")
+                    qty_achat = st.number_input("Quantité", min_value=1, step=1, value=1, key=f"qty_{selected_ticker}", label_visibility="collapsed")
                     _cout_a = prix_cad * qty_achat
                     _lignes_a = [(f"{qty_achat} action(s) à {fmt_prix(prix, devise_titre)}", f"${_cout_a:,.2f}")]
                     _tot_a = _cout_a
@@ -6753,10 +6766,19 @@ else:
                         if _fc_a > 0:
                             _lignes_a.append(("Conversion (1,5 %, titre américain)", f"${_fc_a:,.2f}"))
                         _tot_a = _cout_a + FRAIS_TRANSACTION + _fc_a
-                    st.markdown(_html_recu({"genre": "apercu", "titre": "TON ORDRE", "sous": f"{selected_ticker.upper()} · estimation au prix actuel", "lignes": _lignes_a, "total": ("Total débité", f"${_tot_a:,.2f}"), "pied": "Estimation : le prix d'exécution est celui du moment où tu confirmes."}), unsafe_allow_html=True)
+                    _etape(2, "Au prix actuel")
+                    st.markdown(_resume_ordre(f"{qty_achat} action(s) {selected_ticker.upper()}, frais inclus", f"${_tot_a:,.2f}"), unsafe_allow_html=True)
                     qty_vente = qty_achat
                 else:
-                    montant = st.number_input(("1 · Montant à investir ($ CAD)" if _soir else "Montant à investir ($ CAD)"), min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
+                    _preset_m = st.session_state.pop(f"montant_preset_{selected_ticker}", None)
+                    if _preset_m is not None:
+                        st.session_state[f"montant_{selected_ticker}"] = float(_preset_m)
+                    montant = st.number_input("Montant à investir ($ CAD)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}", label_visibility="collapsed")
+                    _chips = st.columns(4)
+                    for _i_chip, _m_chip in enumerate((100.0, 250.0, 500.0, 1000.0)):
+                        if _chips[_i_chip].button(f"{_m_chip:,.0f} $".replace(",", " "), key=f"chip_{int(_m_chip)}_{selected_ticker}", use_container_width=True):
+                            st.session_state[f"montant_preset_{selected_ticker}"] = _m_chip
+                            st.rerun()
                     qty_achat = int(montant // prix_cad) if prix_cad and prix_cad > 0 else 0
                     if qty_achat >= 1:
                         _cout_b = qty_achat * prix_cad
@@ -6768,26 +6790,12 @@ else:
                             if _fc_b > 0:
                                 _lignes_b.append(("Conversion (1,5 %, titre américain)", f"${_fc_b:,.2f}"))
                             _tot_b = _cout_b + FRAIS_TRANSACTION + _fc_b
-                        st.markdown(_html_recu({"genre": "apercu", "titre": ("2 · TON ORDRE POUR DEMAIN" if _soir else "TON ORDRE"), "sous": f"{selected_ticker.upper()} · ce que ton montant peut acheter, au prix actuel", "lignes": _lignes_b, "total": ("Total débité", f"${_tot_b:,.2f}"), "pied": ("Demain à 9 h 30, au prix d'ouverture." if _soir else "Estimation : le prix d'exécution est celui du moment où tu confirmes.")}), unsafe_allow_html=True)
+                        _etape(2, "Demain à l'ouverture" if _soir else "Au prix actuel")
+                        st.markdown(_resume_ordre(f"{'≈ ' if _soir else ''}{qty_achat} action(s) {selected_ticker.upper()}, frais inclus", (f"{montant:,.2f} $ réservés" if _soir else f"${_tot_b:,.2f}")), unsafe_allow_html=True)
                     else:
+                        _etape(2, "Demain à l'ouverture" if _soir else "Au prix actuel")
                         st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
-                    qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
 
-                if devise_titre == "USD":
-                    _taux_jour = obtenir_taux_usdcad()
-                    if _taux_jour:
-                        st.caption(f"Ajustement de change : 1 $ US = {_taux_jour:.4f} $ CAD aujourd'hui. Le montant débité ou crédité est toujours en dollars canadiens.")
-
-                st.caption("Règle : ta position sur un titre ne peut pas dépasser 5 % de son volume d'échange quotidien.")
-                if not compte_exempte_frais(user):
-                    st.caption("Frais réels : 10 $ par transaction et 1,5 % de conversion sur les titres américains. Chaque achat vaut entre 2 % et 25 % de ton compte, maximum 5 achats par jour. Le détail complet est dans les règles du jeu, en haut de la page.")
-                vol_jour_cap = obtenir_volume_quotidien_moyen(selected_ticker)
-                if vol_jour_cap and LIMITE_VOLUME_PCT * vol_jour_cap < 1000000:
-                    st.caption(f"Position maximale sur {selected_ticker.upper()} : {LIMITE_VOLUME_PCT * vol_jour_cap:,.0f} $")
-                if est_etf(selected_ticker):
-                    st.caption("Revente possible 1 h après l'achat (ETF).")
-                else:
-                    st.caption("Revente possible 30 minutes après l'achat.")
 
                 # Mention CDR : si le titre affiche est lui-meme un
                 # certificat (AAPL.TO choisi directement, ou apres le
@@ -6850,205 +6858,230 @@ else:
                         st.session_state['jumeau_redirige'] = selected_ticker + ".TO"
                         st.rerun()
 
-                col_b, col_s = st.columns(2)
+                _c3_num, _c3_corps = st.columns([0.14, 0.86])
+                with _c3_num:
+                    st.markdown(
+                        "<div style='display:flex;justify-content:center;padding-top:2px;'>"
+                        "<span style='flex:none;width:38px;height:38px;border-radius:50%;background:#E50914;color:#FFFFFF;font-weight:800;font-size:1.3rem;display:flex;align-items:center;justify-content:center;'>3</span></div>",
+                        unsafe_allow_html=True)
+                with _c3_corps:
+                    if mode_ordre == "Par montant ($)":
+                        qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
+                    st.markdown(
+                        f"<style>"
+                        f"div[class~='st-key-acheter_{selected_ticker}'] button {{background:#16A34A !important;border:none !important;}}"
+                        f"div[class~='st-key-acheter_{selected_ticker}'] button p {{color:#FFFFFF !important;font-weight:800 !important;font-size:1.08rem !important;}}"
+                        f"div[class~='st-key-vendre_{selected_ticker}'] button {{background:transparent !important;border:1.5px solid rgba(248,113,113,0.65) !important;}}"
+                        f"div[class~='st-key-vendre_{selected_ticker}'] button p {{color:#F87171 !important;font-weight:800 !important;font-size:1.02rem !important;}}"
+                        "</style>", unsafe_allow_html=True)
+                    if not _soir:
+                        col_b, col_s = st.columns(2)
 
-                # ACHAT
-                if col_b.button(("3 · Placer mon ordre" if _soir else "Acheter"), use_container_width=True, disabled=achat_bloque_jumeau):
-                    if plafond_achats_atteint(user):
-                        dialogue_pause_bourse()
-                    elif not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
-                        afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
-                    elif titre_suspendu(selected_ticker):
-                        afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
-                    elif compte_en_verification(user):
-                        afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
-                    elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
-                        afficher_refus(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
-                    elif qty_achat < 1:
-                        afficher_refus("Augmentez le montant pour acheter au moins une action.")
-                    elif _marche_ouvert() and (msg_robot := garde_antirobots(user)):
-                        afficher_refus(msg_robot)
-                    elif not verifier_cooldown(user, delai_secondes=3):
-                        afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
+                    # ACHAT
+                    if _soir:
+                        _clic_achat = st.button("PLACER MON ORDRE POUR DEMAIN", use_container_width=True, disabled=achat_bloque_jumeau, key=f"acheter_{selected_ticker}")
                     else:
-                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
-                        cost_real = prix_instantane * qty_achat
+                        _clic_achat = col_b.button("ACHETER", use_container_width=True, disabled=achat_bloque_jumeau, key=f"acheter_{selected_ticker}")
+                    if _clic_achat:
+                        if plafond_achats_atteint(user):
+                            dialogue_pause_bourse()
+                        elif not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
+                            afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                        elif titre_suspendu(selected_ticker):
+                            afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                        elif compte_en_verification(user):
+                            afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                        elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
+                            afficher_refus(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
+                        elif qty_achat < 1:
+                            afficher_refus("Augmentez le montant pour acheter au moins une action.")
+                        elif _marche_ouvert() and (msg_robot := garde_antirobots(user)):
+                            afficher_refus(msg_robot)
+                        elif not verifier_cooldown(user, delai_secondes=3):
+                            afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
+                        else:
+                            prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
+                            cost_real = prix_instantane * qty_achat
 
-                        c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
-                        cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
+                            c_res = conn.query("SELECT cash FROM users WHERE username=:u", params={"u": user}, ttl=0)
+                            cash_actuel_db = float(c_res.iloc[0]['cash']) if not c_res.empty else 0.0
 
-                        msg_limite = verifier_limite_volume(user, selected_ticker, prix_instantane, cost_real)
-                        exempte = compte_exempte_frais(user)
-                        frais_fixe, frais_conv = (0.0, 0.0) if exempte else frais_pour_ordre(devise_titre, cost_real)
-                        total_debit = cost_real + frais_fixe + frais_conv
-                        bloque_cc, var_cc = (False, None) if exempte else coupe_circuit_actif(selected_ticker)
-                        part_apres = 0.0 if exempte else part_titre_apres_achat(user, selected_ticker, prix_instantane, qty_achat)
-                        plancher_min = None if exempte else plancher_achat_minimum(user)
-                        autre_etf = None if exempte else autre_etf_detenu(user, selected_ticker)
-                        if msg_limite:
-                            afficher_refus(msg_limite)
-                        elif bloque_cc:
-                            afficher_refus(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
-                        elif part_apres > PLAFOND_TITRE_PCT:
-                            afficher_refus(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
-                        elif plancher_min is not None and cost_real < plancher_min:
-                            afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_min:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
-                        elif autre_etf == "VERIFICATION":
-                            afficher_refus("Je n'arrive pas à vérifier si tu détiens déjà un ETF en ce moment (données de classification inaccessibles). Réessaie dans une minute.")
-                        elif autre_etf:
-                            afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
-                        elif ordres_ouverture_actif(user) and not _marche_ouvert() and mode_ordre == "Par quantité":
-                            # Décision de Mathieu (3 nov. 2026) : le soir, un ordre en
-                            # attente se place par montant seulement. En quantité, le
-                            # nombre d'actions choisi au prix gelé ne peut pas être
-                            # garanti à l'ouverture ; le montant, lui, l'est toujours.
-                            afficher_refus("Marché fermé : le soir, un ordre en attente se place par montant seulement. Passe en mode « Par montant ($) » ci-dessus : le montant que tu choisis est réservé, et le nombre d'actions sera fixé à l'ouverture, au prix d'ouverture.")
-                        elif ordres_ouverture_actif(user) and not _marche_ouvert():
-                            # Hors heures, l'achat devient un ordre en
-                            # attente exécuté au prix d'ouverture de la
-                            # prochaine séance, pas au prix gelé.
-                            if prix_instantane is None or prix_instantane <= 0:
-                                afficher_refus("Prix indisponible pour le moment : impossible de placer l'ordre. Réessaie plus tard.")
-                            elif cash_actuel_db < total_debit:
-                                afficher_refus("Fonds insuffisants.")
-                            elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
-                                afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
-                            elif achat_hors_heures_deja_fait(user, selected_ticker, _prochaine_seance_execution(datetime.now(ZoneInfo("America/Toronto")))):
-                                afficher_refus(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
-                            else:
-                                session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
-                                if session_exec is None:
+                            msg_limite = verifier_limite_volume(user, selected_ticker, prix_instantane, cost_real)
+                            exempte = compte_exempte_frais(user)
+                            frais_fixe, frais_conv = (0.0, 0.0) if exempte else frais_pour_ordre(devise_titre, cost_real)
+                            total_debit = cost_real + frais_fixe + frais_conv
+                            bloque_cc, var_cc = (False, None) if exempte else coupe_circuit_actif(selected_ticker)
+                            part_apres = 0.0 if exempte else part_titre_apres_achat(user, selected_ticker, prix_instantane, qty_achat)
+                            plancher_min = None if exempte else plancher_achat_minimum(user)
+                            autre_etf = None if exempte else autre_etf_detenu(user, selected_ticker)
+                            if msg_limite:
+                                afficher_refus(msg_limite)
+                            elif bloque_cc:
+                                afficher_refus(f"Coupe-circuit : {selected_ticker.upper()} a bougé de {var_cc:+.1f} % aujourd'hui. Quand un titre bouge de plus de 30 % dans une journée, les achats sont suspendus jusqu'au prochain jour de bourse, comme sur les vrais marchés. Tu peux toujours vendre.")
+                            elif part_apres > PLAFOND_TITRE_PCT:
+                                afficher_refus(f"Maximum 25 % sur un seul titre : après cet achat, {selected_ticker.upper()} représenterait {part_apres:.1f} % de ton compte. Réduis la quantité ou choisis un autre titre.")
+                            elif plancher_min is not None and cost_real < plancher_min:
+                                afficher_refus(f"Minimum 2 % sur un achat : une position doit compter pour vrai, pas être une décoration. Pour ton compte, un achat vaut au moins {plancher_min:,.2f} $ en ce moment. Augmente le montant ou choisis un titre moins cher.")
+                            elif autre_etf == "VERIFICATION":
+                                afficher_refus("Je n'arrive pas à vérifier si tu détiens déjà un ETF en ce moment (données de classification inaccessibles). Réessaie dans une minute.")
+                            elif autre_etf:
+                                afficher_refus(f"Un seul ETF à la fois : tu détiens déjà {autre_etf}, un fonds négocié en bourse. Vends-le d'abord si tu veux changer de fonds.")
+                            elif ordres_ouverture_actif(user) and not _marche_ouvert() and mode_ordre == "Par quantité":
+                                # Décision de Mathieu (3 nov. 2026) : le soir, un ordre en
+                                # attente se place par montant seulement. En quantité, le
+                                # nombre d'actions choisi au prix gelé ne peut pas être
+                                # garanti à l'ouverture ; le montant, lui, l'est toujours.
+                                afficher_refus("Marché fermé : le soir, un ordre en attente se place par montant seulement. Passe en mode « Par montant ($) » ci-dessus : le montant que tu choisis est réservé, et le nombre d'actions sera fixé à l'ouverture, au prix d'ouverture.")
+                            elif ordres_ouverture_actif(user) and not _marche_ouvert():
+                                # Hors heures, l'achat devient un ordre en
+                                # attente exécuté au prix d'ouverture de la
+                                # prochaine séance, pas au prix gelé.
+                                if prix_instantane is None or prix_instantane <= 0:
+                                    afficher_refus("Prix indisponible pour le moment : impossible de placer l'ordre. Réessaie plus tard.")
+                                elif cash_actuel_db < total_debit:
+                                    afficher_refus("Fonds insuffisants.")
+                                elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
+                                    afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                                elif achat_hors_heures_deja_fait(user, selected_ticker, _prochaine_seance_execution(datetime.now(ZoneInfo("America/Toronto")))):
+                                    afficher_refus(f"Marché fermé : hors des heures de marché, c'est un achat par entreprise par jour. Tu as déjà un achat de {selected_ticker.upper()} aujourd'hui ou en attente. Choisis une autre entreprise, ou reviens demain.")
+                                else:
+                                    session_exec = creer_ordre_en_attente(user, selected_ticker, total_debit, devise_titre)
+                                    if session_exec is None:
+                                        afficher_refus("Fonds insuffisants.")
+                                    else:
+                                        st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE EN ATTENTE", "sous": f"{selected_ticker.upper()}", "lignes": [("Montant réservé", f"${total_debit:,.2f}")], "total": None, "pied": f"S'exécute à l'ouverture du {session_exec}, au prix d'ouverture, jamais au prix de fermeture d'hier. Le nombre d'actions sera fixé à ce moment-là. Annulable dans « Mes ordres en attente »."})
+                                        st.rerun()
+                            elif cash_actuel_db >= total_debit:
+                                now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                                # Verrou par utilisateur + solde relu DANS la transaction :
+                                # des sessions simultanées du même compte ne peuvent pas
+                                # dépenser deux fois le même argent.
+                                achat_ok = False
+                                with conn.session as session:
+                                    _verrou_transaction(session, user)
+                                    cash_rel = session.execute(text("SELECT cash FROM users WHERE username=:u"), {"u": user}).scalar()
+                                    if cash_rel is not None and float(cash_rel) >= total_debit:
+                                        session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": total_debit, "u": user})
+                                        p_row = session.execute(text("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker}).fetchone()
+                                        if p_row is not None:
+                                            anc_s, anc_p = int(p_row[0]), float(p_row[1] or prix_instantane)
+                                            n_s = anc_s + qty_achat
+                                            n_p = ((anc_s * anc_p) + (qty_achat * prix_instantane)) / n_s
+                                            session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
+                                        else:
+                                            session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane})
+                                        session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                        {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                        enregistrer_frais(session, user, "transaction", frais_fixe, selected_ticker.upper())
+                                        enregistrer_frais(session, user, "conversion", frais_conv, selected_ticker.upper())
+                                        session.commit()
+                                        achat_ok = True
+                                    else:
+                                        session.rollback()
+                                if not achat_ok:
                                     afficher_refus("Fonds insuffisants.")
                                 else:
-                                    st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE EN ATTENTE", "sous": f"{selected_ticker.upper()}", "lignes": [("Montant réservé", f"${total_debit:,.2f}")], "total": None, "pied": f"S'exécute à l'ouverture du {session_exec}, au prix d'ouverture, jamais au prix de fermeture d'hier. Le nombre d'actions sera fixé à ce moment-là. Annulable dans « Mes ordres en attente »."})
+                                    _prix_affiche_a = fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD') if devise_titre == "USD" else f"${prix_instantane:,.2f}"
+                                    _lignes_a = [(f"{qty_achat} actions à {_prix_affiche_a}", f"${cost_real:,.2f}"), ("Frais de transaction", f"${frais_fixe:,.2f}")]
+                                    if frais_conv > 0:
+                                        _lignes_a.append(("Conversion (1,5 %, titre américain)", f"${frais_conv:,.2f}"))
+                                    _pied_a = f"Il te reste ${cash_actuel_db - total_debit:,.2f} en argent comptant."
+                                    if devise_titre == "USD":
+                                        _taux_fx = obtenir_taux_usdcad()
+                                        if _taux_fx:
+                                            _pied_a += f" Montants en dollars canadiens, au taux {_taux_fx:.4f}."
+                                    st.session_state['flash_msg'] = ("recu", {"genre": "achat", "titre": "ACHAT CONFIRMÉ", "sous": f"{selected_ticker.upper()} - {qty_achat} actions", "lignes": _lignes_a, "total": ("Total débité", f"${total_debit:,.2f}"), "pied": _pied_a})
                                     st.rerun()
-                        elif cash_actuel_db >= total_debit:
-                            now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                            # Verrou par utilisateur + solde relu DANS la transaction :
-                            # des sessions simultanées du même compte ne peuvent pas
-                            # dépenser deux fois le même argent.
-                            achat_ok = False
-                            with conn.session as session:
-                                _verrou_transaction(session, user)
-                                cash_rel = session.execute(text("SELECT cash FROM users WHERE username=:u"), {"u": user}).scalar()
-                                if cash_rel is not None and float(cash_rel) >= total_debit:
-                                    session.execute(text("UPDATE users SET cash = cash - :cost WHERE username = :u"), {"cost": total_debit, "u": user})
-                                    p_row = session.execute(text("SELECT shares, avg_price FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker}).fetchone()
-                                    if p_row is not None:
-                                        anc_s, anc_p = int(p_row[0]), float(p_row[1] or prix_instantane)
-                                        n_s = anc_s + qty_achat
-                                        n_p = ((anc_s * anc_p) + (qty_achat * prix_instantane)) / n_s
-                                        session.execute(text("UPDATE portfolio SET shares=:s, avg_price=:p WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": n_s, "p": n_p, "u": user, "t": selected_ticker})
-                                    else:
-                                        session.execute(text("INSERT INTO portfolio VALUES (:u, :t, :s, :p)"), {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane})
-                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": selected_ticker.upper(), "s": qty_achat, "p": prix_instantane, "tot": cost_real, "time": now_str})
-                                    enregistrer_frais(session, user, "transaction", frais_fixe, selected_ticker.upper())
-                                    enregistrer_frais(session, user, "conversion", frais_conv, selected_ticker.upper())
-                                    session.commit()
-                                    achat_ok = True
-                                else:
-                                    session.rollback()
-                            if not achat_ok:
-                                afficher_refus("Fonds insuffisants.")
-                            else:
-                                _prix_affiche_a = fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD') if devise_titre == "USD" else f"${prix_instantane:,.2f}"
-                                _lignes_a = [(f"{qty_achat} actions à {_prix_affiche_a}", f"${cost_real:,.2f}"), ("Frais de transaction", f"${frais_fixe:,.2f}")]
-                                if frais_conv > 0:
-                                    _lignes_a.append(("Conversion (1,5 %, titre américain)", f"${frais_conv:,.2f}"))
-                                _pied_a = f"Il te reste ${cash_actuel_db - total_debit:,.2f} en argent comptant."
-                                if devise_titre == "USD":
-                                    _taux_fx = obtenir_taux_usdcad()
-                                    if _taux_fx:
-                                        _pied_a += f" Montants en dollars canadiens, au taux {_taux_fx:.4f}."
-                                st.session_state['flash_msg'] = ("recu", {"genre": "achat", "titre": "ACHAT CONFIRMÉ", "sous": f"{selected_ticker.upper()} - {qty_achat} actions", "lignes": _lignes_a, "total": ("Total débité", f"${total_debit:,.2f}"), "pied": _pied_a})
-                                st.rerun()
-                        else: afficher_refus("Fonds insuffisants.")
+                            else: afficher_refus("Fonds insuffisants.")
 
-                # VENTE
-                if col_s.button(("Placer ma vente pour demain, 9 h 30" if _soir else "Vendre"), use_container_width=True):
-                    if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
-                        afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
-                    elif titre_suspendu(selected_ticker):
-                        afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
-                    elif compte_en_verification(user):
-                        afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
-                    elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
-                        afficher_refus(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
-                    elif vente_avant_delai_bloquee(user, selected_ticker):
-                        afficher_refus(message_delai_detention(selected_ticker))
-                    elif _marche_ouvert() and (msg_robot := garde_antirobots(user)):
-                        afficher_refus(msg_robot)
-                    elif not verifier_cooldown(user, delai_secondes=3):
-                        afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
+                    # VENTE
+                    if _soir:
+                        _clic_vente = st.button("Placer ma vente pour demain, 9 h 30", use_container_width=True, key=f"vendre_{selected_ticker}")
                     else:
-                        prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
-                        cost_real = prix_instantane * qty_vente
+                        _clic_vente = col_s.button("VENDRE", use_container_width=True, key=f"vendre_{selected_ticker}")
+                    if _clic_vente:
+                        if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
+                            afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
+                        elif titre_suspendu(selected_ticker):
+                            afficher_refus(f"{selected_ticker.upper()} est suspendu pour le moment : ses prix ne concordent pas entre les sources de données. Aucun achat ni vente tant que la suspension n'est pas levée.")
+                        elif compte_en_verification(user):
+                            afficher_refus("Ton compte est en vérification : une erreur de prix a faussé ton solde. Les transactions sont bloquées jusqu'à ce que ton enseignant ait corrigé ton compte.")
+                        elif prix_incoherent(selected_ticker, obtenir_prix_actuel(selected_ticker))[0]:
+                            afficher_refus(f"Transaction refusée : le prix de {selected_ticker.upper()} ne concorde pas avec sa dernière clôture (écart anormal entre les sources de prix). C'est le signe de données incohérentes, pas d'un vrai mouvement de marché.")
+                        elif vente_avant_delai_bloquee(user, selected_ticker):
+                            afficher_refus(message_delai_detention(selected_ticker))
+                        elif _marche_ouvert() and (msg_robot := garde_antirobots(user)):
+                            afficher_refus(msg_robot)
+                        elif not verifier_cooldown(user, delai_secondes=3):
+                            afficher_refus("Veuillez attendre 3 secondes entre chaque transaction.")
+                        else:
+                            prix_instantane = obtenir_prix_actuel(selected_ticker) or prix_cad
+                            cost_real = prix_instantane * qty_vente
 
-                        p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
-                        shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
+                            p_res = conn.query("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)", params={"u": user, "t": selected_ticker}, ttl=0)
+                            shares_dispo = int(p_res.iloc[0]['shares']) if not p_res.empty else 0
 
-                        if not _marche_ouvert() and ordres_ouverture_actif(user):
-                            # Étape 2 (6 nov. 2026) : marché fermé, la vente
-                            # devient un ordre en attente exécuté à
-                            # l'ouverture, au prix d'ouverture, exactement
-                            # comme les achats. Fini les ventes au prix gelé.
-                            if shares_dispo < qty_vente:
-                                afficher_refus("Vous ne possédez pas cette quantité d'actions.")
-                            elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
-                                afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
-                            elif ordre_vente_en_attente_sur(user, selected_ticker):
-                                afficher_refus(f"Tu as déjà un ordre de vente en attente sur {selected_ticker.upper()}. Annule-le si tu veux changer la quantité.")
-                            else:
-                                session_exec_v = creer_ordre_vente_en_attente(user, selected_ticker, qty_vente, devise_titre)
-                                if session_exec_v is None:
-                                    afficher_refus("Vous ne possédez plus cette quantité d'actions.")
+                            if not _marche_ouvert() and ordres_ouverture_actif(user):
+                                # Étape 2 (6 nov. 2026) : marché fermé, la vente
+                                # devient un ordre en attente exécuté à
+                                # l'ouverture, au prix d'ouverture, exactement
+                                # comme les achats. Fini les ventes au prix gelé.
+                                if shares_dispo < qty_vente:
+                                    afficher_refus("Vous ne possédez pas cette quantité d'actions.")
+                                elif len(ordres_en_attente_pour(user)) >= LIMITE_ORDRES_EN_ATTENTE:
+                                    afficher_refus(f"Tu as déjà {LIMITE_ORDRES_EN_ATTENTE} ordres en attente. Attends leur exécution à l'ouverture, ou annules-en un.")
+                                elif ordre_vente_en_attente_sur(user, selected_ticker):
+                                    afficher_refus(f"Tu as déjà un ordre de vente en attente sur {selected_ticker.upper()}. Annule-le si tu veux changer la quantité.")
                                 else:
-                                    st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE DE VENTE EN ATTENTE", "sous": f"{selected_ticker.upper()}", "lignes": [("Actions réservées", f"{qty_vente} actions")], "total": None, "pied": f"Elles seront vendues à l'ouverture du {session_exec_v}, au prix d'ouverture. Annulable dans « Mes ordres en attente »."})
-                                    st.rerun()
-                        elif shares_dispo >= qty_vente:
-                            exempte_s = compte_exempte_frais(user)
-                            frais_fixe_s, frais_conv_s = (0.0, 0.0) if exempte_s else frais_pour_ordre(devise_titre, cost_real)
-                            credit_net = cost_real - frais_fixe_s - frais_conv_s
-                            now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
-                            # Verrou par utilisateur + position relue DANS la
-                            # transaction : la faille des sessions simultanées
-                            # (vendre 6 fois la même position) est fermée ici.
-                            vente_ok = False
-                            with conn.session as session:
-                                _verrou_transaction(session, user)
-                                sh_row = session.execute(text("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker}).fetchone()
-                                sh_rel = int(sh_row[0]) if sh_row is not None else 0
-                                if sh_rel >= qty_vente:
-                                    session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net, "u": user})
-                                    rem = sh_rel - qty_vente
-                                    if rem > 0:
-                                        session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
+                                    session_exec_v = creer_ordre_vente_en_attente(user, selected_ticker, qty_vente, devise_titre)
+                                    if session_exec_v is None:
+                                        afficher_refus("Vous ne possédez plus cette quantité d'actions.")
                                     else:
-                                        session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
-                                    session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
-                                                    {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
-                                    enregistrer_frais(session, user, "transaction", frais_fixe_s, selected_ticker.upper())
-                                    enregistrer_frais(session, user, "conversion", frais_conv_s, selected_ticker.upper())
-                                    session.commit()
-                                    vente_ok = True
+                                        st.session_state['flash_msg'] = ("recu", {"genre": "ordre", "titre": "ORDRE DE VENTE EN ATTENTE", "sous": f"{selected_ticker.upper()}", "lignes": [("Actions réservées", f"{qty_vente} actions")], "total": None, "pied": f"Elles seront vendues à l'ouverture du {session_exec_v}, au prix d'ouverture. Annulable dans « Mes ordres en attente »."})
+                                        st.rerun()
+                            elif shares_dispo >= qty_vente:
+                                exempte_s = compte_exempte_frais(user)
+                                frais_fixe_s, frais_conv_s = (0.0, 0.0) if exempte_s else frais_pour_ordre(devise_titre, cost_real)
+                                credit_net = cost_real - frais_fixe_s - frais_conv_s
+                                now_str = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+                                # Verrou par utilisateur + position relue DANS la
+                                # transaction : la faille des sessions simultanées
+                                # (vendre 6 fois la même position) est fermée ici.
+                                vente_ok = False
+                                with conn.session as session:
+                                    _verrou_transaction(session, user)
+                                    sh_row = session.execute(text("SELECT shares FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker}).fetchone()
+                                    sh_rel = int(sh_row[0]) if sh_row is not None else 0
+                                    if sh_rel >= qty_vente:
+                                        session.execute(text("UPDATE users SET cash = cash + :cost WHERE username = :u"), {"cost": credit_net, "u": user})
+                                        rem = sh_rel - qty_vente
+                                        if rem > 0:
+                                            session.execute(text("UPDATE portfolio SET shares=:s WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"s": rem, "u": user, "t": selected_ticker})
+                                        else:
+                                            session.execute(text("DELETE FROM portfolio WHERE username=:u AND LOWER(ticker)=LOWER(:t)"), {"u": user, "t": selected_ticker})
+                                        session.execute(text("INSERT INTO transactions (username, ticker, shares, price, total, timestamp) VALUES (:u, :t, :s, :p, :tot, :time)"),
+                                                        {"u": user, "t": selected_ticker.upper(), "s": -qty_vente, "p": prix_instantane, "tot": cost_real, "time": now_str})
+                                        enregistrer_frais(session, user, "transaction", frais_fixe_s, selected_ticker.upper())
+                                        enregistrer_frais(session, user, "conversion", frais_conv_s, selected_ticker.upper())
+                                        session.commit()
+                                        vente_ok = True
+                                    else:
+                                        session.rollback()
+                                if not vente_ok:
+                                    afficher_refus("Vous ne possédez pas cette quantité d'actions.")
                                 else:
-                                    session.rollback()
-                            if not vente_ok:
-                                afficher_refus("Vous ne possédez pas cette quantité d'actions.")
-                            else:
-                                _prix_affiche_v = fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD') if devise_titre == "USD" else f"${prix_instantane:,.2f}"
-                                _lignes_v = [(f"{qty_vente} actions à {_prix_affiche_v}", f"${cost_real:,.2f}"), ("Frais de transaction", f"${frais_fixe_s:,.2f}")]
-                                if frais_conv_s > 0:
-                                    _lignes_v.append(("Conversion (1,5 %, titre américain)", f"${frais_conv_s:,.2f}"))
-                                _pied_v = f"Il te reste ${cash_actuel + credit_net:,.2f} en argent comptant."
-                                if devise_titre == "USD":
-                                    _taux_fx = obtenir_taux_usdcad()
-                                    if _taux_fx:
-                                        _pied_v += f" Montants en dollars canadiens, au taux {_taux_fx:.4f}."
-                                st.session_state['flash_msg'] = ("recu", {"genre": "vente", "titre": "VENTE CONFIRMÉE", "sous": f"{selected_ticker.upper()} - {qty_vente} actions", "lignes": _lignes_v, "total": ("Net crédité", f"${credit_net:,.2f}"), "pied": _pied_v})
-                                st.rerun()
-                        else: afficher_refus("Vous ne possédez pas cette quantité d'actions.")
+                                    _prix_affiche_v = fmt_prix(vers_natif(prix_instantane, 'USD'), 'USD') if devise_titre == "USD" else f"${prix_instantane:,.2f}"
+                                    _lignes_v = [(f"{qty_vente} actions à {_prix_affiche_v}", f"${cost_real:,.2f}"), ("Frais de transaction", f"${frais_fixe_s:,.2f}")]
+                                    if frais_conv_s > 0:
+                                        _lignes_v.append(("Conversion (1,5 %, titre américain)", f"${frais_conv_s:,.2f}"))
+                                    _pied_v = f"Il te reste ${cash_actuel + credit_net:,.2f} en argent comptant."
+                                    if devise_titre == "USD":
+                                        _taux_fx = obtenir_taux_usdcad()
+                                        if _taux_fx:
+                                            _pied_v += f" Montants en dollars canadiens, au taux {_taux_fx:.4f}."
+                                    st.session_state['flash_msg'] = ("recu", {"genre": "vente", "titre": "VENTE CONFIRMÉE", "sous": f"{selected_ticker.upper()} - {qty_vente} actions", "lignes": _lignes_v, "total": ("Net crédité", f"${credit_net:,.2f}"), "pied": _pied_v})
+                                    st.rerun()
+                            else: afficher_refus("Vous ne possédez pas cette quantité d'actions.")
 
                 # --- ORDRE CONDITIONNEL (étape 2) ---
                 # L'élève choisit une BAISSE EN POURCENTAGE (19 nov.
