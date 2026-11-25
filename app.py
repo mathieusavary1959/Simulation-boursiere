@@ -293,6 +293,14 @@ def init_db():
                 ON dividendes_verses (username, ticker, date_dividende);
             '''))
             session.execute(text('''
+                CREATE TABLE IF NOT EXISTS erreurs_mecanismes (
+                    id SERIAL PRIMARY KEY,
+                    mecanisme TEXT,
+                    detail TEXT,
+                    quand TEXT
+                );
+            '''))
+            session.execute(text('''
                 CREATE TABLE IF NOT EXISTS photos (
                     username TEXT PRIMARY KEY,
                     image TEXT,
@@ -1209,6 +1217,51 @@ def _serie_dividendes_yf(ticker_symbol):
     return evenements
 
 
+def _horodatage():
+    return datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _cache_dividendes_frais(majs):
+    """Vrai si le cache a ete rafraichi il y a moins de 3 heures.
+    Avant le 25 nov. 2026, la fraicheur valait pour tout le jour
+    civil : le jour meme d'un dividende, Yahoo ne l'avait pas
+    encore publie quand le cache se rafraichissait, et la liste
+    incomplete restait figee jusqu'au lendemain (JNJ, COST, VLO
+    du 24 nov. 2026 jamais verses le jour meme). Les anciens
+    horodatages en date seule valent pour minuit : perimes."""
+    maintenant = datetime.now(ZoneInfo("America/Toronto"))
+    for m in majs:
+        s = str(m or "").strip()
+        if not s:
+            continue
+        try:
+            dt = datetime.fromisoformat(s if "T" in s or " " in s else s + " 00:00:00")
+        except Exception:
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("America/Toronto"))
+        if 0 <= (maintenant - dt).total_seconds() < 3 * 3600:
+            return True
+    return False
+
+
+def _journaliser_erreur_mecanisme(mecanisme, detail):
+    """Journalise une erreur qu'un mecanisme aurait avant avalee
+    en silence (revue du 25 nov. 2026) : l'audit de nuit lit la
+    table erreurs_mecanismes et la montre a Mathieu. Ne leve
+    jamais d'exception."""
+    try:
+        with conn.session as session:
+            session.execute(
+                text("INSERT INTO erreurs_mecanismes (mecanisme, detail, quand) "
+                     "VALUES (:m, :d, :q)"),
+                {"m": str(mecanisme), "d": str(detail)[:500], "q": _horodatage()})
+            session.commit()
+    except Exception:
+        pass
+
+
+
 def _evenements_dividendes_cache(ticker_symbol, auj_iso):
     """(événements en cache pour le titre, cache frais aujourd'hui).
     Le cache est frais si une ligne du titre porte la date du jour
@@ -1220,7 +1273,7 @@ def _evenements_dividendes_cache(ticker_symbol, auj_iso):
         params={"t": str(ticker_symbol).upper()}, ttl=0)
     if df.empty:
         return [], False
-    frais = any(str(m)[:10] == auj_iso for m in df['maj'].tolist())
+    frais = _cache_dividendes_frais(df['maj'].tolist())
     evenements = [
         {"date": str(r['date_dividende']), "montant": float(r['montant']),
          "devise": str(r['devise'] or "")}
@@ -1245,12 +1298,12 @@ def _rafraichir_evenements_dividendes(ticker_symbol, auj_iso):
             session.execute(
                 text("INSERT INTO dividendes_evenements (ticker, date_dividende, montant, devise, maj) "
                      "VALUES (:t, :d, :m, :dv, :maj)"),
-                {"t": tk, "d": d_iso, "m": montant, "dv": devise, "maj": auj_iso})
+                {"t": tk, "d": d_iso, "m": montant, "dv": devise, "maj": _horodatage()})
         session.execute(
             text("INSERT INTO dividendes_evenements (ticker, date_dividende, montant, devise, maj) "
                  "VALUES (:t, :d, NULL, NULL, :maj) "
                  "ON CONFLICT (ticker, date_dividende) DO UPDATE SET maj=:maj"),
-            {"t": tk, "d": _MARQUEUR_DIVIDENDES, "maj": auj_iso})
+            {"t": tk, "d": _MARQUEUR_DIVIDENDES, "maj": _horodatage()})
         session.commit()
 
 
@@ -1308,7 +1361,6 @@ def appliquer_dividendes(username):
         cle = f"div_verifie_{auj_iso}"
         if st.session_state.get(cle):
             return
-        st.session_state[cle] = True
         if compte_exempte_frais(username):
             return
         pos = conn.query(
@@ -1319,75 +1371,82 @@ def appliquer_dividendes(username):
         tickers = sorted({str(t).strip().upper() for t in pos['ticker'].tolist() if str(t).strip()})
         if not tickers:
             return
+        _echecs = []
         recus = []
         taux = None
         with conn.session as session:
             _verrou_transaction(session, username)
             for tk in tickers:
-                evenements, frais_cache = _evenements_dividendes_cache(tk, auj_iso)
-                if not frais_cache:
-                    _rafraichir_evenements_dividendes(tk, auj_iso)
-                    evenements, _ = _evenements_dividendes_cache(tk, auj_iso)
-                dus = [e for e in evenements
-                       if DIVIDENDES_DEBUT <= e["date"] <= auj_iso]
-                if not dus:
-                    continue
-                deja = conn.query(
-                    "SELECT date_dividende FROM dividendes_verses "
-                    "WHERE username=:u AND ticker=:t",
-                    params={"u": username, "t": tk}, ttl=0)
-                dates_payees = ({str(d) for d in deja['date_dividende'].tolist()}
-                                if not deja.empty else set())
-                lignes = None
-                for e in dus:
-                    if e["date"] in dates_payees:
+                try:
+                    evenements, frais_cache = _evenements_dividendes_cache(tk, auj_iso)
+                    if not frais_cache:
+                        _rafraichir_evenements_dividendes(tk, auj_iso)
+                        evenements, _ = _evenements_dividendes_cache(tk, auj_iso)
+                    dus = [e for e in evenements
+                           if DIVIDENDES_DEBUT <= e["date"] <= auj_iso]
+                    if not dus:
                         continue
-                    if lignes is None:
-                        tx = conn.query(
-                            "SELECT shares, timestamp FROM transactions "
-                            "WHERE username=:u AND ticker=:t ORDER BY id",
-                            params={"u": username, "t": tk}, ttl=0)
-                        lignes = ([(r['shares'], r['timestamp']) for _, r in tx.iterrows()]
-                                  if not tx.empty else [])
-                    parts = _position_avant_date(lignes, e["date"])
-                    if parts <= 0:
-                        continue
-                    devise_e = str(e["devise"] or devise_naturelle(tk)).upper()
-                    if devise_e == "USD" and taux is None:
-                        taux = obtenir_taux_usdcad()
-                    total = _total_dividende_cad(parts, e["montant"], devise_e, taux)
-                    if total <= 0:
-                        continue
-                    par_action_cad = _total_dividende_cad(1, e["montant"], devise_e, taux)
-                    ins = session.execute(
-                        text("INSERT INTO dividendes_verses (username, ticker, date_dividende, parts, montant_par_action, total, verse_le) "
-                             "VALUES (:u, :t, :d, :p, :mpa, :tot, :vl) "
-                             "ON CONFLICT (username, ticker, date_dividende) DO NOTHING RETURNING id"),
-                        {"u": username, "t": tk, "d": e["date"], "p": parts,
-                         "mpa": float(e["montant"]), "tot": total,
-                         "vl": maintenant.strftime("%Y-%m-%d %H:%M:%S")})
-                    if ins.fetchone() is None:
-                        # Course entre deux sessions : déjà versé
-                        # par l'autre, l'index unique a parlé. On ne
-                        # crédite pas deux fois.
-                        continue
-                    session.execute(
-                        text("UPDATE users SET cash = cash + :m WHERE username=:u"),
-                        {"m": total, "u": username})
-                    recus.append({
-                        "genre": "dividende", "titre": "DIVIDENDE REÇU", "sous": tk,
-                        "lignes": [("Tes actions à la date prévue", f"{parts} actions"),
-                                   ("Dividende par action", f"${_fmt_par_action(par_action_cad)}")],
-                        "total": ("Versé dans ton compte", f"${total:,.2f}"),
-                        "pied": (f"Dividende reçu : {parts} actions de {tk} x "
-                                 f"${_fmt_par_action(par_action_cad)} = ${total:,.2f}. "
-                                 "Certaines entreprises partagent leurs profits avec "
-                                 "leurs actionnaires. Cet argent est dans ton comptant.")})
+                    deja = conn.query(
+                        "SELECT date_dividende FROM dividendes_verses "
+                        "WHERE username=:u AND ticker=:t",
+                        params={"u": username, "t": tk}, ttl=0)
+                    dates_payees = ({str(d) for d in deja['date_dividende'].tolist()}
+                                    if not deja.empty else set())
+                    lignes = None
+                    for e in dus:
+                        if e["date"] in dates_payees:
+                            continue
+                        if lignes is None:
+                            tx = conn.query(
+                                "SELECT shares, timestamp FROM transactions "
+                                "WHERE username=:u AND ticker=:t ORDER BY id",
+                                params={"u": username, "t": tk}, ttl=0)
+                            lignes = ([(r['shares'], r['timestamp']) for _, r in tx.iterrows()]
+                                      if not tx.empty else [])
+                        parts = _position_avant_date(lignes, e["date"])
+                        if parts <= 0:
+                            continue
+                        devise_e = str(e["devise"] or devise_naturelle(tk)).upper()
+                        if devise_e == "USD" and taux is None:
+                            taux = obtenir_taux_usdcad()
+                        total = _total_dividende_cad(parts, e["montant"], devise_e, taux)
+                        if total <= 0:
+                            continue
+                        par_action_cad = _total_dividende_cad(1, e["montant"], devise_e, taux)
+                        ins = session.execute(
+                            text("INSERT INTO dividendes_verses (username, ticker, date_dividende, parts, montant_par_action, total, verse_le) "
+                                 "VALUES (:u, :t, :d, :p, :mpa, :tot, :vl) "
+                                 "ON CONFLICT (username, ticker, date_dividende) DO NOTHING RETURNING id"),
+                            {"u": username, "t": tk, "d": e["date"], "p": parts,
+                             "mpa": float(e["montant"]), "tot": total,
+                             "vl": maintenant.strftime("%Y-%m-%d %H:%M:%S")})
+                        if ins.fetchone() is None:
+                            # Course entre deux sessions : déjà versé
+                            # par l'autre, l'index unique a parlé. On ne
+                            # crédite pas deux fois.
+                            continue
+                        session.execute(
+                            text("UPDATE users SET cash = cash + :m WHERE username=:u"),
+                            {"m": total, "u": username})
+                        recus.append({
+                            "genre": "dividende", "titre": "DIVIDENDE REÇU", "sous": tk,
+                            "lignes": [("Tes actions à la date prévue", f"{parts} actions"),
+                                       ("Dividende par action", f"${_fmt_par_action(par_action_cad)}")],
+                            "total": ("Versé dans ton compte", f"${total:,.2f}"),
+                            "pied": (f"Dividende reçu : {parts} actions de {tk} x "
+                                     f"${_fmt_par_action(par_action_cad)} = ${total:,.2f}. "
+                                     "Certaines entreprises partagent leurs profits avec "
+                                     "leurs actionnaires. Cet argent est dans ton comptant.")})
+                except Exception as _e_tk:
+                    _echecs.append((tk, str(_e_tk)))
             session.commit()
+        st.session_state[cle] = True
+        for _tk_e, _err_e in _echecs:
+            _journaliser_erreur_mecanisme("dividendes", f"{username} / {_tk_e} : {_err_e}")
         for recu in recus:
             st.markdown(_html_recu(recu), unsafe_allow_html=True)
-    except Exception:
-        pass
+    except Exception as _e_glob:
+        _journaliser_erreur_mecanisme("dividendes", f"{username} : {_e_glob}")
 
 # --- ORDRES EN ATTENTE EXÉCUTÉS AU PRIX D'OUVERTURE ---
 # Mécanique testée le 2 nov. 2026 au soir sur le seul compte de Mathieu,
