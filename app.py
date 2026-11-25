@@ -6774,8 +6774,8 @@ else:
                     if _preset_m is not None:
                         st.session_state[f"montant_{selected_ticker}"] = float(_preset_m)
                     montant = st.number_input("Montant à investir ($ CAD)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}", label_visibility="collapsed")
-                    _chips = st.columns(4)
-                    for _i_chip, _m_chip in enumerate((100.0, 250.0, 500.0, 1000.0)):
+                    _chips = st.columns(3)
+                    for _i_chip, _m_chip in enumerate((250.0, 500.0, 1000.0)):
                         if _chips[_i_chip].button(f"{_m_chip:,.0f} $".replace(",", " "), key=f"chip_{int(_m_chip)}_{selected_ticker}", use_container_width=True):
                             st.session_state[f"montant_preset_{selected_ticker}"] = _m_chip
                             st.rerun()
@@ -6869,9 +6869,12 @@ else:
                         qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
                     st.markdown(
                         f"<style>"
-                        f"div[class~='st-key-acheter_{selected_ticker}'] button {{background:#16A34A !important;border:none !important;}}"
-                        f"div[class~='st-key-acheter_{selected_ticker}'] button p {{color:#FFFFFF !important;font-weight:800 !important;font-size:1.08rem !important;}}"
-                        f"div[class~='st-key-vendre_{selected_ticker}'] button {{background:transparent !important;border:1.5px solid rgba(248,113,113,0.65) !important;}}"
+                    f"div[class~='st-key-chip_250_{selected_ticker}'] button, div[class~='st-key-chip_500_{selected_ticker}'] button, div[class~='st-key-chip_1000_{selected_ticker}'] button {{background:#262626 !important;border:1px solid rgba(255,255,255,0.22) !important;border-radius:999px !important;}}"
+                    f"div[class~='st-key-chip_250_{selected_ticker}'] button p, div[class~='st-key-chip_500_{selected_ticker}'] button p, div[class~='st-key-chip_1000_{selected_ticker}'] button p {{color:#FFFFFF !important;font-weight:700 !important;}}"
+                    f"div[class~='st-key-acheter_{selected_ticker}'] button {{background:linear-gradient(180deg,#22C55E,#15803D) !important;border:1px solid rgba(255,255,255,0.18) !important;border-radius:12px !important;box-shadow:0 4px 14px rgba(0,0,0,0.45) !important;min-height:52px !important;}}"
+                    f"div[class~='st-key-acheter_{selected_ticker}'] button p {{color:#FFFFFF !important;font-weight:800 !important;font-size:1.12rem !important;letter-spacing:0.02em !important;}}"
+                    f"div[class~='st-key-vendre_{selected_ticker}'] button {{background:linear-gradient(180deg,#F6121D,#A3050D) !important;border:1px solid rgba(255,255,255,0.18) !important;border-radius:12px !important;box-shadow:0 4px 14px rgba(0,0,0,0.45) !important;min-height:52px !important;}}"
+                    f"div[class~='st-key-vendre_{selected_ticker}'] button p {{color:#FFFFFF !important;font-weight:800 !important;font-size:1.12rem !important;letter-spacing:0.02em !important;}}"
                         f"div[class~='st-key-vendre_{selected_ticker}'] button p {{color:#F87171 !important;font-weight:800 !important;font-size:1.02rem !important;}}"
                         "</style>", unsafe_allow_html=True)
                     if not _soir:
