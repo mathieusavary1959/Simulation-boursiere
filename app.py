@@ -193,6 +193,19 @@ def init_db():
                     avg_reserve DOUBLE PRECISION
                 );
             '''))
+            # 24 nov. 2026 : photo quotidienne de la valeur totale de
+            # chaque compte à la fermeture (prise à 16 h 05 par
+            # photo_cloture.py). C'est la base du « Aujourd'hui » du
+            # classement : la valeur du compte maintenant, moins sa
+            # valeur à la fermeture du jour de bourse précédent.
+            session.execute(text('''
+                CREATE TABLE IF NOT EXISTS valeur_veille (
+                    username TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    valeur_totale DOUBLE PRECISION NOT NULL,
+                    PRIMARY KEY (username, date)
+                );
+            '''))
             # Étape 2 (6 nov. 2026) : les ordres portent aussi les VENTES
             # en attente (sens, parts réservées, prix moyen à restaurer
             # si l'ordre est annulé). Colonnes ajoutées à la table
@@ -2602,16 +2615,21 @@ DELAI_AFFICHAGE_ORDRE_REGLE_S = 120
 
 def _ordre_regle_visible(execute_le, maintenant):
     """Vrai si la carte de résultat d'un ordre réglé (exécuté ou
-    annulé) doit encore paraître : seulement pendant les 2 minutes
-    qui suivent son règlement (règle de Mathieu, 3 nov. 2026).
-    Sans heure de règlement lisible, la carte ne paraît pas.
+    annulé) doit encore paraître : jusqu'à la fin de la journée du
+    règlement. La fenêtre initiale de 2 minutes (règle de Mathieu,
+    3 nov. 2026) supposait un règlement à la connexion de l'élève ;
+    depuis que l'exécuteur serveur règle les ordres à 9 h 30
+    (18 nov. 2026), l'élève ne voyait presque jamais le résultat,
+    surtout un refus (ajustement du 24 nov. 2026, même intention :
+    le résultat se voit une fois, sans encombrer). Sans heure de
+    règlement lisible, la carte ne paraît pas.
     Fonction pure, testable."""
     try:
         regle_le = datetime.strptime(str(execute_le)[:19], "%Y-%m-%d %H:%M:%S")
     except Exception:
         return False
     ecart = (maintenant.replace(tzinfo=None) - regle_le).total_seconds()
-    return 0 <= ecart <= DELAI_AFFICHAGE_ORDRE_REGLE_S
+    return ecart >= 0 and regle_le.date() == maintenant.date()
 
 
 def _html_recu(d):
@@ -5976,14 +5994,30 @@ def obtenir_donnees_classement(grp_filter):
                 unique_tickers.append(_tk_r)
     prix_dict = obtenir_prix_groupes(unique_tickers)
 
+    # Photo de fermeture du jour de bourse précédent (table valeur_veille,
+    # remplie chaque jour de semaine à 16 h 05 par photo_cloture.py) :
+    # le « Aujourd'hui » compare la valeur totale du compte à cette photo.
+    # Aucune photo (table absente, premier jour, nouveau compte) = tiret
+    # honnête à l'affichage, jamais un faux chiffre.
+    photos_veille = {}
+    try:
+        _auj_toronto = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
+        _photos_df = conn.query(
+            "SELECT username, valeur_totale FROM valeur_veille "
+            "WHERE date = (SELECT MAX(date) FROM valeur_veille WHERE date < :auj)",
+            params={"auj": _auj_toronto}, ttl=0)
+        if _photos_df is not None and not _photos_df.empty:
+            photos_veille = {str(_rph["username"]): float(_rph["valeur_totale"])
+                             for _, _rph in _photos_df.iterrows()}
+    except Exception:
+        photos_veille = {}
+
     lb = []
     for _, r in users_df.iterrows():
         u_name, u_cash, u_grp = r['username'], float(r['cash']), r['groupe']
         u_p = all_positions_df[all_positions_df['username'] == u_name] if not all_positions_df.empty else pd.DataFrame()
 
         u_val_act = 0.0
-        u_gain_jour = 0.0
-        u_base_jour = 0.0
         if not u_p.empty:
             for _, row in u_p.iterrows():
                 tk_sym = str(row['ticker']).upper()
@@ -5991,12 +6025,6 @@ def obtenir_donnees_classement(grp_filter):
                 px = _info_px["cad"] if _info_px else None
                 px_f = px if px is not None else float(row['avg_price'] or 0.0)
                 u_val_act += px_f * row['shares']
-                # Gain du jour : positions actuelles comparées à la clôture
-                # de la veille (même appel de prix, aucun coût réseau ajouté).
-                _prev = _info_px.get("prev_cad") if _info_px else None
-                if _prev is not None and px is not None:
-                    u_gain_jour += (px - _prev) * row['shares']
-                    u_base_jour += _prev * row['shares']
 
         u_res = 0.0
         if not res_all_df.empty:
@@ -6009,9 +6037,18 @@ def obtenir_donnees_classement(grp_filter):
                     u_res += float(r_res['montant_cad'] or 0.0)
         tot = u_cash + u_val_act + u_res
         perf = ((tot - 10000.00) / 10000.00) * 100
-        gain_jour_pct = (u_gain_jour / u_base_jour * 100) if u_base_jour > 0 else 0.0
+        # « Aujourd'hui » sur le compte au complet : valeur totale
+        # maintenant moins valeur totale à la fermeture d'hier (photo).
+        # Pas de photo pour cet élève = None = tiret à l'affichage.
+        _photo_veille = photos_veille.get(u_name)
+        if _photo_veille is not None and _photo_veille > 0:
+            gain_jour = round(tot - _photo_veille, 2)
+            gain_jour_pct = gain_jour / _photo_veille * 100
+        else:
+            gain_jour = None
+            gain_jour_pct = None
         lb.append({"Élève": u_name, "Groupe": u_grp, "Portefeuille": tot, "Performance": perf,
-                   "GainJour": u_gain_jour, "GainJourPct": gain_jour_pct,
+                   "GainJour": gain_jour, "GainJourPct": gain_jour_pct,
                    "Statut": "SUSPENDU" if u_name in susp_classement else ""})
 
     if lb:
@@ -6694,7 +6731,16 @@ else:
 
             with col_order:
                 st.markdown("### Passer un ordre")
-                mode_ordre = st.radio("Mode d'achat", ["Par quantité", "Par montant ($)"], horizontal=True, key=f"mode_{selected_ticker}")
+                _cle_mode = f"mode_{selected_ticker}"
+                _soir = (not _marche_ouvert()) and ordres_ouverture_actif(user)
+                if _soir and st.session_state.get(_cle_mode) != "Par montant ($)":
+                    # Le soir, le mode quantité disparaît du sélecteur :
+                    # en quantité, l'ordre serait refusé d'emblée (le nombre
+                    # d'actions ne peut pas être garanti à l'ouverture ; le
+                    # montant, lui, l'est toujours). Aucun refus à recevoir :
+                    # le seul chemin offert est le bon.
+                    st.session_state[_cle_mode] = "Par montant ($)"
+                mode_ordre = st.radio("Mode d'achat", ["Par montant ($)"] if _soir else ["Par quantité", "Par montant ($)"], horizontal=True, key=_cle_mode)
 
                 if mode_ordre == "Par quantité":
                     qty_achat = st.number_input("Quantité", min_value=1, step=1, value=1, key=f"qty_{selected_ticker}")
@@ -6710,7 +6756,7 @@ else:
                     st.markdown(_html_recu({"genre": "apercu", "titre": "TON ORDRE", "sous": f"{selected_ticker.upper()} · estimation au prix actuel", "lignes": _lignes_a, "total": ("Total débité", f"${_tot_a:,.2f}"), "pied": "Estimation : le prix d'exécution est celui du moment où tu confirmes."}), unsafe_allow_html=True)
                     qty_vente = qty_achat
                 else:
-                    montant = st.number_input("Montant à investir ($ CAD)", min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
+                    montant = st.number_input(("1 · Montant à investir ($ CAD)" if _soir else "Montant à investir ($ CAD)"), min_value=1.0, step=10.0, value=100.0, key=f"montant_{selected_ticker}")
                     qty_achat = int(montant // prix_cad) if prix_cad and prix_cad > 0 else 0
                     if qty_achat >= 1:
                         _cout_b = qty_achat * prix_cad
@@ -6722,7 +6768,7 @@ else:
                             if _fc_b > 0:
                                 _lignes_b.append(("Conversion (1,5 %, titre américain)", f"${_fc_b:,.2f}"))
                             _tot_b = _cout_b + FRAIS_TRANSACTION + _fc_b
-                        st.markdown(_html_recu({"genre": "apercu", "titre": "TON ORDRE", "sous": f"{selected_ticker.upper()} · ce que ton montant peut acheter, au prix actuel", "lignes": _lignes_b, "total": ("Total débité", f"${_tot_b:,.2f}"), "pied": "Estimation : le prix d'exécution est celui du moment où tu confirmes."}), unsafe_allow_html=True)
+                        st.markdown(_html_recu({"genre": "apercu", "titre": ("2 · TON ORDRE POUR DEMAIN" if _soir else "TON ORDRE"), "sous": f"{selected_ticker.upper()} · ce que ton montant peut acheter, au prix actuel", "lignes": _lignes_b, "total": ("Total débité", f"${_tot_b:,.2f}"), "pied": ("Demain à 9 h 30, au prix d'ouverture." if _soir else "Estimation : le prix d'exécution est celui du moment où tu confirmes.")}), unsafe_allow_html=True)
                     else:
                         st.warning("Ce montant ne permet pas d'acheter une seule action à ce prix.")
                     qty_vente = st.number_input("Quantité à vendre", min_value=1, step=1, value=1, key=f"qtyv_{selected_ticker}")
@@ -6807,7 +6853,7 @@ else:
                 col_b, col_s = st.columns(2)
 
                 # ACHAT
-                if col_b.button("Acheter", use_container_width=True, disabled=achat_bloque_jumeau):
+                if col_b.button(("3 · Placer mon ordre" if _soir else "Acheter"), use_container_width=True, disabled=achat_bloque_jumeau):
                     if plafond_achats_atteint(user):
                         dialogue_pause_bourse()
                     elif not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
@@ -6920,7 +6966,7 @@ else:
                         else: afficher_refus("Fonds insuffisants.")
 
                 # VENTE
-                if col_s.button("Vendre", use_container_width=True):
+                if col_s.button(("Placer ma vente pour demain, 9 h 30" if _soir else "Vendre"), use_container_width=True):
                     if not _marche_ouvert() and _prix_gele_ou_none(selected_ticker) is None:
                         afficher_refus(f"Marché fermé : le prix de clôture de {selected_ticker.upper()} n'a pas pu être figé pour cette séance. La transaction est refusée plutôt que faite à un prix qui bouge. Réessaie plus tard ou attends l'ouverture (9 h 30).")
                     elif titre_suspendu(selected_ticker):
@@ -7516,30 +7562,52 @@ else:
         # celui obtenu à la vente. Le calcul se fait sur l'historique
         # complet en ordre chronologique, l'affichage reste aux 120
         # plus récentes.
+        # Les dividendes versés font aussi partie de l'historique
+        # (demande de Mathieu, 24 nov. 2026) : fusionnés à l'affichage
+        # seulement, jamais dans les transactions (le calcul FIFO ne
+        # doit pas les voir).
         tx_all = conn.query("SELECT timestamp, ticker, shares, price, total FROM transactions WHERE username=:u ORDER BY id ASC", params={"u": user}, ttl=0)
-        if not tx_all.empty:
-            _nb_tx = len(tx_all)
-            _enrichies = enrichir_historique_fifo(tx_all.to_dict('records'))
+        _dividendes_hist = []
+        try:
+            _dv = conn.query("SELECT ticker, parts, total, verse_le FROM dividendes_verses WHERE username=:u ORDER BY verse_le", params={"u": user}, ttl=0)
+            if _dv is not None and not _dv.empty:
+                _dividendes_hist = [{"timestamp": str(r["verse_le"]), "ticker": str(r["ticker"]).upper(),
+                                     "dividende": True, "parts": int(r["parts"] or 0),
+                                     "total": float(r["total"] or 0.0)} for _, r in _dv.iterrows()]
+        except Exception:
+            _dividendes_hist = []
+        if not tx_all.empty or _dividendes_hist:
+            _nb_tx = len(tx_all) + len(_dividendes_hist)
+            _enrichies = enrichir_historique_fifo(tx_all.to_dict('records')) if not tx_all.empty else []
+            _affichees = sorted(list(_enrichies) + _dividendes_hist, key=lambda l: str(l["timestamp"]), reverse=True)[:120]
             _lignes_hist = ""
-            for _rtx in list(reversed(_enrichies))[:120]:
-                _est_achat = float(_rtx['shares']) > 0
-                _qte_h = abs(int(float(_rtx['shares'])))
-                _pastille = ("<span style='background:#E50914;color:#FFFFFF;font-weight:800;font-size:0.72rem;"
-                             "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>ACHAT</span>") if _est_achat else (
-                             "<span style='border:1.5px solid #E5E7EB;color:#FFFFFF;font-weight:800;font-size:0.72rem;"
-                             "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>VENTE</span>")
-                if _est_achat:
-                    _milieu = f"{_qte_h} actions à ${float(_rtx['price']):,.2f} l'action"
+            for _rtx in _affichees:
+                if _rtx.get('dividende'):
+                    _pastille = ("<span style='background:#FFB020;color:#111827;font-weight:800;font-size:0.72rem;"
+                                 "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>DIVIDENDE</span>")
+                    _milieu = f"Dividende versé pour tes {int(_rtx['parts'])} action(s)"
                     _gain_html = ""
+                    _montant_h = f"+${float(_rtx['total']):,.2f}"
                 else:
-                    _milieu = f"{_qte_h} actions vendues à ${float(_rtx['price']):,.2f} l'action"
-                    if _rtx.get('cout_achat_moyen') is not None:
-                        _milieu += f" · achetées à ${_rtx['cout_achat_moyen']:,.2f} l'action"
-                        _g = float(_rtx['gain_realise'])
-                        _coul_g = "#34D399" if _g >= 0 else "#F87171"
-                        _gain_html = f"<div style='color:{_coul_g};font-weight:700;font-size:0.85rem;font-variant-numeric:tabular-nums;'>{'+' if _g >= 0 else '−'}${abs(_g):,.2f}</div>"
-                    else:
+                    _est_achat = float(_rtx['shares']) > 0
+                    _qte_h = abs(int(float(_rtx['shares'])))
+                    _pastille = ("<span style='background:#E50914;color:#FFFFFF;font-weight:800;font-size:0.72rem;"
+                                 "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>ACHAT</span>") if _est_achat else (
+                                 "<span style='border:1.5px solid #E5E7EB;color:#FFFFFF;font-weight:800;font-size:0.72rem;"
+                                 "letter-spacing:0.06em;padding:3px 9px;border-radius:999px;'>VENTE</span>")
+                    if _est_achat:
+                        _milieu = f"{_qte_h} actions à ${float(_rtx['price']):,.2f} l'action"
                         _gain_html = ""
+                    else:
+                        _milieu = f"{_qte_h} actions vendues à ${float(_rtx['price']):,.2f} l'action"
+                        if _rtx.get('cout_achat_moyen') is not None:
+                            _milieu += f" · achetées à ${_rtx['cout_achat_moyen']:,.2f} l'action"
+                            _g = float(_rtx['gain_realise'])
+                            _coul_g = "#34D399" if _g >= 0 else "#F87171"
+                            _gain_html = f"<div style='color:{_coul_g};font-weight:700;font-size:0.85rem;font-variant-numeric:tabular-nums;'>{'+' if _g >= 0 else '−'}${abs(_g):,.2f}</div>"
+                        else:
+                            _gain_html = ""
+                    _montant_h = f"${abs(float(_rtx['total'])):,.2f}"
                 _lignes_hist += (
                     "<div style='display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,#262626 0%,#1A1A1A 100%);"
                     "border:1px solid rgba(255,255,255,0.10);border-radius:12px;padding:10px 16px;margin-bottom:8px;'>"
@@ -7547,11 +7615,12 @@ else:
                     f"<div style=\"font-family:'Bebas Neue','Work Sans',sans-serif;font-size:1.45rem;color:#FFFFFF;letter-spacing:0.04em;min-width:86px;\">{html.escape(str(_rtx['ticker']))}</div>"
                     f"{_pastille}"
                     f"<div style='flex:1;color:#D1D5DB;font-size:0.94rem;'>{_milieu}</div>"
-                    f"<div style='text-align:right;'><div style='color:#FFFFFF;font-weight:800;font-size:1rem;font-variant-numeric:tabular-nums;'>${abs(float(_rtx['total'])):,.2f}</div>{_gain_html}</div></div>")
+                    f"<div style='text-align:right;'><div style='color:#FFFFFF;font-weight:800;font-size:1rem;font-variant-numeric:tabular-nums;'>{_montant_h}</div>{_gain_html}</div></div>")
             st.markdown(_lignes_hist, unsafe_allow_html=True)
             if _nb_tx > 120:
-                st.caption(f"Tes 120 transactions les plus récentes, sur {_nb_tx} au total.")
+                st.caption(f"Tes 120 entrées les plus récentes (transactions et dividendes), sur {_nb_tx} au total.")
         else: st.info("Aucune transaction.")
+
 
     # --- ONGLET 4 : CLASSEMENT (AVEC RECHERCHE & SURGLIGNAGE JAUNE) ---
     elif tab_choisi == "Classement":
@@ -7609,13 +7678,20 @@ else:
             _ordre_pod = [1, 0, 2] if len(top3) >= 3 else list(range(len(top3)))
             for i in _ordre_pod:
                 r_pod = top3.iloc[i]
-                _gj = float(r_pod['GainJour'])
-                _gjp = float(r_pod['GainJourPct'])
-                _classe_jour = 'hausse' if _gj >= 0 else 'baisse'
-                _signe_jour = '+' if _gj >= 0 else '-'
-                _jour_html = (f"<div class='podium-jour'>Aujourd'hui : "
-                              f"<span class='{_classe_jour}'>{_signe_jour}${abs(_gj):,.2f} "
-                              f"({_gjp:+.2f}%)</span></div>")
+                _gj_brut = r_pod['GainJour']
+                _gjp_brut = r_pod['GainJourPct']
+                if _gj_brut is None or pd.isna(_gj_brut) or _gjp_brut is None or pd.isna(_gjp_brut):
+                    # Pas de photo de la veille pour cet élève : tiret
+                    # honnête, jamais un faux chiffre.
+                    _jour_html = "<div class='podium-jour'>Aujourd'hui : —</div>"
+                else:
+                    _gj = float(_gj_brut)
+                    _gjp = float(_gjp_brut)
+                    _classe_jour = 'hausse' if _gj >= 0 else 'baisse'
+                    _signe_jour = '+' if _gj >= 0 else '-'
+                    _jour_html = (f"<div class='podium-jour'>Aujourd'hui : "
+                                  f"<span class='{_classe_jour}'>{_signe_jour}${abs(_gj):,.2f} "
+                                  f"({_gjp:+.2f}%)</span></div>")
                 _nom_pod = str(r_pod['Élève'])
                 _photo_pod = obtenir_photo(_nom_pod)
                 if _photo_pod:
@@ -7680,8 +7756,17 @@ else:
                 _classe_num = f" r{_rang_int}" if _rang_int <= 3 else ""
                 _perf = str(_r['Performance'])
                 _coul_perf = "#4ADE80" if _perf.startswith('+') else ("#FF6B6B" if _perf.startswith('-') or _perf.startswith('−') else "#FFFFFF")
-                _gj_r = float(_r['GainJour'])
-                _coul_jour = "#4ADE80" if _gj_r >= 0 else "#FF6B6B"
+                _gj_r_brut = _r['GainJour']
+                _gjp_r_brut = _r['GainJourPct']
+                if _gj_r_brut is None or pd.isna(_gj_r_brut) or _gjp_r_brut is None or pd.isna(_gjp_r_brut):
+                    # Pas de photo de la veille : tiret honnête.
+                    _jour_r_html = "Aujourd'hui : —"
+                else:
+                    _gj_r = float(_gj_r_brut)
+                    _gjp_r = float(_gjp_r_brut)
+                    _coul_jour = "#4ADE80" if _gj_r >= 0 else "#FF6B6B"
+                    _jour_r_html = (f"Aujourd'hui : <span style='color:{_coul_jour};font-weight:700;'>"
+                                    f"{_gj_r:+,.2f} $ ({_gjp_r:+.2f}%)</span>")
                 _toi = "<span class='rang-toi'>TOI</span>" if _est_moi else ""
                 _susp_r = "<span class='rang-susp'>SUSPENDU</span>" if str(_r.get('Statut', '')) == 'SUSPENDU' else ""
                 _ecart_ligne = f"<div class='rang-ecart'>Plus que {_val_premier - _val:,.2f} $ pour rejoindre le premier.</div>" if _est_moi and _val_premier - _val > 0 else ""
@@ -7692,7 +7777,7 @@ else:
                     f"<div class='rang-groupe'>{html.escape(str(_r['Groupe']))}</div></div>"
                     f"<div class='rang-val'><div class='rang-montant'>{_r['Portefeuille']}</div>"
                     f"<div class='rang-perf' style='color:{_coul_perf};'>{_perf}</div>"
-                    f"<div class='rang-jour'>Aujourd'hui : <span style='color:{_coul_jour};font-weight:700;'>{_gj_r:+,.2f} $</span></div></div></div>"
+                    f"<div class='rang-jour'>{_jour_r_html}</div></div></div>"
                     f"<div class='rang-barre-fond'><div class='rang-barre' style='width:{_pct_barre:.1f}%;'></div></div>"
                     f"{_ecart_ligne}</div>")
             st.markdown(_cartes_rang, unsafe_allow_html=True)
